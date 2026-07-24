@@ -107,7 +107,12 @@ def main():
     if st.session_state.get('authentication_status') != True:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.image("logo.png", width=150)
+            try:
+                with open("logo.png", "rb") as f:
+                    logo_bytes = f.read()
+                st.image(logo_bytes, width=150)
+            except:
+                pass
             st.title("客户积分智能分析系统")
             authenticator.login(location="main")
         

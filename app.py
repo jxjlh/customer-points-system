@@ -2,15 +2,355 @@ import streamlit as st
 import os
 import sys
 import pandas as pd
+import plotly.express as px
 from datetime import datetime
 from io import BytesIO
+from st_aggrid import AgGrid, GridUpdateMode, DataReturnMode
+from st_aggrid.grid_options_builder import GridOptionsBuilder
 import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
 
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from modules.excel_reader import ExcelReader
+from modules.customer_analysis import CustomerAnalysis
+from modules.point_calculation import PointCalculation
+from modules.database import DatabaseManager
+
+DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database", "points.db")
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
 
-def validate_columns(df):
+
+def load_data(excel_path=None, file_bytes=None):
+    try:
+        if file_bytes:
+            excel_reader = ExcelReader(file_bytes=file_bytes)
+        elif excel_path:
+            excel_reader = ExcelReader(excel_path=excel_path)
+        else:
+            excel_reader = ExcelReader(excel_path=DEFAULT_EXCEL_PATH)
+        
+        excel_reader.read_excel()
+        
+        df_raw = excel_reader.get_raw_data()
+        settings = excel_reader.get_settings()
+        df_exchange = excel_reader.get_exchange_records()
+        column_mapping = excel_reader.get_column_mapping()
+        
+        customer_analysis = CustomerAnalysis(settings)
+        df_customer = customer_analysis.analyze_customer_attributes(df_raw, column_mapping)
+        
+        point_calculation = PointCalculation(settings)
+        df_points = point_calculation.calculate_points(df_raw, df_customer, column_mapping)
+        df_account = point_calculation.calculate_point_account(df_points, df_exchange)
+        
+        db_manager = DatabaseManager(DB_PATH)
+        db_manager.sync_exchange_from_excel(df_exchange)
+        
+        return {
+            "df_raw": df_raw,
+            "df_customer": df_customer,
+            "df_points": df_points,
+            "df_account": df_account,
+            "df_exchange": df_exchange,
+            "settings": settings,
+            "column_mapping": column_mapping,
+            "excel_reader": excel_reader
+        }
+    except Exception as e:
+        st.error(f"数据加载失败: {str(e)}")
+        return None
+
+
+def show_dashboard(data):
+    if data is None:
+        return
+    
+    df_points = data["df_points"]
+    df_customer = data["df_customer"]
+    df_exchange = data["df_exchange"]
+    df_account = data["df_account"]
+    settings = data["settings"]
+    
+    st.title("📊 积分系统数据概览")
+    
+    point_calculation = PointCalculation(settings)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    total_points = point_calculation.get_total_points(df_points)
+    total_value = point_calculation.get_total_point_value(df_points)
+    total_exchanged = point_calculation.get_total_exchanged_points(df_exchange)
+    exchange_count = point_calculation.get_exchange_customer_count(df_exchange)
+    
+    col1.metric("累计获得积分", f"{total_points:,}")
+    col2.metric("积分总价值", f"¥{total_value:,}")
+    col3.metric("累计兑换积分", f"{total_exchanged:,}")
+    col4.metric("兑换客户数", exchange_count)
+    
+    col5, col6, col7, col8 = st.columns(4)
+    
+    new_customers = CustomerAnalysis(settings).get_new_customer_count(df_customer)
+    old_customers = CustomerAnalysis(settings).get_old_customer_count(df_customer)
+    total_customers = len(df_customer)
+    new_ratio = CustomerAnalysis(settings).get_new_customer_ratio(df_customer)
+    
+    col5.metric("新客户数", new_customers)
+    col6.metric("老客户数", old_customers)
+    col7.metric("总客户数", total_customers)
+    col8.metric("新客户占比", f"{new_ratio}%")
+    
+    st.subheader("积分趋势分析")
+    trend_df = point_calculation.get_points_trend(df_points)
+    
+    if not trend_df.empty:
+        fig = px.line(trend_df, x="月份", y="积分数量", 
+                      title="月度积分获得趋势", 
+                      labels={"积分数量": "积分数量", "月份": "月份"},
+                      markers=True)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        fig2 = px.bar(trend_df, x="月份", y="订单数",
+                      title="月度订单数量",
+                      labels={"订单数": "订单数", "月份": "月份"},
+                      color="订单数")
+        st.plotly_chart(fig2, use_container_width=True)
+    
+    st.subheader("客户积分排名")
+    top_customers = point_calculation.get_top_customers_by_points(df_points)
+    
+    if not top_customers.empty:
+        gb = GridOptionsBuilder.from_dataframe(top_customers)
+        gb.configure_pagination(paginationAutoPageSize=True)
+        gb.configure_side_bar()
+        gb.configure_default_column(editable=False)
+        
+        grid_options = gb.build()
+        AgGrid(top_customers, gridOptions=grid_options, height=400,
+               data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+               update_mode=GridUpdateMode.NO_UPDATE,
+               fit_columns_on_grid_load=True)
+    
+    st.subheader("客户属性分布")
+    if not df_customer.empty:
+        attribute_counts = df_customer["客户属性"].value_counts()
+        
+        fig3 = px.pie(values=attribute_counts.values, names=attribute_counts.index,
+                      title="新老客户分布",
+                      hole=0.3)
+        st.plotly_chart(fig3, use_container_width=True)
+
+
+def show_customer_management(data):
+    if data is None:
+        return
+    
+    df_customer = data["df_customer"]
+    df_account = data["df_account"]
+    
+    st.title("👥 客户管理")
+    
+    st.subheader("客户列表")
+    if not df_customer.empty:
+        gb = GridOptionsBuilder.from_dataframe(df_customer)
+        gb.configure_pagination(paginationAutoPageSize=True)
+        gb.configure_side_bar()
+        gb.configure_default_column(editable=False)
+        
+        grid_options = gb.build()
+        AgGrid(df_customer, gridOptions=grid_options, height=400,
+               data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+               update_mode=GridUpdateMode.NO_UPDATE,
+               fit_columns_on_grid_load=True)
+    
+    st.subheader("客户积分账户")
+    if not df_account.empty:
+        gb = GridOptionsBuilder.from_dataframe(df_account)
+        gb.configure_pagination(paginationAutoPageSize=True)
+        gb.configure_side_bar()
+        gb.configure_default_column(editable=False)
+        
+        grid_options = gb.build()
+        AgGrid(df_account, gridOptions=grid_options, height=400,
+               data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+               update_mode=GridUpdateMode.NO_UPDATE,
+               fit_columns_on_grid_load=True)
+    
+    st.subheader("客户搜索")
+    search_name = st.text_input("输入客户名称搜索")
+    
+    if search_name:
+        filtered = df_customer[df_customer["客户"].str.contains(search_name, na=False)]
+        if not filtered.empty:
+            st.dataframe(filtered)
+        else:
+            st.warning("未找到匹配的客户")
+
+
+def show_point_management(data):
+    if data is None:
+        return
+    
+    df_points = data["df_points"]
+    df_exchange = data["df_exchange"]
+    settings = data["settings"]
+    
+    st.title("🏆 积分管理")
+    
+    st.subheader("积分明细")
+    if not df_points.empty:
+        gb = GridOptionsBuilder.from_dataframe(df_points)
+        gb.configure_pagination(paginationAutoPageSize=True)
+        gb.configure_side_bar()
+        gb.configure_default_column(editable=False)
+        
+        grid_options = gb.build()
+        AgGrid(df_points, gridOptions=grid_options, height=400,
+               data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+               update_mode=GridUpdateMode.NO_UPDATE,
+               fit_columns_on_grid_load=True)
+    
+    st.subheader("积分兑换记录")
+    if not df_exchange.empty:
+        gb = GridOptionsBuilder.from_dataframe(df_exchange)
+        gb.configure_pagination(paginationAutoPageSize=True)
+        gb.configure_side_bar()
+        gb.configure_default_column(editable=False)
+        
+        grid_options = gb.build()
+        AgGrid(df_exchange, gridOptions=grid_options, height=400,
+               data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+               update_mode=GridUpdateMode.NO_UPDATE,
+               fit_columns_on_grid_load=True)
+    
+    st.subheader("积分参数设置")
+    col1, col2, col3 = st.columns(3)
+    
+    new_multiplier = col1.number_input("新客户积分倍率", min_value=1, max_value=10, 
+                                       value=int(settings.get("新客户积分倍率", 2)))
+    old_multiplier = col2.number_input("老客户积分倍率", min_value=1, max_value=10,
+                                       value=int(settings.get("老客户积分倍率", 1)))
+    exchange_rate = col3.number_input("积分兑换比例", min_value=0.1, max_value=1.0,
+                                      value=float(settings.get("积分兑换比例", 0.3)), step=0.1)
+    
+    if st.button("保存设置"):
+        settings["新客户积分倍率"] = new_multiplier
+        settings["老客户积分倍率"] = old_multiplier
+        settings["积分兑换比例"] = exchange_rate
+        st.success("设置已保存")
+    
+    st.subheader("兑换趋势")
+    point_calculation = PointCalculation(settings)
+    exchange_trend = point_calculation.get_exchange_trend(df_exchange)
+    
+    if not exchange_trend.empty:
+        fig = px.line(exchange_trend, x="月份", y="兑换积分",
+                      title="月度兑换积分趋势",
+                      markers=True)
+        st.plotly_chart(fig, use_container_width=True)
+
+
+def show_data_import():
+    st.title("📥 数据导入")
+    
+    st.subheader("上传Excel文件")
+    uploaded_file = st.file_uploader("选择Excel文件", type=["xlsx", "xls"])
+    
+    if uploaded_file is not None:
+        with st.spinner("正在处理Excel文件..."):
+            try:
+                data = load_data(file_bytes=uploaded_file.getvalue())
+                if data:
+                    st.success("数据导入成功！")
+                    
+                    st.session_state['data'] = data
+                    
+                    st.subheader("导入数据预览")
+                    st.dataframe(data["df_raw"].head(20))
+                    
+                    st.download_button(
+                        label="下载导入的数据",
+                        data=uploaded_file.getvalue(),
+                        file_name=f"导入数据_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+            except Exception as e:
+                st.error(f"数据导入失败: {str(e)}")
+    
+    st.subheader("使用默认数据")
+    if st.button("加载默认数据"):
+        with st.spinner("正在加载默认数据..."):
+            try:
+                data = load_data()
+                if data:
+                    st.success("默认数据加载成功！")
+                    st.session_state['data'] = data
+            except Exception as e:
+                st.error(f"加载默认数据失败: {str(e)}")
+
+
+def show_reports(data):
+    if data is None:
+        return
+    
+    df_points = data["df_points"]
+    df_customer = data["df_customer"]
+    df_exchange = data["df_exchange"]
+    settings = data["settings"]
+    
+    st.title("📝 报表导出")
+    
+    st.subheader("选择报表类型")
+    report_type = st.selectbox("请选择报表类型", [
+        "客户积分汇总报表",
+        "积分兑换明细报表",
+        "客户属性分析报表",
+        "积分趋势报表"
+    ])
+    
+    if st.button("生成报表"):
+        buffer = BytesIO()
+        
+        if report_type == "客户积分汇总报表":
+            point_calculation = PointCalculation(settings)
+            top_customers = point_calculation.get_top_customers_by_points(df_points)
+            
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                top_customers.to_excel(writer, sheet_name="客户积分排名", index=False)
+                data["df_account"].to_excel(writer, sheet_name="客户积分账户", index=False)
+        
+        elif report_type == "积分兑换明细报表":
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                df_exchange.to_excel(writer, sheet_name="积分兑换记录", index=False)
+        
+        elif report_type == "客户属性分析报表":
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                df_customer.to_excel(writer, sheet_name="客户属性分析", index=False)
+        
+        elif report_type == "积分趋势报表":
+            point_calculation = PointCalculation(settings)
+            trend_df = point_calculation.get_points_trend(df_points)
+            exchange_trend = point_calculation.get_exchange_trend(df_exchange)
+            
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                trend_df.to_excel(writer, sheet_name="积分获得趋势", index=False)
+                exchange_trend.to_excel(writer, sheet_name="积分兑换趋势", index=False)
+        
+        buffer.seek(0)
+        
+        st.download_button(
+            label="下载报表",
+            data=buffer,
+            file_name=f"{report_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+        st.success("报表生成成功！")
+
+
+def validate_columns_email(df):
     required_columns = [
         "Job No",
         "Individual PO Number",
@@ -37,7 +377,7 @@ def validate_columns(df):
         raise ValueError(f"Excel文件缺少必要的列：{', '.join(missing_columns)}")
 
 
-def format_date(date_value):
+def format_date_email(date_value):
     if pd.isna(date_value):
         return ""
     
@@ -108,7 +448,7 @@ def render_mail(receiver, strain_list, ship_date, receive_date):
     return mail_body
 
 
-def process_excel(file_bytes):
+def process_excel_email(file_bytes):
     df = pd.read_excel(BytesIO(file_bytes), sheet_name='出隔离场', header=None)
     
     header_row_index = None
@@ -133,7 +473,7 @@ def process_excel(file_bytes):
     
     df = df[~df["Job No"].astype(str).str.contains("Job No|Quantity", na=False)]
     
-    validate_columns(df)
+    validate_columns_email(df)
     
     po_order = df["Individual PO Number"].dropna().unique().tolist()
     
@@ -144,8 +484,8 @@ def process_excel(file_bytes):
         strain_list = build_strain_list(group_data)
         
         receiver = str(first_row["收货人"]).strip() if pd.notna(first_row["收货人"]) else "老师"
-        ship_date = format_date(first_row["提货时间"])
-        receive_date = format_date(first_row["拟收货时间"])
+        ship_date = format_date_email(first_row["提货时间"])
+        receive_date = format_date_email(first_row["拟收货时间"])
         
         mail_body = render_mail(receiver, strain_list, ship_date, receive_date)
         
@@ -180,7 +520,7 @@ def show_email_generator():
     if uploaded_file is not None:
         with st.spinner("正在处理Excel文件..."):
             try:
-                result_df = process_excel(uploaded_file.getvalue())
+                result_df = process_excel_email(uploaded_file.getvalue())
                 
                 st.success("邮件生成完成！")
                 
@@ -214,10 +554,11 @@ def show_about():
     **澄天小助手** 是北京澄天生物科技有限公司开发的内部办公辅助工具。
     
     **功能特性：**
+    - 📊 客户积分管理系统
     - 📧 JAX小鼠发货通知邮件自动生成
-    - 📊 数据可视化分析
+    - 📈 数据可视化分析
     - 🔐 用户身份认证
-    - 💾 数据导出功能
+    - 💾 数据导入导出功能
     
     **技术支持：**
     - 邮箱：support@chengtian-bio.com
@@ -269,13 +610,46 @@ def main():
         st.sidebar.write(f"欢迎回来, **{st.session_state['name']}**")
         
         menu_options = [
+            "📊 数据概览",
+            "👥 客户管理",
+            "🏆 积分管理",
+            "📥 数据导入",
+            "📝 报表导出",
             "📧 JAX邮件生成器",
             "ℹ️ 关于我们"
         ]
         
         selected_menu = st.sidebar.radio("功能菜单", menu_options)
         
-        if selected_menu == "📧 JAX邮件生成器":
+        data = st.session_state.get('data')
+        
+        if selected_menu == "📊 数据概览":
+            if data is None:
+                data = load_data()
+                if data:
+                    st.session_state['data'] = data
+            show_dashboard(data)
+        elif selected_menu == "👥 客户管理":
+            if data is None:
+                data = load_data()
+                if data:
+                    st.session_state['data'] = data
+            show_customer_management(data)
+        elif selected_menu == "🏆 积分管理":
+            if data is None:
+                data = load_data()
+                if data:
+                    st.session_state['data'] = data
+            show_point_management(data)
+        elif selected_menu == "📥 数据导入":
+            show_data_import()
+        elif selected_menu == "📝 报表导出":
+            if data is None:
+                data = load_data()
+                if data:
+                    st.session_state['data'] = data
+            show_reports(data)
+        elif selected_menu == "📧 JAX邮件生成器":
             show_email_generator()
         elif selected_menu == "ℹ️ 关于我们":
             show_about()

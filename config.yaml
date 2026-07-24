@@ -1,12 +1,12 @@
 credentials:
   usernames:
-    admin:
-      email: admin@chengtian-bio.com
-      name: 澄天小助手管理员
+    JAX.iBio:
+      email: admin@example.com
+      name: JAX.iBio
       password: "$2b$12$TV2QxE97MxGQ4VUiZKJ4JuG5RDPHE1QNIknXLWeF2K4r8sewlB4rK"
 cookie:
   expiry_days: 30
-  key: "chengtian_secret_key_2024"
-  name: chengtian_auth_cookie
+  key: "your_secret_key_here_for_encryption"
+  name: streamlit_auth_cookie
 preauthorized:
   emails: []

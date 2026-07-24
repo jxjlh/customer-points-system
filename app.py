@@ -74,59 +74,106 @@ def show_home():
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("""
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                    border-radius: 20px; 
-                    padding: 40px; 
-                    height: 300px;
-                    cursor: pointer;
-                    transition: transform 0.3s ease, box-shadow 0.3s ease;
-                    display: flex;
-                    flex-direction: column;
-                    justify-content: center;
-                    align-items: center;
-                    text-align: center;">
-            <div style="font-size: 80px; margin-bottom: 20px;">📊</div>
-            <h2 style="color: white; font-size: 28px; margin-bottom: 10px;">客户积分智能分析</h2>
-            <p style="color: rgba(255,255,255,0.9); font-size: 16px;">
-                数据概览 · 客户管理 · 积分管理 · 数据导入 · 报表导出
-            </p>
-            <div style="margin-top: 15px; font-size: 14px; color: rgba(255,255,255,0.7);">点击进入 →</div>
-        </div>
-        """, key="btn_customer", 
-        help="点击进入客户积分智能分析模块",
-        use_container_width=True,
-        type="primary"):
-            st.session_state['selected_main'] = "📊 客户积分智能分析"
-            st.session_state['selected_sub'] = "📈 数据概览"
-            st.rerun()
+        with st.container():
+            st.markdown("""
+            <style>
+            .card-container {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 20px;
+                padding: 40px;
+                height: 300px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+                cursor: pointer;
+                transition: transform 0.3s ease, box-shadow 0.3s ease;
+            }
+            .card-container:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+            }
+            .card-icon {
+                font-size: 80px;
+                margin-bottom: 20px;
+            }
+            .card-title {
+                color: white;
+                font-size: 28px;
+                margin-bottom: 10px;
+                font-weight: bold;
+            }
+            .card-desc {
+                color: rgba(255,255,255,0.9);
+                font-size: 16px;
+            }
+            .card-arrow {
+                margin-top: 15px;
+                font-size: 14px;
+                color: rgba(255,255,255,0.7);
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("""
+            <div class="card-container" onclick="document.getElementById('btn-customer').click()">
+                <div class="card-icon">📊</div>
+                <div class="card-title">客户积分智能分析</div>
+                <div class="card-desc">数据概览 · 客户管理 · 积分管理 · 数据导入 · 报表导出</div>
+                <div class="card-arrow">点击进入 →</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("进入客户积分智能分析", key="btn-customer", 
+                        help="点击进入客户积分智能分析模块",
+                        use_container_width=True,
+                        type="primary",
+                        style={"display": "none"}):
+                st.session_state['selected_main'] = "📊 客户积分智能分析"
+                st.session_state['selected_sub'] = "📈 数据概览"
+                st.rerun()
     
     with col2:
-        if st.button("""
-        <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); 
-                    border-radius: 20px; 
-                    padding: 40px; 
-                    height: 300px;
-                    cursor: pointer;
-                    transition: transform 0.3s ease, box-shadow 0.3s ease;
-                    display: flex;
-                    flex-direction: column;
-                    justify-content: center;
-                    align-items: center;
-                    text-align: center;">
-            <div style="font-size: 80px; margin-bottom: 20px;">📧</div>
-            <h2 style="color: white; font-size: 28px; margin-bottom: 10px;">JAX邮件生成器</h2>
-            <p style="color: rgba(255,255,255,0.9); font-size: 16px;">
-                自动生成JAX小鼠发货通知邮件
-            </p>
-            <div style="margin-top: 15px; font-size: 14px; color: rgba(255,255,255,0.7);">点击进入 →</div>
-        </div>
-        """, key="btn_email",
-        help="点击进入JAX邮件生成器模块",
-        use_container_width=True,
-        type="primary"):
-            st.session_state['selected_main'] = "📧 JAX邮件生成器"
-            st.rerun()
+        with st.container():
+            st.markdown("""
+            <style>
+            .card-container-email {
+                background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                border-radius: 20px;
+                padding: 40px;
+                height: 300px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+                cursor: pointer;
+                transition: transform 0.3s ease, box-shadow 0.3s ease;
+            }
+            .card-container-email:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 10px 30px rgba(240, 147, 251, 0.4);
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("""
+            <div class="card-container-email" onclick="document.getElementById('btn-email').click()">
+                <div class="card-icon">📧</div>
+                <div class="card-title">JAX邮件生成器</div>
+                <div class="card-desc">自动生成JAX小鼠发货通知邮件</div>
+                <div class="card-arrow">点击进入 →</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("进入JAX邮件生成器", key="btn-email",
+                        help="点击进入JAX邮件生成器模块",
+                        use_container_width=True,
+                        type="primary",
+                        style={"display": "none"}):
+                st.session_state['selected_main'] = "📧 JAX邮件生成器"
+                st.rerun()
 
 
 def show_dashboard(data):
@@ -139,16 +186,14 @@ def show_dashboard(data):
     df_account = data["df_account"]
     settings = data["settings"]
     
-    st.title("📊 积分系统数据概览")
-    
-    point_calculation = PointCalculation(settings)
+    st.title("📊 数据概览")
     
     col1, col2, col3, col4 = st.columns(4)
     
-    total_points = point_calculation.get_total_points(df_points)
-    total_value = point_calculation.get_total_point_value(df_points)
-    total_exchanged = point_calculation.get_total_exchanged_points(df_exchange)
-    exchange_count = point_calculation.get_exchange_customer_count(df_exchange)
+    total_points = PointCalculation(settings).get_total_points(df_points)
+    total_value = PointCalculation(settings).get_total_point_value(df_points)
+    total_exchanged = PointCalculation(settings).get_total_exchanged_points(df_exchange)
+    exchange_count = PointCalculation(settings).get_exchange_customer_count(df_exchange)
     
     col1.metric("累计获得积分", f"{total_points:,}")
     col2.metric("积分总价值", f"¥{total_value:,}")
@@ -168,7 +213,7 @@ def show_dashboard(data):
     col8.metric("新客户占比", f"{new_ratio}%")
     
     st.subheader("📈 积分趋势分析")
-    trend_df = point_calculation.get_points_trend(df_points)
+    trend_df = PointCalculation(settings).get_points_trend(df_points)
     
     if not trend_df.empty:
         fig = px.line(trend_df, x="月份", y="积分数量", 
@@ -186,10 +231,7 @@ def show_dashboard(data):
             paper_bgcolor="rgba(0,0,0,0)",
             margin=dict(l=50, r=50, t=60, b=50)
         )
-        fig.update_traces(
-            line=dict(width=3),
-            marker=dict(size=8, symbol="circle")
-        )
+        fig.update_traces(line=dict(width=3), marker=dict(size=8, symbol="circle"))
         st.plotly_chart(fig, use_container_width=True)
         
         fig2 = px.bar(trend_df, x="月份", y="订单数",
@@ -209,7 +251,7 @@ def show_dashboard(data):
         st.plotly_chart(fig2, use_container_width=True)
     
     st.subheader("🏆 客户积分排名")
-    top_customers = point_calculation.get_top_customers_by_points(df_points)
+    top_customers = PointCalculation(settings).get_top_customers_by_points(df_points)
     
     if not top_customers.empty:
         fig4 = px.bar(top_customers, y="客户", x="累计积分",
@@ -369,8 +411,7 @@ def show_point_management(data):
         st.success("设置已保存")
     
     st.subheader("兑换趋势")
-    point_calculation = PointCalculation(settings)
-    exchange_trend = point_calculation.get_exchange_trend(df_exchange)
+    exchange_trend = PointCalculation(settings).get_exchange_trend(df_exchange)
     
     if not exchange_trend.empty:
         fig = px.line(exchange_trend, x="月份", y="兑换积分",
@@ -391,7 +432,6 @@ def show_data_import():
                 data = load_data(file_bytes=uploaded_file.getvalue())
                 if data:
                     st.success("数据导入成功！")
-                    
                     st.session_state['data'] = data
                     
                     st.subheader("导入数据预览")
@@ -441,8 +481,7 @@ def show_reports(data):
         buffer = BytesIO()
         
         if report_type == "客户积分汇总报表":
-            point_calculation = PointCalculation(settings)
-            top_customers = point_calculation.get_top_customers_by_points(df_points)
+            top_customers = PointCalculation(settings).get_top_customers_by_points(df_points)
             
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
                 top_customers.to_excel(writer, sheet_name="客户积分排名", index=False)
@@ -457,9 +496,8 @@ def show_reports(data):
                 df_customer.to_excel(writer, sheet_name="客户属性分析", index=False)
         
         elif report_type == "积分趋势报表":
-            point_calculation = PointCalculation(settings)
-            trend_df = point_calculation.get_points_trend(df_points)
-            exchange_trend = point_calculation.get_exchange_trend(df_exchange)
+            trend_df = PointCalculation(settings).get_points_trend(df_points)
+            exchange_trend = PointCalculation(settings).get_exchange_trend(df_exchange)
             
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
                 trend_df.to_excel(writer, sheet_name="积分获得趋势", index=False)
@@ -597,7 +635,6 @@ def process_excel_email(file_bytes):
     df.columns = new_header
     
     df = df.dropna(how='all')
-    
     df = df[~df["Job No"].astype(str).str.contains("Job No|Quantity", na=False)]
     
     validate_columns_email(df)
@@ -605,7 +642,6 @@ def process_excel_email(file_bytes):
     po_order = df["Individual PO Number"].dropna().unique().tolist()
     
     result_rows = []
-    
     for po_number, group_data in df.groupby("Individual PO Number"):
         first_row = group_data.iloc[0]
         strain_list = build_strain_list(group_data)
@@ -625,7 +661,6 @@ def process_excel_email(file_bytes):
         })
     
     result_df = pd.DataFrame(result_rows)
-    
     result_df['po_order'] = result_df['Individual PO Number'].map(lambda x: po_order.index(x) if x in po_order else len(po_order))
     result_df = result_df.sort_values('po_order').drop('po_order', axis=1)
     
@@ -679,8 +714,16 @@ def main():
         page_title="澄天小助手",
         page_icon="🐭",
         layout="wide",
-        initial_sidebar_state="expanded"
+        initial_sidebar_state="collapsed"
     )
+    
+    st.markdown("""
+    <style>
+    [data-testid="stSidebar"] {
+        display: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
     with open(CONFIG_PATH) as file:
         config = yaml.load(file, Loader=SafeLoader)
@@ -713,66 +756,147 @@ def main():
             return
     
     if st.session_state.get('authentication_status'):
-        st.sidebar.title("澄天小助手")
-        authenticator.logout("退出登录", "sidebar")
-        st.sidebar.write(f"欢迎回来, **{st.session_state['name']}**")
-        
-        main_options = [
-            "🏠 首页",
-            "📊 客户积分",
-            "📧 JAX邮件"
-        ]
-        
-        selected_main = st.sidebar.radio("功能", main_options, 
-                                        index=main_options.index(st.session_state.get('selected_main', '🏠 首页')))
-        
-        st.session_state['selected_main'] = selected_main
-        
+        selected_main = st.session_state.get('selected_main', '🏠 首页')
         data = st.session_state.get('data')
         
-        if selected_main == "🏠 首页":
-            show_home()
-        elif selected_main == "📊 客户积分智能分析":
-            st.sidebar.markdown("---")
-            st.sidebar.subheader("子功能")
-            sub_options = [
-                "📈 数据概览",
-                "👥 客户管理",
-                "🏆 积分管理",
-                "📥 数据导入",
-                "📝 报表导出"
-            ]
-            selected_sub = st.sidebar.radio("", sub_options,
-                                          index=sub_options.index(st.session_state.get('selected_sub', '📈 数据概览')))
-            st.session_state['selected_sub'] = selected_sub
+        col_header_left, col_header_right = st.columns([4, 1])
+        with col_header_right:
+            st.markdown("""
+            <style>
+            .header-btn {
+                padding: 8px 16px;
+                border-radius: 8px;
+                border: none;
+                font-size: 14px;
+                font-weight: bold;
+                cursor: pointer;
+                margin-left: 10px;
+                transition: all 0.3s ease;
+            }
+            .logout-btn {
+                background: #f87171;
+                color: white;
+            }
+            .logout-btn:hover {
+                background: #ef4444;
+            }
+            .back-btn {
+                background: #667eea;
+                color: white;
+            }
+            .back-btn:hover {
+                background: #5a67d8;
+            }
+            </style>
+            """, unsafe_allow_html=True)
             
-            if selected_sub == "📈 数据概览":
-                if data is None:
-                    data = load_data()
-                    if data:
-                        st.session_state['data'] = data
-                show_dashboard(data)
-            elif selected_sub == "👥 客户管理":
-                if data is None:
-                    data = load_data()
-                    if data:
-                        st.session_state['data'] = data
-                show_customer_management(data)
-            elif selected_sub == "🏆 积分管理":
-                if data is None:
-                    data = load_data()
-                    if data:
-                        st.session_state['data'] = data
-                show_point_management(data)
-            elif selected_sub == "📥 数据导入":
-                show_data_import()
-            elif selected_sub == "📝 报表导出":
-                if data is None:
-                    data = load_data()
-                    if data:
-                        st.session_state['data'] = data
-                show_reports(data)
-        elif selected_main == "📧 JAX邮件生成器":
+            if selected_main != '🏠 首页':
+                st.markdown("""
+                <button class="header-btn back-btn" onclick="document.getElementById('btn-back').click()">
+                    ← 返回首页
+                </button>
+                """, unsafe_allow_html=True)
+                if st.button("返回首页", key="btn-back", style={"display": "none"}):
+                    st.session_state['selected_main'] = '🏠 首页'
+                    st.rerun()
+            
+            st.markdown("""
+            <button class="header-btn logout-btn" onclick="document.getElementById('btn-logout').click()">
+                退出登录
+            </button>
+            """, unsafe_allow_html=True)
+            if st.button("退出登录", key="btn-logout", style={"display": "none"}):
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                st.rerun()
+        
+        if selected_main == '🏠 首页':
+            show_home()
+        elif selected_main == '📊 客户积分智能分析':
+            selected_sub = st.session_state.get('selected_sub', '📈 数据概览')
+            
+            col_menu, col_content = st.columns([1, 4])
+            
+            with col_menu:
+                st.markdown("""
+                <style>
+                .menu-btn {
+                    width: 100%;
+                    padding: 15px 20px;
+                    margin-bottom: 10px;
+                    border-radius: 12px;
+                    border: none;
+                    font-size: 16px;
+                    font-weight: bold;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                }
+                .menu-btn-active {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                }
+                .menu-btn-inactive {
+                    background: #f0f2f6;
+                    color: #333;
+                }
+                .menu-btn-inactive:hover {
+                    background: #e0e2e8;
+                }
+                </style>
+                """, unsafe_allow_html=True)
+                
+                sub_options = [
+                    ("📈 数据概览", "数据概览"),
+                    ("👥 客户管理", "客户管理"),
+                    ("🏆 积分管理", "积分管理"),
+                    ("📥 数据导入", "数据导入"),
+                    ("📝 报表导出", "报表导出")
+                ]
+                
+                for icon, label in sub_options:
+                    btn_key = f"btn-sub-{label}"
+                    is_active = selected_sub == icon
+                    btn_class = "menu-btn-active" if is_active else "menu-btn-inactive"
+                    
+                    st.markdown(f"""
+                    <button class="menu-btn {btn_class}" onclick="document.getElementById('{btn_key}').click()">
+                        {icon}
+                    </button>
+                    """, unsafe_allow_html=True)
+                    
+                    if st.button(label, key=btn_key, style={"display": "none"}):
+                        st.session_state['selected_sub'] = icon
+                        st.rerun()
+            
+            with col_content:
+                if selected_sub == "📈 数据概览":
+                    if data is None:
+                        data = load_data()
+                        if data:
+                            st.session_state['data'] = data
+                    show_dashboard(data)
+                elif selected_sub == "👥 客户管理":
+                    if data is None:
+                        data = load_data()
+                        if data:
+                            st.session_state['data'] = data
+                    show_customer_management(data)
+                elif selected_sub == "🏆 积分管理":
+                    if data is None:
+                        data = load_data()
+                        if data:
+                            st.session_state['data'] = data
+                    show_point_management(data)
+                elif selected_sub == "📥 数据导入":
+                    show_data_import()
+                elif selected_sub == "📝 报表导出":
+                    if data is None:
+                        data = load_data()
+                        if data:
+                            st.session_state['data'] = data
+                    show_reports(data)
+        
+        elif selected_main == '📧 JAX邮件生成器':
             show_email_generator()
 
 

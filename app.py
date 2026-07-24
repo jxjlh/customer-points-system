@@ -74,7 +74,7 @@ def show_home():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("""
+        if st.button("""
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
                     border-radius: 20px; 
                     padding: 40px; 
@@ -86,21 +86,23 @@ def show_home():
                     justify-content: center;
                     align-items: center;
                     text-align: center;">
-            <div style="font-size: 64px; margin-bottom: 20px;">📊</div>
-            <h2 style="color: white; font-size: 24px; margin-bottom: 10px;">客户积分智能分析</h2>
-            <p style="color: rgba(255,255,255,0.8); font-size: 14px;">
+            <div style="font-size: 80px; margin-bottom: 20px;">📊</div>
+            <h2 style="color: white; font-size: 28px; margin-bottom: 10px;">客户积分智能分析</h2>
+            <p style="color: rgba(255,255,255,0.9); font-size: 16px;">
                 数据概览 · 客户管理 · 积分管理 · 数据导入 · 报表导出
             </p>
+            <div style="margin-top: 15px; font-size: 14px; color: rgba(255,255,255,0.7);">点击进入 →</div>
         </div>
-        """, unsafe_allow_html=True)
-        if st.button("进入 客户积分智能分析", key="btn_customer", 
-                     help="点击进入客户积分智能分析模块",
-                     use_container_width=True):
+        """, key="btn_customer", 
+        help="点击进入客户积分智能分析模块",
+        use_container_width=True,
+        type="primary"):
             st.session_state['selected_main'] = "📊 客户积分智能分析"
             st.session_state['selected_sub'] = "📈 数据概览"
+            st.rerun()
     
     with col2:
-        st.markdown("""
+        if st.button("""
         <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); 
                     border-radius: 20px; 
                     padding: 40px; 
@@ -112,17 +114,19 @@ def show_home():
                     justify-content: center;
                     align-items: center;
                     text-align: center;">
-            <div style="font-size: 64px; margin-bottom: 20px;">📧</div>
-            <h2 style="color: white; font-size: 24px; margin-bottom: 10px;">JAX邮件生成器</h2>
-            <p style="color: rgba(255,255,255,0.8); font-size: 14px;">
+            <div style="font-size: 80px; margin-bottom: 20px;">📧</div>
+            <h2 style="color: white; font-size: 28px; margin-bottom: 10px;">JAX邮件生成器</h2>
+            <p style="color: rgba(255,255,255,0.9); font-size: 16px;">
                 自动生成JAX小鼠发货通知邮件
             </p>
+            <div style="margin-top: 15px; font-size: 14px; color: rgba(255,255,255,0.7);">点击进入 →</div>
         </div>
-        """, unsafe_allow_html=True)
-        if st.button("进入 JAX邮件生成器", key="btn_email",
-                     help="点击进入JAX邮件生成器模块",
-                     use_container_width=True):
+        """, key="btn_email",
+        help="点击进入JAX邮件生成器模块",
+        use_container_width=True,
+        type="primary"):
             st.session_state['selected_main'] = "📧 JAX邮件生成器"
+            st.rerun()
 
 
 def show_dashboard(data):
@@ -163,36 +167,74 @@ def show_dashboard(data):
     col7.metric("总客户数", total_customers)
     col8.metric("新客户占比", f"{new_ratio}%")
     
-    st.subheader("积分趋势分析")
+    st.subheader("📈 积分趋势分析")
     trend_df = point_calculation.get_points_trend(df_points)
     
     if not trend_df.empty:
         fig = px.line(trend_df, x="月份", y="积分数量", 
-                      title="月度积分获得趋势", 
+                      title="📉 月度积分获得趋势", 
                       labels={"积分数量": "积分数量", "月份": "月份"},
-                      markers=True)
+                      markers=True,
+                      color_discrete_sequence=["#667eea"],
+                      template="plotly_white")
+        fig.update_layout(
+            title_font=dict(size=18, color="#333"),
+            xaxis_title_font=dict(size=14, color="#666"),
+            yaxis_title_font=dict(size=14, color="#666"),
+            hovermode="x unified",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=50, r=50, t=60, b=50)
+        )
+        fig.update_traces(
+            line=dict(width=3),
+            marker=dict(size=8, symbol="circle")
+        )
         st.plotly_chart(fig, use_container_width=True)
         
         fig2 = px.bar(trend_df, x="月份", y="订单数",
-                      title="月度订单数量",
+                      title="📊 月度订单数量",
                       labels={"订单数": "订单数", "月份": "月份"},
-                      color="订单数")
+                      color="订单数",
+                      color_continuous_scale="Blues",
+                      template="plotly_white")
+        fig2.update_layout(
+            title_font=dict(size=18, color="#333"),
+            xaxis_title_font=dict(size=14, color="#666"),
+            yaxis_title_font=dict(size=14, color="#666"),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=50, r=50, t=60, b=50)
+        )
         st.plotly_chart(fig2, use_container_width=True)
     
-    st.subheader("客户积分排名")
+    st.subheader("🏆 客户积分排名")
     top_customers = point_calculation.get_top_customers_by_points(df_points)
     
     if not top_customers.empty:
         fig4 = px.bar(top_customers, y="客户", x="累计积分",
-                      title="客户积分排名Top20",
+                      title="🥇 客户积分排名Top20",
                       labels={"累计积分": "累计积分", "客户": "客户名称"},
                       color="累计积分",
-                      color_continuous_scale="Blues",
-                      orientation="h")
-        fig4.update_layout(height=500)
+                      color_continuous_scale=["#667eea", "#764ba2"],
+                      orientation="h",
+                      template="plotly_white")
+        fig4.update_layout(
+            title_font=dict(size=18, color="#333"),
+            xaxis_title_font=dict(size=14, color="#666"),
+            yaxis_title_font=dict(size=14, color="#666"),
+            height=500,
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=120, r=50, t=60, b=50)
+        )
+        fig4.update_traces(
+            hovertemplate="客户: %{y}<br>累计积分: %{x:,}",
+            marker=dict(line=dict(width=0))
+        )
         st.plotly_chart(fig4, use_container_width=True)
         
-        st.subheader("客户积分排名详情")
+        st.subheader("📋 客户积分排名详情")
         gb = GridOptionsBuilder.from_dataframe(top_customers)
         gb.configure_pagination(paginationAutoPageSize=True)
         gb.configure_side_bar()
@@ -204,13 +246,27 @@ def show_dashboard(data):
                update_mode=GridUpdateMode.NO_UPDATE,
                fit_columns_on_grid_load=True)
     
-    st.subheader("客户属性分布")
+    st.subheader("👥 客户属性分布")
     if not df_customer.empty:
         attribute_counts = df_customer["客户属性"].value_counts()
         
         fig3 = px.pie(values=attribute_counts.values, names=attribute_counts.index,
-                      title="新老客户分布",
-                      hole=0.3)
+                      title="👨‍👩‍👧‍👦 新老客户分布",
+                      hole=0.4,
+                      color_discrete_sequence=["#667eea", "#f093fb"],
+                      template="plotly_white")
+        fig3.update_layout(
+            title_font=dict(size=18, color="#333"),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=50, r=50, t=60, b=50)
+        )
+        fig3.update_traces(
+            hoverinfo="label+percent+value",
+            textinfo="label+percent",
+            textfont=dict(size=14),
+            marker=dict(line=dict(color="#ffffff", width=2))
+        )
         st.plotly_chart(fig3, use_container_width=True)
 
 
@@ -663,11 +719,11 @@ def main():
         
         main_options = [
             "🏠 首页",
-            "📊 客户积分智能分析",
-            "📧 JAX邮件生成器"
+            "📊 客户积分",
+            "📧 JAX邮件"
         ]
         
-        selected_main = st.sidebar.radio("功能模块", main_options, 
+        selected_main = st.sidebar.radio("功能", main_options, 
                                         index=main_options.index(st.session_state.get('selected_main', '🏠 首页')))
         
         st.session_state['selected_main'] = selected_main

@@ -64,6 +64,67 @@ def load_data(excel_path=None, file_bytes=None):
         return None
 
 
+def show_home():
+    st.title("🏠 澄天小助手")
+    
+    st.markdown("""
+    欢迎使用澄天小助手，请选择您需要的功能模块：
+    """)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    border-radius: 20px; 
+                    padding: 40px; 
+                    height: 300px;
+                    cursor: pointer;
+                    transition: transform 0.3s ease, box-shadow 0.3s ease;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+                    text-align: center;">
+            <div style="font-size: 64px; margin-bottom: 20px;">📊</div>
+            <h2 style="color: white; font-size: 24px; margin-bottom: 10px;">客户积分智能分析</h2>
+            <p style="color: rgba(255,255,255,0.8); font-size: 14px;">
+                数据概览 · 客户管理 · 积分管理 · 数据导入 · 报表导出
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("进入 客户积分智能分析", key="btn_customer", 
+                     help="点击进入客户积分智能分析模块",
+                     use_container_width=True):
+            st.session_state['selected_main'] = "📊 客户积分智能分析"
+            st.session_state['selected_sub'] = "📈 数据概览"
+    
+    with col2:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); 
+                    border-radius: 20px; 
+                    padding: 40px; 
+                    height: 300px;
+                    cursor: pointer;
+                    transition: transform 0.3s ease, box-shadow 0.3s ease;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+                    text-align: center;">
+            <div style="font-size: 64px; margin-bottom: 20px;">📧</div>
+            <h2 style="color: white; font-size: 24px; margin-bottom: 10px;">JAX邮件生成器</h2>
+            <p style="color: rgba(255,255,255,0.8); font-size: 14px;">
+                自动生成JAX小鼠发货通知邮件
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("进入 JAX邮件生成器", key="btn_email",
+                     help="点击进入JAX邮件生成器模块",
+                     use_container_width=True):
+            st.session_state['selected_main'] = "📧 JAX邮件生成器"
+
+
 def show_dashboard(data):
     if data is None:
         return
@@ -122,13 +183,23 @@ def show_dashboard(data):
     top_customers = point_calculation.get_top_customers_by_points(df_points)
     
     if not top_customers.empty:
+        fig4 = px.bar(top_customers, y="客户", x="累计积分",
+                      title="客户积分排名Top20",
+                      labels={"累计积分": "累计积分", "客户": "客户名称"},
+                      color="累计积分",
+                      color_continuous_scale="Blues",
+                      orientation="h")
+        fig4.update_layout(height=500)
+        st.plotly_chart(fig4, use_container_width=True)
+        
+        st.subheader("客户积分排名详情")
         gb = GridOptionsBuilder.from_dataframe(top_customers)
         gb.configure_pagination(paginationAutoPageSize=True)
         gb.configure_side_bar()
         gb.configure_default_column(editable=False)
         
         grid_options = gb.build()
-        AgGrid(top_customers, gridOptions=grid_options, height=400,
+        AgGrid(top_customers, gridOptions=grid_options, height=300,
                data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
                update_mode=GridUpdateMode.NO_UPDATE,
                fit_columns_on_grid_load=True)
@@ -547,25 +618,6 @@ def show_email_generator():
                 st.error(f"处理过程中发生错误：\n\n{str(e)}")
 
 
-def show_about():
-    st.title("关于澄天小助手")
-    
-    st.markdown("""
-    **澄天小助手** 是北京澄天生物科技有限公司开发的内部办公辅助工具。
-    
-    **功能特性：**
-    - 📊 客户积分管理系统
-    - 📧 JAX小鼠发货通知邮件自动生成
-    - 📈 数据可视化分析
-    - 🔐 用户身份认证
-    - 💾 数据导入导出功能
-    
-    **技术支持：**
-    - 邮箱：support@chengtian-bio.com
-    - 电话：400-xxx-xxxx
-    """)
-
-
 def main():
     st.set_page_config(
         page_title="澄天小助手",
@@ -610,16 +662,21 @@ def main():
         st.sidebar.write(f"欢迎回来, **{st.session_state['name']}**")
         
         main_options = [
+            "🏠 首页",
             "📊 客户积分智能分析",
-            "📧 JAX邮件生成器",
-            "ℹ️ 关于我们"
+            "📧 JAX邮件生成器"
         ]
         
-        selected_main = st.sidebar.radio("功能模块", main_options)
+        selected_main = st.sidebar.radio("功能模块", main_options, 
+                                        index=main_options.index(st.session_state.get('selected_main', '🏠 首页')))
+        
+        st.session_state['selected_main'] = selected_main
         
         data = st.session_state.get('data')
         
-        if selected_main == "📊 客户积分智能分析":
+        if selected_main == "🏠 首页":
+            show_home()
+        elif selected_main == "📊 客户积分智能分析":
             st.sidebar.markdown("---")
             st.sidebar.subheader("子功能")
             sub_options = [
@@ -629,7 +686,9 @@ def main():
                 "📥 数据导入",
                 "📝 报表导出"
             ]
-            selected_sub = st.sidebar.radio("", sub_options)
+            selected_sub = st.sidebar.radio("", sub_options,
+                                          index=sub_options.index(st.session_state.get('selected_sub', '📈 数据概览')))
+            st.session_state['selected_sub'] = selected_sub
             
             if selected_sub == "📈 数据概览":
                 if data is None:
@@ -659,8 +718,6 @@ def main():
                 show_reports(data)
         elif selected_main == "📧 JAX邮件生成器":
             show_email_generator()
-        elif selected_main == "ℹ️ 关于我们":
-            show_about()
 
 
 if __name__ == "__main__":

@@ -74,106 +74,27 @@ def show_home():
     col1, col2 = st.columns(2)
     
     with col1:
-        with st.container():
-            st.markdown("""
-            <style>
-            .card-container {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 20px;
-                padding: 40px;
-                height: 300px;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                text-align: center;
-                cursor: pointer;
-                transition: transform 0.3s ease, box-shadow 0.3s ease;
-            }
-            .card-container:hover {
-                transform: translateY(-5px);
-                box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
-            }
-            .card-icon {
-                font-size: 80px;
-                margin-bottom: 20px;
-            }
-            .card-title {
-                color: white;
-                font-size: 28px;
-                margin-bottom: 10px;
-                font-weight: bold;
-            }
-            .card-desc {
-                color: rgba(255,255,255,0.9);
-                font-size: 16px;
-            }
-            .card-arrow {
-                margin-top: 15px;
-                font-size: 14px;
-                color: rgba(255,255,255,0.7);
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("""
-            <div class="card-container" onclick="document.getElementById('btn-customer').click()">
-                <div class="card-icon">📊</div>
-                <div class="card-title">客户积分智能分析</div>
-                <div class="card-desc">数据概览 · 客户管理 · 积分管理 · 数据导入 · 报表导出</div>
-                <div class="card-arrow">点击进入 →</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button("进入客户积分智能分析", key="btn-customer", 
-                        help="点击进入客户积分智能分析模块",
-                        use_container_width=True,
-                        type="primary",
-                        style={"display": "none"}):
-                st.session_state['selected_main'] = "📊 客户积分智能分析"
-                st.session_state['selected_sub'] = "📈 数据概览"
-                st.rerun()
+        if st.button("""📊
+
+客户积分智能分析
+
+数据概览 · 客户管理 · 积分管理 · 数据导入 · 报表导出
+
+点击进入 →""", key="btn-customer", help="点击进入客户积分智能分析模块", use_container_width=True, type="primary"):
+            st.session_state['selected_main'] = "📊 客户积分智能分析"
+            st.session_state['selected_sub'] = "📈 数据概览"
+            st.rerun()
     
     with col2:
-        with st.container():
-            st.markdown("""
-            <style>
-            .card-container-email {
-                background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-                border-radius: 20px;
-                padding: 40px;
-                height: 300px;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                text-align: center;
-                cursor: pointer;
-                transition: transform 0.3s ease, box-shadow 0.3s ease;
-            }
-            .card-container-email:hover {
-                transform: translateY(-5px);
-                box-shadow: 0 10px 30px rgba(240, 147, 251, 0.4);
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("""
-            <div class="card-container-email" onclick="document.getElementById('btn-email').click()">
-                <div class="card-icon">📧</div>
-                <div class="card-title">JAX邮件生成器</div>
-                <div class="card-desc">自动生成JAX小鼠发货通知邮件</div>
-                <div class="card-arrow">点击进入 →</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button("进入JAX邮件生成器", key="btn-email",
-                        help="点击进入JAX邮件生成器模块",
-                        use_container_width=True,
-                        type="primary",
-                        style={"display": "none"}):
-                st.session_state['selected_main'] = "📧 JAX邮件生成器"
-                st.rerun()
+        if st.button("""📧
+
+JAX邮件生成器
+
+自动生成JAX小鼠发货通知邮件
+
+点击进入 →""", key="btn-email", help="点击进入JAX邮件生成器模块", use_container_width=True, type="primary"):
+            st.session_state['selected_main'] = "📧 JAX邮件生成器"
+            st.rerun()
 
 
 def show_dashboard(data):
@@ -781,32 +702,7 @@ def main():
             col_menu, col_content = st.columns([1, 4])
             
             with col_menu:
-                st.markdown("""
-                <style>
-                .menu-btn {
-                    width: 100%;
-                    padding: 15px 20px;
-                    margin-bottom: 10px;
-                    border-radius: 12px;
-                    border: none;
-                    font-size: 16px;
-                    font-weight: bold;
-                    cursor: pointer;
-                    transition: all 0.3s ease;
-                }
-                .menu-btn-active {
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                }
-                .menu-btn-inactive {
-                    background: #f0f2f6;
-                    color: #333;
-                }
-                .menu-btn-inactive:hover {
-                    background: #e0e2e8;
-                }
-                </style>
-                """, unsafe_allow_html=True)
+                st.subheader("功能菜单")
                 
                 sub_options = [
                     ("📈 数据概览", "数据概览"),
@@ -819,17 +715,15 @@ def main():
                 for icon, label in sub_options:
                     btn_key = f"btn-sub-{label}"
                     is_active = selected_sub == icon
-                    btn_class = "menu-btn-active" if is_active else "menu-btn-inactive"
                     
-                    st.markdown(f"""
-                    <button class="menu-btn {btn_class}" onclick="document.getElementById('{btn_key}').click()">
-                        {icon}
-                    </button>
-                    """, unsafe_allow_html=True)
-                    
-                    if st.button(label, key=btn_key, style={"display": "none"}):
-                        st.session_state['selected_sub'] = icon
-                        st.rerun()
+                    if is_active:
+                        if st.button(icon, key=btn_key, use_container_width=True, type="primary"):
+                            st.session_state['selected_sub'] = icon
+                            st.rerun()
+                    else:
+                        if st.button(icon, key=btn_key, use_container_width=True):
+                            st.session_state['selected_sub'] = icon
+                            st.rerun()
             
             with col_content:
                 if selected_sub == "📈 数据概览":

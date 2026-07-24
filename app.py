@@ -609,49 +609,57 @@ def main():
         authenticator.logout("退出登录", "sidebar")
         st.sidebar.write(f"欢迎回来, **{st.session_state['name']}**")
         
-        menu_options = [
-            "📊 数据概览",
-            "👥 客户管理",
-            "🏆 积分管理",
-            "📥 数据导入",
-            "📝 报表导出",
+        main_options = [
+            "📊 客户积分智能分析",
             "📧 JAX邮件生成器",
             "ℹ️ 关于我们"
         ]
         
-        selected_menu = st.sidebar.radio("功能菜单", menu_options)
+        selected_main = st.sidebar.radio("功能模块", main_options)
         
         data = st.session_state.get('data')
         
-        if selected_menu == "📊 数据概览":
-            if data is None:
-                data = load_data()
-                if data:
-                    st.session_state['data'] = data
-            show_dashboard(data)
-        elif selected_menu == "👥 客户管理":
-            if data is None:
-                data = load_data()
-                if data:
-                    st.session_state['data'] = data
-            show_customer_management(data)
-        elif selected_menu == "🏆 积分管理":
-            if data is None:
-                data = load_data()
-                if data:
-                    st.session_state['data'] = data
-            show_point_management(data)
-        elif selected_menu == "📥 数据导入":
-            show_data_import()
-        elif selected_menu == "📝 报表导出":
-            if data is None:
-                data = load_data()
-                if data:
-                    st.session_state['data'] = data
-            show_reports(data)
-        elif selected_menu == "📧 JAX邮件生成器":
+        if selected_main == "📊 客户积分智能分析":
+            st.sidebar.markdown("---")
+            st.sidebar.subheader("子功能")
+            sub_options = [
+                "📈 数据概览",
+                "👥 客户管理",
+                "🏆 积分管理",
+                "📥 数据导入",
+                "📝 报表导出"
+            ]
+            selected_sub = st.sidebar.radio("", sub_options)
+            
+            if selected_sub == "📈 数据概览":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_dashboard(data)
+            elif selected_sub == "👥 客户管理":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_customer_management(data)
+            elif selected_sub == "🏆 积分管理":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_point_management(data)
+            elif selected_sub == "📥 数据导入":
+                show_data_import()
+            elif selected_sub == "📝 报表导出":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_reports(data)
+        elif selected_main == "📧 JAX邮件生成器":
             show_email_generator()
-        elif selected_menu == "ℹ️ 关于我们":
+        elif selected_main == "ℹ️ 关于我们":
             show_about()
 
 

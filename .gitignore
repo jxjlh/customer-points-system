@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+.env
+*.db
+*.xlsx
+data/*.xlsx
+database/*.db
+*.log
+.DS_Store
+.streamlit/

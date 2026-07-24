@@ -7,6 +7,9 @@ from datetime import datetime
 from io import BytesIO
 from st_aggrid import AgGrid, GridUpdateMode, DataReturnMode
 from st_aggrid.grid_options_builder import GridOptionsBuilder
+import yaml
+from yaml.loader import SafeLoader
+import streamlit_authenticator as stauth
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -17,6 +20,7 @@ from modules.database import DatabaseManager
 
 DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database", "points.db")
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
 
 def load_data(excel_path=None, file_bytes=None):
     try:
@@ -90,79 +94,102 @@ def main():
     
     init_session_state()
     
-    st.sidebar.title("客户积分智能分析系统")
+    with open(CONFIG_PATH) as file:
+        config = yaml.load(file, Loader=SafeLoader)
     
-    uploaded_file = st.sidebar.file_uploader("上传Excel文件", type=["xlsx", "xls"])
+    authenticator = stauth.Authenticate(
+        config['credentials'],
+        config['cookie']['name'],
+        config['cookie']['key'],
+        config['cookie']['expiry_days']
+    )
     
-    if uploaded_file is not None:
-        st.session_state.uploaded_file = uploaded_file.getvalue()
-        with st.spinner("正在解析上传的文件..."):
-            st.session_state.data = load_data(file_bytes=st.session_state.uploaded_file)
-            st.session_state.data_loaded = True
-            st.session_state.refresh_key += 1
-        st.success("文件上传成功！")
+    authenticator.login(location="main")
     
-    if st.sidebar.button("🔄 刷新数据"):
-        with st.spinner("正在刷新数据..."):
-            if st.session_state.uploaded_file:
-                st.session_state.data = load_data(file_bytes=st.session_state.uploaded_file)
-            elif st.session_state.get("last_save_path"):
-                st.session_state.data = load_data(excel_path=st.session_state["last_save_path"])
-            else:
-                st.session_state.data = load_data()
-            st.session_state.data_loaded = True
-            st.session_state.refresh_key += 1
-        st.success("数据刷新成功！")
-    
-    if not st.session_state.data_loaded or st.session_state.data is None:
-        with st.spinner("正在加载数据..."):
-            if st.session_state.get("last_save_path"):
-                st.session_state.data = load_data(excel_path=st.session_state["last_save_path"])
-            else:
-                st.session_state.data = load_data()
-            st.session_state.data_loaded = True
-    
-    data = st.session_state.data
-    
-    if data is None:
-        st.warning("无法加载数据，请上传Excel文件或检查文件格式是否正确。")
+    if st.session_state.get('authentication_status') == False:
+        st.error("用户名或密码错误")
         return
     
-    update_time = data["update_time"]
-    file_name = data["file_name"]
+    if st.session_state.get('authentication_status') == None:
+        st.warning("请输入用户名和密码")
+        return
     
-    st.sidebar.markdown(f"""
-    **数据更新时间**: {update_time}
-    
-    **当前文件**: {file_name}
-    """)
-    
-    menu_options = [
-        "🏠 原始数据分析",
-        "👥 客户属性分析",
-        "📈 积分产生分析",
-        "💳 积分兑换分析",
-        "💰 积分余额查询",
-        "📝 手动录入",
-        "📋 数据管理"
-    ]
-    
-    selected_menu = st.sidebar.radio("功能菜单", menu_options)
-    
-    if selected_menu == "🏠 原始数据分析":
-        show_dashboard(data)
-    elif selected_menu == "👥 客户属性分析":
-        show_customer_analysis(data)
-    elif selected_menu == "📈 积分产生分析":
-        show_points_analysis(data)
-    elif selected_menu == "💳 积分兑换分析":
-        show_exchange_analysis(data)
-    elif selected_menu == "💰 积分余额查询":
-        show_balance_query(data)
-    elif selected_menu == "📝 手动录入":
-        show_manual_entry(data)
-    elif selected_menu == "📋 数据管理":
-        show_data_management(data)
+    if st.session_state.get('authentication_status'):
+        st.sidebar.title("客户积分智能分析系统")
+        authenticator.logout("退出登录", "sidebar")
+        st.sidebar.write(f"欢迎回来, **{st.session_state['name']}**")
+        
+        uploaded_file = st.sidebar.file_uploader("上传Excel文件", type=["xlsx", "xls"])
+        
+        if uploaded_file is not None:
+            st.session_state.uploaded_file = uploaded_file.getvalue()
+            with st.spinner("正在解析上传的文件..."):
+                st.session_state.data = load_data(file_bytes=st.session_state.uploaded_file)
+                st.session_state.data_loaded = True
+                st.session_state.refresh_key += 1
+            st.success("文件上传成功！")
+        
+        if st.sidebar.button("🔄 刷新数据"):
+            with st.spinner("正在刷新数据..."):
+                if st.session_state.uploaded_file:
+                    st.session_state.data = load_data(file_bytes=st.session_state.uploaded_file)
+                elif st.session_state.get("last_save_path"):
+                    st.session_state.data = load_data(excel_path=st.session_state["last_save_path"])
+                else:
+                    st.session_state.data = load_data()
+                st.session_state.data_loaded = True
+                st.session_state.refresh_key += 1
+            st.success("数据刷新成功！")
+        
+        if not st.session_state.data_loaded or st.session_state.data is None:
+            with st.spinner("正在加载数据..."):
+                if st.session_state.get("last_save_path"):
+                    st.session_state.data = load_data(excel_path=st.session_state["last_save_path"])
+                else:
+                    st.session_state.data = load_data()
+                st.session_state.data_loaded = True
+        
+        data = st.session_state.data
+        
+        if data is None:
+            st.warning("无法加载数据，请上传Excel文件或检查文件格式是否正确。")
+            return
+        
+        update_time = data["update_time"]
+        file_name = data["file_name"]
+        
+        st.sidebar.markdown(f"""
+        **数据更新时间**: {update_time}
+        
+        **当前文件**: {file_name}
+        """)
+        
+        menu_options = [
+            "🏠 原始数据分析",
+            "👥 客户属性分析",
+            "📈 积分产生分析",
+            "💳 积分兑换分析",
+            "💰 积分余额查询",
+            "📝 手动录入",
+            "📋 数据管理"
+        ]
+        
+        selected_menu = st.sidebar.radio("功能菜单", menu_options)
+        
+        if selected_menu == "🏠 原始数据分析":
+            show_dashboard(data)
+        elif selected_menu == "👥 客户属性分析":
+            show_customer_analysis(data)
+        elif selected_menu == "📈 积分产生分析":
+            show_points_analysis(data)
+        elif selected_menu == "💳 积分兑换分析":
+            show_exchange_analysis(data)
+        elif selected_menu == "💰 积分余额查询":
+            show_balance_query(data)
+        elif selected_menu == "📝 手动录入":
+            show_manual_entry(data)
+        elif selected_menu == "📋 数据管理":
+            show_data_management(data)
 
 def show_dashboard(data):
     st.title("原始数据分析")

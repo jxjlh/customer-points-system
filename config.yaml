@@ -1,0 +1,12 @@
+credentials:
+  usernames:
+    admin:
+      email: admin@example.com
+      name: 管理员
+      password: "$2b$12$zyXWsyuCNvCxuPdRaNmV9OSwmPy5lVlEmsfVR9ZE0fVgGktyfUOD."
+cookie:
+  expiry_days: 30
+  key: "your_secret_key_here_for_encryption"
+  name: streamlit_auth_cookie
+preauthorized:
+  emails: []

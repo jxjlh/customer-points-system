@@ -761,54 +761,17 @@ def main():
         
         col_header_left, col_header_right = st.columns([4, 1])
         with col_header_right:
-            st.markdown("""
-            <style>
-            .header-btn {
-                padding: 8px 16px;
-                border-radius: 8px;
-                border: none;
-                font-size: 14px;
-                font-weight: bold;
-                cursor: pointer;
-                margin-left: 10px;
-                transition: all 0.3s ease;
-            }
-            .logout-btn {
-                background: #f87171;
-                color: white;
-            }
-            .logout-btn:hover {
-                background: #ef4444;
-            }
-            .back-btn {
-                background: #667eea;
-                color: white;
-            }
-            .back-btn:hover {
-                background: #5a67d8;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            
-            if selected_main != '🏠 首页':
-                st.markdown("""
-                <button class="header-btn back-btn" onclick="document.getElementById('btn-back').click()">
-                    ← 返回首页
-                </button>
-                """, unsafe_allow_html=True)
-                if st.button("返回首页", key="btn-back", style={"display": "none"}):
-                    st.session_state['selected_main'] = '🏠 首页'
+            col_btns = st.columns([1, 1])
+            with col_btns[0]:
+                if selected_main != '🏠 首页':
+                    if st.button("← 返回首页", key="btn-back", use_container_width=True):
+                        st.session_state['selected_main'] = '🏠 首页'
+                        st.rerun()
+            with col_btns[1]:
+                if st.button("退出登录", key="btn-logout", use_container_width=True):
+                    for key in list(st.session_state.keys()):
+                        del st.session_state[key]
                     st.rerun()
-            
-            st.markdown("""
-            <button class="header-btn logout-btn" onclick="document.getElementById('btn-logout').click()">
-                退出登录
-            </button>
-            """, unsafe_allow_html=True)
-            if st.button("退出登录", key="btn-logout", style={"display": "none"}):
-                for key in list(st.session_state.keys()):
-                    del st.session_state[key]
-                st.rerun()
         
         if selected_main == '🏠 首页':
             show_home()

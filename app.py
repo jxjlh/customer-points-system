@@ -104,7 +104,7 @@ def main():
         config['cookie']['expiry_days']
     )
     
-    authenticator.login(location="main", logo={"image": "logo.png", "name": "iBio"})
+    authenticator.login(location="main")
     
     if st.session_state.get('authentication_status') == False:
         st.error("用户名或密码错误")

@@ -17,6 +17,7 @@ from modules.excel_reader import ExcelReader
 from modules.customer_analysis import CustomerAnalysis
 from modules.point_calculation import PointCalculation
 from modules.database import DatabaseManager
+from modules.invoice_fetcher import InvoiceFetcher
 
 DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database", "points.db")
@@ -71,7 +72,7 @@ def show_home():
     欢迎使用澄天小助手，请选择您需要的功能模块：
     """)
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         if st.button("""📊
@@ -94,6 +95,17 @@ JAX邮件生成器
 
 点击进入 →""", key="btn-email", help="点击进入JAX邮件生成器模块", use_container_width=True, type="primary"):
             st.session_state['selected_main'] = "📧 JAX邮件生成器"
+            st.rerun()
+    
+    with col3:
+        if st.button("""🧾
+
+红冲发票自动登记
+
+自动从邮箱下载并登记电子发票
+
+点击进入 →""", key="btn-invoice", help="点击进入红冲发票自动登记模块", use_container_width=True, type="primary"):
+            st.session_state['selected_main'] = "🧾 红冲发票自动登记"
             st.rerun()
 
 
@@ -630,6 +642,63 @@ def show_email_generator():
                 st.error(f"处理过程中发生错误：\n\n{str(e)}")
 
 
+def show_invoice_registration():
+    st.title("🧾 红冲发票自动登记")
+    
+    st.markdown("""
+    **功能说明：**
+    通过IMAP连接邮箱，自动检索发票邮件，下载PDF发票并按规则命名保存到本地目录。
+    """)
+    
+    config = {
+        "imap_server": st.text_input("IMAP服务器", "imap.qiye.163.com"),
+        "imap_port": st.number_input("IMAP端口", min_value=1, max_value=65535, value=993),
+        "email": st.text_input("邮箱地址", "huiyin.guo@ibiologistics.com"),
+        "password": st.text_input("客户端授权码", type="password"),
+        "sender": st.text_input("发件人过滤", "百旺金穗云dzfpfwpt@hnfapiao.com"),
+        "subject_filter": st.text_input("主题关键字", "开具的发票"),
+        "output_dir": st.text_input("保存目录", r"C:\Users\Admin\Downloads\发票汇总"),
+        "days_back": st.number_input("检索天数", min_value=1, max_value=30, value=5),
+    }
+    
+    dry_run = st.checkbox("试运行（不实际下载）", value=False)
+    
+    if st.button("开始下载发票", key="btn-fetch-invoices", type="primary", use_container_width=True):
+        invoice_fetcher = InvoiceFetcher(config)
+        
+        errors = invoice_fetcher.validate_config()
+        if errors:
+            for error in errors:
+                st.error(error)
+            return
+        
+        with st.spinner("正在连接邮箱并下载发票..."):
+            results, summary = invoice_fetcher.fetch_invoices(days=config["days_back"], dry_run=dry_run)
+        
+        if results is None:
+            st.error(summary)
+            return
+        
+        st.success(f"处理完成！共处理 {summary['total_processed']} 封邮件，成功 {summary['success_count']} 封，失败 {summary['failed_count']} 封")
+        
+        st.subheader(f"📂 保存目录: {summary['output_dir']}")
+        
+        success_results = [r for r in results if r["status"] == "success"]
+        failed_results = [r for r in results if r["status"] == "failed"]
+        
+        if success_results:
+            st.subheader("✅ 成功下载的发票")
+            success_df = pd.DataFrame(success_results)
+            success_df = success_df[["date", "buyer", "amount", "filename", "source", "folder"]]
+            st.dataframe(success_df, use_container_width=True)
+        
+        if failed_results:
+            st.subheader("❌ 失败的邮件")
+            failed_df = pd.DataFrame(failed_results)
+            failed_df = failed_df[["date", "subject", "folder", "reason"]]
+            st.dataframe(failed_df, use_container_width=True)
+
+
 def main():
     st.set_page_config(
         page_title="澄天小助手",
@@ -755,6 +824,9 @@ def main():
         
         elif selected_main == '📧 JAX邮件生成器':
             show_email_generator()
+        
+        elif selected_main == '🧾 红冲发票自动登记':
+            show_invoice_registration()
 
 
 if __name__ == "__main__":

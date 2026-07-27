@@ -4,6 +4,7 @@ credentials:
       email: admin@example.com
       name: JAX.iBio
       password: "$2b$12$PpP0l2pIi5zzAA2GGrLUqeEiSA48mGhfdCc6oMPl34n8sBKezKHhC"
+      role: admin
 cookie:
   expiry_days: 30
   key: "your_secret_key_here_for_encryption"

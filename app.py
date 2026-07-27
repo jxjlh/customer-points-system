@@ -65,16 +65,21 @@ def load_data(excel_path=None, file_bytes=None):
         return None
 
 
-def show_home():
+def show_home(config):
     st.title("🏠 澄天小助手")
+    
+    current_user = st.session_state.get('username')
+    is_admin = False
+    if current_user and config['credentials']['usernames'].get(current_user, {}).get('role') == 'admin':
+        is_admin = True
     
     st.markdown("""
     欢迎使用澄天小助手，请选择您需要的功能模块：
     """)
     
-    col1, col2, col3 = st.columns(3)
+    cols = st.columns(4 if is_admin else 3)
     
-    with col1:
+    with cols[0]:
         if st.button("""📊
 
 客户积分智能分析
@@ -86,7 +91,7 @@ def show_home():
             st.session_state['selected_sub'] = "📈 数据概览"
             st.rerun()
     
-    with col2:
+    with cols[1]:
         if st.button("""📧
 
 JAX邮件生成器
@@ -97,7 +102,7 @@ JAX邮件生成器
             st.session_state['selected_main'] = "📧 JAX邮件生成器"
             st.rerun()
     
-    with col3:
+    with cols[2]:
         if st.button("""🧾
 
 红冲发票自动登记
@@ -107,6 +112,18 @@ JAX邮件生成器
 点击进入 →""", key="btn-invoice", help="点击进入红冲发票自动登记模块", use_container_width=True, type="primary"):
             st.session_state['selected_main'] = "🧾 红冲发票自动登记"
             st.rerun()
+    
+    if is_admin:
+        with cols[3]:
+            if st.button("""👑
+
+用户管理
+
+查看所有用户信息和登录状态
+
+点击进入 →""", key="btn-admin", help="点击进入用户管理模块", use_container_width=True, type="primary"):
+                st.session_state['selected_main'] = "👑 用户管理"
+                st.rerun()
 
 
 def show_dashboard(data):
@@ -642,6 +659,44 @@ def show_email_generator():
                 st.error(f"处理过程中发生错误：\n\n{str(e)}")
 
 
+def show_user_management(config):
+    st.title("👑 用户管理")
+    
+    st.markdown("""
+    **功能说明：**
+    管理员可以查看所有用户信息、登录状态和域名信息。
+    """)
+    
+    st.subheader("📊 当前域名")
+    domain = st.secrets.get("domain", "customer-points-system.streamlit.app") if hasattr(st, 'secrets') else "customer-points-system.streamlit.app"
+    st.info(f"当前域名：{domain}")
+    
+    st.subheader("👥 用户列表")
+    
+    users_data = []
+    for username, info in config['credentials']['usernames'].items():
+        is_logged_in = st.session_state.get('username') == username
+        users_data.append({
+            "用户名": username,
+            "姓名": info.get('name', ''),
+            "邮箱": info.get('email', ''),
+            "角色": info.get('role', 'user'),
+            "登录状态": "✅ 在线" if is_logged_in else "❌ 离线"
+        })
+    
+    if users_data:
+        users_df = pd.DataFrame(users_data)
+        st.dataframe(users_df, use_container_width=True)
+        
+        st.subheader("📈 用户统计")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("总用户数", len(users_data))
+        col2.metric("管理员数", len([u for u in users_data if u['角色'] == 'admin']))
+        col3.metric("在线用户", len([u for u in users_data if u['登录状态'] == '✅ 在线']))
+    else:
+        st.warning("暂无用户数据")
+
+
 def show_invoice_registration():
     st.title("🧾 红冲发票自动登记")
     
@@ -763,7 +818,8 @@ def main():
                         config['credentials']['usernames'][new_username] = {
                             "email": new_email,
                             "name": new_username,
-                            "password": hashed_password
+                            "password": hashed_password,
+                            "role": "user"
                         }
                         
                         with open(CONFIG_PATH, 'w') as file:
@@ -797,7 +853,7 @@ def main():
                     st.rerun()
         
         if selected_main == '🏠 首页':
-            show_home()
+            show_home(config)
         elif selected_main == '📊 客户积分智能分析':
             selected_sub = st.session_state.get('selected_sub', '📈 数据概览')
             
@@ -860,6 +916,9 @@ def main():
         
         elif selected_main == '🧾 红冲发票自动登记':
             show_invoice_registration()
+        
+        elif selected_main == '👑 用户管理':
+            show_user_management(config)
 
 
 if __name__ == "__main__":

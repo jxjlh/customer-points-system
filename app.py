@@ -19,6 +19,7 @@ from modules.customer_analysis import CustomerAnalysis
 from modules.point_calculation import PointCalculation
 from modules.database import DatabaseManager
 from modules.invoice_fetcher import InvoiceFetcher
+from modules.quotation_ui import show_quotation
 
 DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database", "points.db")
@@ -78,7 +79,7 @@ def show_home(config):
     欢迎使用澄天小助手，请选择您需要的功能模块：
     """)
     
-    cols = st.columns(4 if is_admin else 3)
+    cols = st.columns(5 if is_admin else 4)
     
     with cols[0]:
         if st.button("""📊
@@ -114,8 +115,19 @@ JAX邮件生成器
             st.session_state['selected_main'] = "🧾 红冲发票自动登记"
             st.rerun()
     
+    with cols[3]:
+        if st.button("""📋
+
+报价助手
+
+自动查询价格并生成报价单
+
+点击进入 →""", key="btn-quotation", help="点击进入报价助手模块", use_container_width=True, type="primary"):
+            st.session_state['selected_main'] = "📋 报价助手"
+            st.rerun()
+    
     if is_admin:
-        with cols[3]:
+        with cols[4]:
             if st.button("""👑
 
 用户管理
@@ -917,6 +929,9 @@ def main():
         
         elif selected_main == '🧾 红冲发票自动登记':
             show_invoice_registration()
+        
+        elif selected_main == '📋 报价助手':
+            show_quotation()
         
         elif selected_main == '👑 用户管理':
             show_user_management(config)

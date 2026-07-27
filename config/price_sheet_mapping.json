@@ -1,0 +1,9 @@
+{
+  "sheets": {
+    "commercial": ["COMM", "Commercial", "商业", "商业价格", "Commercial Price"],
+    "npo": ["NPO", "NPO Price", "非营利", "学术价格"],
+    "ka": ["KA", "KA-4", "KA Price", "大客户", "大客户价格"]
+  },
+  "default_sheet_order": ["commercial", "npo", "ka"],
+  "fallback_sheet": "commercial"
+}

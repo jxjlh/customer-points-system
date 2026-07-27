@@ -1,0 +1,23 @@
+{
+  "price_columns": {
+    "strain": ["Strain", "品系号", "货号", "Strain ID"],
+    "strain_name": ["Strain Name", "品系名称", "名称"],
+    "long_genotype": ["Long Genotype", "基因型", "Genotype"],
+    "age": ["Age", "周龄", "年龄"],
+    "sex": ["Sex", "性别"],
+    "price": ["Price", "价格", "单价"],
+    "international_commercial": ["International Commercial", "国际价格", "国际价"],
+    "china_distributor_commercial": ["China Distributor Commercial", "国内价格", "国内价"],
+    "npo_price": ["NPO Price", "NPO价格"],
+    "ka_price": ["KA Price", "KA价格"]
+  },
+  "customer_types": {
+    "commercial": ["Commercial", "商业客户", "商用", "商业"],
+    "npo": ["NPO", "非营利", "学术", "科研"],
+    "ka": ["KA", "大客户", "KA客户"]
+  },
+  "sex_mapping": {
+    "M": ["M", "Male", "male", "公", "雄", "男"],
+    "F": ["F", "Female", "female", "母", "雌", "女"]
+  }
+}

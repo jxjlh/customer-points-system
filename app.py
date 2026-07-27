@@ -10,6 +10,7 @@ from st_aggrid.grid_options_builder import GridOptionsBuilder
 import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
+import bcrypt
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -813,7 +814,7 @@ def main():
                     elif new_username in config['credentials']['usernames']:
                         st.error("该用户名已存在")
                     else:
-                        hashed_password = stauth.Hasher([new_password]).generate()[0]
+                        hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                         
                         config['credentials']['usernames'][new_username] = {
                             "email": new_email,

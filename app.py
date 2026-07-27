@@ -736,7 +736,40 @@ def main():
             except Exception as e:
                 pass
             st.title("澄天小助手")
-            authenticator.login(location="main")
+            
+            login_tab, register_tab = st.tabs(["登录", "注册"])
+            
+            with login_tab:
+                authenticator.login(location="main")
+            
+            with register_tab:
+                st.subheader("用户注册")
+                
+                new_username = st.text_input("用户名", key="reg_username")
+                new_email = st.text_input("邮箱", key="reg_email")
+                new_password = st.text_input("密码", type="password", key="reg_password")
+                confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password")
+                
+                if st.button("注册", key="btn_register", use_container_width=True, type="primary"):
+                    if not new_username or not new_email or not new_password:
+                        st.error("请填写所有必填字段")
+                    elif new_password != confirm_password:
+                        st.error("两次输入的密码不一致")
+                    elif new_username in config['credentials']['usernames']:
+                        st.error("该用户名已存在")
+                    else:
+                        hashed_password = stauth.Hasher([new_password]).generate()[0]
+                        
+                        config['credentials']['usernames'][new_username] = {
+                            "email": new_email,
+                            "name": new_username,
+                            "password": hashed_password
+                        }
+                        
+                        with open(CONFIG_PATH, 'w') as file:
+                            yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
+                        
+                        st.success("注册成功！请返回登录页面登录")
         
         if st.session_state.get('authentication_status') == False:
             st.error("用户名或密码错误")

@@ -21,6 +21,7 @@ from modules.database import DatabaseManager
 from modules.invoice_fetcher import InvoiceFetcher
 from modules.quotation_ui import show_quotation
 from modules.pg_database import get_pg_manager, PgDatabaseManager
+from modules.db_manager import get_db_manager
 
 DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database", "points.db")
@@ -29,21 +30,18 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.y
 
 def get_db_manager():
     """
-    获取数据库管理器（PostgreSQL 优先，降级到 SQLite）
+    获取数据库管理器（自动选择 MySQL / PostgreSQL / SQLite）
 
-    Returns:
-        PgDatabaseManager 或 DatabaseManager
+    优先级：
+    1. secrets.toml 中有 [mysql] → MySQL
+    2. secrets.toml 中有 [postgres] → PostgreSQL
+    3. 都没有 → 本地 SQLite 降级
     """
-    if 'db_manager' not in st.session_state:
-        try:
-            mgr = get_pg_manager()
-            if mgr.ping():
-                st.session_state['db_manager'] = mgr
-            else:
-                raise Exception("PostgreSQL ping failed")
-        except Exception as e:
-            st.session_state['db_manager'] = DatabaseManager(DB_PATH)
-    return st.session_state['db_manager']
+    return modules_db_get_manager()
+
+
+# 导入通用数据库管理器（覆盖之前的实现）
+from modules.db_manager import get_db_manager as modules_db_get_manager
 
 
 def load_data(excel_path=None, file_bytes=None):

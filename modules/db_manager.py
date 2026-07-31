@@ -1,0 +1,1038 @@
+"""
+通用数据库管理器（支持 MySQL / PostgreSQL）
+
+根据 secrets.toml 中的配置自动选择数据库类型。
+如果配置了 [mysql] 则使用 MySQL，配置了 [postgres] 则使用 PostgreSQL。
+两者都没有时回退到本地 SQLite。
+
+使用方式：
+    from modules.db_manager import get_db_manager
+    db = get_db_manager()
+    db.init_schema()
+    db.save_quotation(quotation_data)
+"""
+import os
+import sqlite3
+import json
+import threading
+from contextlib import contextmanager
+from datetime import datetime, date
+from typing import Dict, List, Optional
+
+import pandas as pd
+
+# ============================================================
+# 数据库类型检测
+# ============================================================
+def _detect_db_type() -> str:
+    """检测可用的数据库类型"""
+    try:
+        import streamlit as st
+        if "mysql" in st.secrets:
+            return "mysql"
+        if "postgres" in st.secrets:
+            return "postgres"
+    except Exception:
+        pass
+    return "sqlite"
+
+
+def get_db_manager():
+    """
+    获取数据库管理器（通过 st.cache_resource 缓存）
+    """
+    import streamlit as st
+
+    @st.cache_resource
+    def _get_manager():
+        db_type = _detect_db_type()
+        if db_type == "mysql":
+            return _MySQLManager.from_secrets()
+        elif db_type == "postgres":
+            return _PostgresManager.from_secrets()
+        else:
+            db_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "database",
+                "points.db",
+            )
+            return _SQLiteManager(db_path)
+
+    return _get_manager()
+
+
+# ============================================================
+# 通用基类
+# ============================================================
+class _BaseManager:
+    """通用数据库管理器基类"""
+
+    def __init__(self):
+        self._initialized = False
+
+    def init_schema(self) -> None:
+        raise NotImplementedError
+
+    def ping(self) -> bool:
+        raise NotImplementedError
+
+    def add_log(self, log_type: str, message: str) -> bool:
+        raise NotImplementedError
+
+    # ---------- 报价单 ----------
+    def get_next_quote_number(self) -> str:
+        raise NotImplementedError
+
+    def save_quotation(self, quotation_data: Dict) -> int:
+        raise NotImplementedError
+
+    def get_quotation(self, quote_number: str) -> Optional[Dict]:
+        raise NotImplementedError
+
+    def list_quotations(self, **kwargs) -> List[Dict]:
+        raise NotImplementedError
+
+    def delete_quotation(self, quote_id: int) -> bool:
+        raise NotImplementedError
+
+    # ---------- 价格库 ----------
+    def upsert_price_items(self, customer_type: str, df: pd.DataFrame) -> int:
+        raise NotImplementedError
+
+    def query_price(self, strain: str, long_genotype: str, age: str, sex: str,
+                    customer_type: str = "commercial") -> Dict:
+        raise NotImplementedError
+
+    def is_price_loaded(self, customer_type: Optional[str] = None) -> bool:
+        raise NotImplementedError
+
+    def get_price_library_as_dataframe(self, customer_type: Optional[str] = None) -> Dict[str, pd.DataFrame]:
+        raise NotImplementedError
+
+    # ---------- 发票 ----------
+    def add_invoice_record(self, record: Dict) -> int:
+        raise NotImplementedError
+
+    def get_invoice_records(self, **kwargs) -> List[Dict]:
+        raise NotImplementedError
+
+    def is_invoice_processed(self, email_uid: str) -> bool:
+        raise NotImplementedError
+
+    def get_processed_invoice_uids(self) -> set:
+        raise NotImplementedError
+
+    # ---------- 兼容旧 SQLite ----------
+    def add_exchange_record(self, *args, **kwargs) -> bool:
+        raise NotImplementedError
+
+    def get_exchange_records(self) -> List[Dict]:
+        raise NotImplementedError
+
+    def save_customer_points_history(self, *args, **kwargs) -> bool:
+        raise NotImplementedError
+
+    def get_customer_points_history(self, customer: Optional[str] = None) -> List[Dict]:
+        raise NotImplementedError
+
+    def backup_raw_data(self, df_raw: pd.DataFrame) -> int:
+        raise NotImplementedError
+
+    def sync_exchange_from_excel(self, df_exchange: pd.DataFrame) -> int:
+        raise NotImplementedError
+
+
+# ============================================================
+# MySQL 实现
+# ============================================================
+try:
+    import pymysql
+    import pymysql.cursors
+    MYSQL_AVAILABLE = True
+except ImportError:
+    MYSQL_AVAILABLE = False
+
+
+class _MySQLManager(_BaseManager):
+    """MySQL 数据库管理器"""
+
+    def __init__(self, config: Dict):
+        if not MYSQL_AVAILABLE:
+            raise ImportError("pymysql 未安装，请运行: pip install pymysql")
+        self.config = config
+        self._lock = threading.Lock()
+        self._conn = None
+
+    @classmethod
+    def from_secrets(cls) -> "_MySQLManager":
+        import streamlit as st
+        cfg = st.secrets["mysql"]
+        return cls({
+            "host": cfg.get("host", "localhost"),
+            "port": int(cfg.get("port", 3306)),
+            "user": cfg.get("user", "root"),
+            "password": cfg.get("password", ""),
+            "database": cfg.get("database", "customer_points"),
+            "charset": cfg.get("charset", "utf8mb4"),
+        })
+
+    def _get_conn(self):
+        """获取/创建连接"""
+        if self._conn is None or not self._conn.open:
+            self._conn = pymysql.connect(
+                host=self.config["host"],
+                port=self.config["port"],
+                user=self.config["user"],
+                password=self.config["password"],
+                database=self.config["database"],
+                charset=self.config["charset"],
+                cursorclass=pymysql.cursors.DictCursor,
+            )
+        return self._conn
+
+    def _execute(self, sql: str, params=None, fetch=False):
+        """执行SQL"""
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            try:
+                cur.execute(sql, params or ())
+                if fetch:
+                    result = cur.fetchall()
+                else:
+                    conn.commit()
+                    result = cur.lastrowid
+                return result
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cur.close()
+
+    def ping(self) -> bool:
+        try:
+            conn = self._get_conn()
+            conn.ping(reconnect=True)
+            return True
+        except Exception:
+            return False
+
+    def init_schema(self) -> None:
+        """创建表结构（MySQL语法）"""
+        ddl = """
+        CREATE TABLE IF NOT EXISTS quotations (
+            id              INT AUTO_INCREMENT PRIMARY KEY,
+            quote_number    VARCHAR(50)  NOT NULL UNIQUE,
+            quote_date      DATE         NOT NULL,
+            customer_name   VARCHAR(200) NOT NULL,
+            contact_person  VARCHAR(100),
+            sales_person    VARCHAR(100),
+            customer_type   VARCHAR(20)  NOT NULL,
+            subtotal        DECIMAL(14,2) DEFAULT 0,
+            shipping        DECIMAL(14,2) DEFAULT 0,
+            service_fee     DECIMAL(14,2) DEFAULT 0,
+            discount        DECIMAL(14,2) DEFAULT 0,
+            tax             DECIMAL(14,2) DEFAULT 0,
+            grand_total     DECIMAL(14,2) DEFAULT 0,
+            total_qty       INT          DEFAULT 0,
+            remark          TEXT,
+            created_at      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+            updated_at      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_q_date (quote_date),
+            INDEX idx_q_customer (customer_name),
+            INDEX idx_q_type (customer_type)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS quotation_items (
+            id                           INT AUTO_INCREMENT PRIMARY KEY,
+            quotation_id                 INT NOT NULL,
+            seq                          INT NOT NULL,
+            strain                       VARCHAR(50)  NOT NULL,
+            strain_name                  VARCHAR(200),
+            genotype                     VARCHAR(200),
+            age                          VARCHAR(20),
+            sex                          VARCHAR(10),
+            qty                          INT          NOT NULL,
+            unit_price                   DECIMAL(14,2) NOT NULL,
+            amount                       DECIMAL(14,2) NOT NULL,
+            international_commercial     DECIMAL(14,2),
+            china_distributor_commercial DECIMAL(14,2),
+            created_at                   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_qi_quote (quotation_id),
+            INDEX idx_qi_strain (strain)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS quotation_seq (
+            quote_day   DATE    NOT NULL PRIMARY KEY,
+            next_seq    INT     NOT NULL DEFAULT 1
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS price_library (
+            id                           INT AUTO_INCREMENT PRIMARY KEY,
+            customer_type                VARCHAR(20) NOT NULL,
+            strain                       VARCHAR(50)  NOT NULL,
+            strain_name                  VARCHAR(200),
+            long_genotype                VARCHAR(200),
+            age                          VARCHAR(20),
+            sex                          VARCHAR(10),
+            price                        DECIMAL(14,2),
+            international_commercial     DECIMAL(14,2),
+            china_distributor_commercial DECIMAL(14,2),
+            npo_price                    DECIMAL(14,2),
+            ka_price                     DECIMAL(14,2),
+            created_at                   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at                   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_lookup (customer_type, strain, long_genotype, age, sex),
+            INDEX idx_p_strain (strain)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS invoice_records (
+            id              INT AUTO_INCREMENT PRIMARY KEY,
+            invoice_date    DATE,
+            subject         TEXT,
+            buyer           VARCHAR(200),
+            amount          VARCHAR(50),
+            filename        VARCHAR(255),
+            filepath        TEXT,
+            source          VARCHAR(20),
+            folder          VARCHAR(100),
+            status          VARCHAR(20) NOT NULL,
+            reason          TEXT,
+            email_uid       VARCHAR(100),
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_i_date (invoice_date),
+            INDEX idx_i_status (status),
+            INDEX idx_i_buyer (buyer),
+            INDEX idx_i_uid (email_uid)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS system_logs (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            log_type    VARCHAR(20),
+            message     TEXT,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_l_created (created_at DESC)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS exchange_records (
+            id                INT AUTO_INCREMENT PRIMARY KEY,
+            exchange_no       VARCHAR(100) UNIQUE,
+            customer          TEXT,
+            exchange_date     TEXT,
+            points_exchanged  INT,
+            amount_exchanged  REAL,
+            exchange_method   TEXT,
+            exchange_product  TEXT,
+            operator          TEXT,
+            remark            TEXT,
+            created_at        TEXT,
+            updated_at        TEXT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS customer_points_history (
+            id                      INT AUTO_INCREMENT PRIMARY KEY,
+            customer                TEXT,
+            period                  TEXT,
+            total_points_earned     INT,
+            total_points_exchanged  INT,
+            remaining_points        INT,
+            created_at              TEXT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS raw_data_backup (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            date        TEXT,
+            order_no    TEXT,
+            customer    TEXT,
+            amount      REAL,
+            amount_cny  REAL,
+            product     TEXT,
+            created_at  TEXT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """
+        for stmt in ddl.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                self._execute(stmt)
+
+    def add_log(self, log_type: str, message: str) -> bool:
+        try:
+            self._execute(
+                "INSERT INTO system_logs (log_type, message) VALUES (%s, %s)",
+                (log_type, message),
+            )
+            return True
+        except Exception:
+            return False
+
+    def get_next_quote_number(self) -> str:
+        """生成 CT-YYYYMMDD-NNN"""
+        today = date.today()
+        day_str = today.strftime("%Y%m%d")
+
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    """INSERT INTO quotation_seq (quote_day, next_seq) VALUES (%s, 1)
+                       ON DUPLICATE KEY UPDATE next_seq = next_seq + 1""",
+                    (today,),
+                )
+                conn.commit()
+                cur.execute("SELECT next_seq FROM quotation_seq WHERE quote_day = %s", (today,))
+                row = cur.fetchone()
+                seq = row["next_seq"] if row else 1
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cur.close()
+
+        return f"CT-{day_str}-{seq:03d}"
+
+    def save_quotation(self, quotation_data: Dict) -> int:
+        ci = quotation_data.get("customer_info", {})
+        sm = quotation_data.get("summary", {})
+        items = quotation_data.get("items", [])
+        quote_number = quotation_data.get("quote_number", "")
+        quote_date_str = quotation_data.get("quote_date", datetime.now().strftime("%Y-%m-%d"))
+        total_qty = sum(int(i.get("qty", 0)) for i in items)
+
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    """INSERT INTO quotations
+                        (quote_number, quote_date, customer_name, contact_person,
+                         sales_person, customer_type, subtotal, shipping, service_fee,
+                         discount, tax, grand_total, total_qty)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (quote_number, quote_date_str,
+                     ci.get("customer_name", ""), ci.get("contact_person", ""),
+                     ci.get("sales_person", ""), ci.get("customer_type", "commercial"),
+                     sm.get("subtotal", 0), sm.get("shipping", 0),
+                     sm.get("service_fee", 0), sm.get("discount", 0),
+                     sm.get("tax", 0), sm.get("grand_total", 0), total_qty),
+                )
+                quotation_id = cur.lastrowid
+
+                for seq, item in enumerate(items, 1):
+                    cur.execute(
+                        """INSERT INTO quotation_items
+                            (quotation_id, seq, strain, strain_name, genotype,
+                             age, sex, qty, unit_price, amount,
+                             international_commercial, china_distributor_commercial)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (quotation_id, seq, item.get("strain", ""), item.get("name", ""),
+                         item.get("genotype", ""), item.get("age", ""), item.get("sex", ""),
+                         int(item.get("qty", 0)), float(item.get("unit_price", 0)),
+                         float(item.get("amount", 0)),
+                         float(item.get("international_commercial", 0)) if item.get("international_commercial") else None,
+                         float(item.get("china_distributor_commercial", 0)) if item.get("china_distributor_commercial") else None),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cur.close()
+
+        self.add_log("INFO", f"保存报价单: {quote_number} (ID={quotation_id})")
+        return quotation_id
+
+    def get_quotation(self, quote_number: str) -> Optional[Dict]:
+        result = self._execute(
+            "SELECT * FROM quotations WHERE quote_number = %s", (quote_number,), fetch=True
+        )
+        if not result:
+            return None
+        main = result[0]
+        main["items"] = self._execute(
+            "SELECT * FROM quotation_items WHERE quotation_id = %s ORDER BY seq",
+            (main["id"],), fetch=True,
+        )
+        return main
+
+    def get_quotation_by_id(self, quote_id: int) -> Optional[Dict]:
+        result = self._execute(
+            "SELECT * FROM quotations WHERE id = %s", (quote_id,), fetch=True
+        )
+        if not result:
+            return None
+        main = result[0]
+        main["items"] = self._execute(
+            "SELECT * FROM quotation_items WHERE quotation_id = %s ORDER BY seq",
+            (quote_id,), fetch=True,
+        )
+        return main
+
+    def list_quotations(self, customer_name=None, customer_type=None,
+                        date_from=None, date_to=None, limit=100, offset=0) -> List[Dict]:
+        query = """SELECT q.*, COUNT(qi.id) AS items_count
+                   FROM quotations q LEFT JOIN quotation_items qi ON qi.quotation_id = q.id
+                   WHERE 1=1"""
+        params = []
+        if customer_name:
+            query += " AND q.customer_name LIKE %s"
+            params.append(f"%{customer_name}%")
+        if customer_type:
+            query += " AND q.customer_type = %s"
+            params.append(customer_type)
+        if date_from:
+            query += " AND q.quote_date >= %s"
+            params.append(date_from)
+        if date_to:
+            query += " AND q.quote_date <= %s"
+            params.append(date_to)
+        query += " GROUP BY q.id ORDER BY q.quote_date DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        return self._execute(query, params, fetch=True)
+
+    def delete_quotation(self, quote_id: int) -> bool:
+        # MySQL 没有 ON DELETE CASCADE，手动删除
+        self._execute("DELETE FROM quotation_items WHERE quotation_id = %s", (quote_id,))
+        result = self._execute("DELETE FROM quotations WHERE id = %s", (quote_id,))
+        return result > 0
+
+    # ---------- 价格库 ----------
+    def upsert_price_items(self, customer_type: str, df: pd.DataFrame) -> int:
+        if df is None or df.empty:
+            return 0
+        count = 0
+        for _, row in df.iterrows():
+            self._execute(
+                """INSERT INTO price_library
+                    (customer_type, strain, strain_name, long_genotype,
+                     age, sex, price, international_commercial,
+                     china_distributor_commercial, npo_price, ka_price)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON DUPLICATE KEY UPDATE
+                    strain_name=VALUES(strain_name),
+                    price=VALUES(price),
+                    international_commercial=VALUES(international_commercial),
+                    china_distributor_commercial=VALUES(china_distributor_commercial),
+                    npo_price=VALUES(npo_price),
+                    ka_price=VALUES(ka_price),
+                    updated_at=CURRENT_TIMESTAMP""",
+                (customer_type,
+                 str(row.get("strain", "")), str(row.get("strain_name", "")),
+                 str(row.get("long_genotype", "")), str(row.get("age", "")),
+                 str(row.get("sex", "")),
+                 float(row.get("price", 0)) if pd.notna(row.get("price")) else None,
+                 float(row.get("international_commercial", 0)) if pd.notna(row.get("international_commercial")) else None,
+                 float(row.get("china_distributor_commercial", 0)) if pd.notna(row.get("china_distributor_commercial")) else None,
+                 float(row.get("npo_price", 0)) if pd.notna(row.get("npo_price")) else None,
+                 float(row.get("ka_price", 0)) if pd.notna(row.get("ka_price")) else None),
+            )
+            count += 1
+        self.add_log("INFO", f"价格库 upsert: {customer_type} {count} 条")
+        return count
+
+    def query_price(self, strain: str, long_genotype: str, age: str, sex: str,
+                    customer_type: str = "commercial") -> Dict:
+        from modules.price_normalizer import normalize_age, normalize_sex
+        age_n = normalize_age(age)
+        sex_n = normalize_sex(sex)
+        price_key_map = {"commercial": "china_distributor_commercial", "npo": "npo_price", "ka": "ka_price"}
+        price_col = price_key_map.get(customer_type, "price")
+
+        rows = self._execute(
+            """SELECT * FROM price_library
+               WHERE customer_type = %s AND TRIM(strain) = %s
+                 AND TRIM(long_genotype) = %s AND TRIM(age) = %s AND TRIM(sex) = %s""",
+            (customer_type, strain.strip(), long_genotype.strip(), age_n, sex_n),
+            fetch=True,
+        )
+        if len(rows) == 0:
+            return {"error": "未找到对应价格", "found": False}
+        if len(rows) > 1:
+            return {"error": "价格库存在重复数据", "found": False, "count": len(rows)}
+        row = rows[0]
+        return {
+            "found": True,
+            "strain": row.get("strain", strain),
+            "strain_name": row.get("strain_name", ""),
+            "long_genotype": row.get("long_genotype", long_genotype),
+            "age": row.get("age", age),
+            "sex": row.get("sex", sex),
+            "price": float(row.get(price_col) or row.get("price") or 0),
+            "international_commercial": float(row.get("international_commercial") or 0),
+            "china_distributor_commercial": float(row.get("china_distributor_commercial") or 0),
+            "customer_type": customer_type,
+        }
+
+    def is_price_loaded(self, customer_type: Optional[str] = None) -> bool:
+        if customer_type:
+            result = self._execute(
+                "SELECT COUNT(*) as cnt FROM price_library WHERE customer_type = %s",
+                (customer_type,), fetch=True,
+            )
+        else:
+            result = self._execute("SELECT COUNT(*) as cnt FROM price_library", fetch=True)
+        return result[0]["cnt"] > 0 if result else False
+
+    def get_price_library_as_dataframe(self, customer_type: Optional[str] = None) -> Dict[str, pd.DataFrame]:
+        if customer_type:
+            df = pd.read_sql(
+                "SELECT * FROM price_library WHERE customer_type = %s",
+                self._get_conn(), params=(customer_type,)
+            )
+            return {customer_type: df}
+        else:
+            df = pd.read_sql("SELECT * FROM price_library", self._get_conn())
+            return {ct: group for ct, group in df.groupby("customer_type")}
+
+    # ---------- 发票 ----------
+    def add_invoice_record(self, record: Dict) -> int:
+        result = self._execute(
+            """INSERT INTO invoice_records
+                (invoice_date, subject, buyer, amount, filename, filepath,
+                 source, folder, status, reason, email_uid)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (record.get("date"), record.get("subject"), record.get("buyer"),
+             str(record.get("amount", "")), record.get("filename"),
+             record.get("filepath"), record.get("source"), record.get("folder"),
+             record.get("status", "success"), record.get("reason"),
+             record.get("email_uid")),
+        )
+        return result
+
+    def get_invoice_records(self, date_from=None, date_to=None, status=None,
+                            buyer=None, limit=100, offset=0) -> List[Dict]:
+        query = "SELECT * FROM invoice_records WHERE 1=1"
+        params = []
+        if date_from:
+            query += " AND invoice_date >= %s"
+            params.append(date_from)
+        if date_to:
+            query += " AND invoice_date <= %s"
+            params.append(date_to)
+        if status:
+            query += " AND status = %s"
+            params.append(status)
+        if buyer:
+            query += " AND buyer LIKE %s"
+            params.append(f"%{buyer}%")
+        query += " ORDER BY invoice_date DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        return self._execute(query, params, fetch=True)
+
+    def is_invoice_processed(self, email_uid: str) -> bool:
+        if not email_uid:
+            return False
+        result = self._execute(
+            "SELECT id FROM invoice_records WHERE email_uid = %s LIMIT 1",
+            (email_uid,), fetch=True,
+        )
+        return len(result) > 0
+
+    def get_processed_invoice_uids(self) -> set:
+        rows = self._execute(
+            "SELECT DISTINCT email_uid FROM invoice_records WHERE email_uid IS NOT NULL",
+            fetch=True,
+        )
+        return {r["email_uid"] for r in rows}
+
+    # ---------- 兼容旧 SQLite ----------
+    def add_exchange_record(self, exchange_no, customer, exchange_date, points_exchanged,
+                            amount_exchanged, exchange_method, exchange_product,
+                            operator, remark="") -> bool:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            self._execute(
+                """INSERT INTO exchange_records
+                    (exchange_no, customer, exchange_date, points_exchanged,
+                     amount_exchanged, exchange_method, exchange_product,
+                     operator, remark, created_at, updated_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON DUPLICATE KEY UPDATE
+                    customer=VALUES(customer), exchange_date=VALUES(exchange_date),
+                    points_exchanged=VALUES(points_exchanged),
+                    amount_exchanged=VALUES(amount_exchanged),
+                    exchange_method=VALUES(exchange_method),
+                    exchange_product=VALUES(exchange_product),
+                    operator=VALUES(operator), remark=VALUES(remark),
+                    updated_at=VALUES(updated_at)""",
+                (exchange_no, customer, exchange_date, points_exchanged,
+                 amount_exchanged, exchange_method, exchange_product,
+                 operator, remark, now, now),
+            )
+            self.add_log("INFO", f"添加兑换记录: {exchange_no}")
+            return True
+        except Exception as e:
+            self.add_log("ERROR", f"添加兑换记录失败: {str(e)}")
+            return False
+
+    def get_exchange_records(self) -> List[Dict]:
+        return self._execute(
+            "SELECT * FROM exchange_records ORDER BY exchange_date DESC", fetch=True
+        )
+
+    def save_customer_points_history(self, customer, period, total_points_earned,
+                                     total_points_exchanged, remaining_points) -> bool:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            self._execute(
+                """INSERT INTO customer_points_history
+                    (customer, period, total_points_earned,
+                     total_points_exchanged, remaining_points, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s)""",
+                (customer, period, total_points_earned,
+                 total_points_exchanged, remaining_points, now),
+            )
+            return True
+        except Exception as e:
+            self.add_log("ERROR", f"保存积分历史失败: {str(e)}")
+            return False
+
+    def get_customer_points_history(self, customer: Optional[str] = None) -> List[Dict]:
+        if customer:
+            return self._execute(
+                "SELECT * FROM customer_points_history WHERE customer = %s ORDER BY period DESC",
+                (customer,), fetch=True,
+            )
+        return self._execute(
+            "SELECT * FROM customer_points_history ORDER BY period DESC", fetch=True
+        )
+
+    def sync_exchange_from_excel(self, df_exchange: pd.DataFrame) -> int:
+        if df_exchange is None or df_exchange.empty:
+            return 0
+        count = 0
+        for _, row in df_exchange.iterrows():
+            exchange_no = str(row.get("兑换编号", ""))
+            if exchange_no:
+                if self.add_exchange_record(
+                    exchange_no=exchange_no,
+                    customer=str(row.get("客户", "")),
+                    exchange_date=str(row.get("兑换日期", "")),
+                    points_exchanged=int(row.get("兑换积分数量", 0)),
+                    amount_exchanged=float(row.get("兑换金额", 0)),
+                    exchange_method=str(row.get("兑换方式", "")),
+                    exchange_product=str(row.get("兑换产品", "")),
+                    operator=str(row.get("操作人员", "")),
+                    remark=str(row.get("备注", "")),
+                ):
+                    count += 1
+        return count
+
+
+# ============================================================
+# PostgreSQL 实现（保留兼容性）
+# ============================================================
+try:
+    import psycopg2
+    import psycopg2.extras
+    from psycopg2.pool import SimpleConnectionPool
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    POSTGRES_AVAILABLE = False
+
+
+class _PostgresManager(_BaseManager):
+    """PostgreSQL 数据库管理器（兼容）"""
+
+    def __init__(self, dsn: str, minconn: int = 1, maxconn: int = 5):
+        if not POSTGRES_AVAILABLE:
+            raise ImportError("psycopg2 未安装")
+        self.dsn = dsn
+        self._pool = SimpleConnectionPool(minconn, maxconn, dsn)
+
+    @classmethod
+    def from_secrets(cls) -> "_PostgresManager":
+        import streamlit as st
+        cfg = st.secrets["postgres"]
+        dsn = (
+            f"host={cfg.host} port={cfg.port} dbname={cfg.dbname} "
+            f"user={cfg.user} password={cfg.password} "
+            f"sslmode={cfg.get('sslmode', 'prefer')}"
+        )
+        return cls(dsn)
+
+    @contextmanager
+    def _conn(self):
+        conn = self._pool.getconn()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self._pool.putconn(conn)
+
+    def init_schema(self) -> None:
+        from modules.pg_database import SCHEMA_DDL
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(SCHEMA_DDL)
+
+    def ping(self) -> bool:
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+            return True
+        except Exception:
+            return False
+
+    def add_log(self, log_type: str, message: str) -> bool:
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO system_logs (log_type, message) VALUES (%s, %s)",
+                        (log_type, message),
+                    )
+            return True
+        except Exception:
+            return False
+
+    def get_next_quote_number(self) -> str:
+        from modules.pg_database import PgDatabaseManager
+        # 委托给 PgDatabaseManager 的实现
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.get_next_quote_number()
+
+    def save_quotation(self, quotation_data: Dict) -> int:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.save_quotation(quotation_data)
+
+    def get_quotation(self, quote_number: str) -> Optional[Dict]:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.get_quotation(quote_number)
+
+    def get_quotation_by_id(self, quote_id: int) -> Optional[Dict]:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        with self._conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT * FROM quotations WHERE id = %s", (quote_id,))
+                main = cur.fetchone()
+                if not main:
+                    return None
+                main = dict(main)
+                cur.execute(
+                    "SELECT * FROM quotation_items WHERE quotation_id = %s ORDER BY seq",
+                    (quote_id,),
+                )
+                main["items"] = [dict(r) for r in cur.fetchall()]
+                return main
+
+    def list_quotations(self, customer_name=None, customer_type=None,
+                        date_from=None, date_to=None, limit=100, offset=0) -> List[Dict]:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.list_quotations(
+            customer_name=customer_name, customer_type=customer_type,
+            date_from=date_from, date_to=date_to, limit=limit, offset=offset,
+        )
+
+    def delete_quotation(self, quote_id: int) -> bool:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM quotations WHERE id = %s", (quote_id,))
+                return cur.rowcount > 0
+
+    def upsert_price_items(self, customer_type: str, df: pd.DataFrame) -> int:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.upsert_price_items(customer_type, df)
+
+    def query_price(self, strain: str, long_genotype: str, age: str, sex: str,
+                    customer_type: str = "commercial") -> Dict:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.query_price(strain, long_genotype, age, sex, customer_type)
+
+    def is_price_loaded(self, customer_type: Optional[str] = None) -> bool:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.is_price_loaded(customer_type)
+
+    def get_price_library_as_dataframe(self, customer_type: Optional[str] = None) -> Dict[str, pd.DataFrame]:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.get_price_library_as_dataframe(customer_type)
+
+    def add_invoice_record(self, record: Dict) -> int:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.add_invoice_record(record)
+
+    def get_invoice_records(self, **kwargs) -> List[Dict]:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.get_invoice_records(**kwargs)
+
+    def is_invoice_processed(self, email_uid: str) -> bool:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.is_invoice_processed(email_uid)
+
+    def get_processed_invoice_uids(self) -> set:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.get_processed_invoice_uids()
+
+    def add_exchange_record(self, *args, **kwargs) -> bool:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.add_exchange_record(*args, **kwargs)
+
+    def get_exchange_records(self) -> List[Dict]:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.get_exchange_records()
+
+    def save_customer_points_history(self, *args, **kwargs) -> bool:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.save_customer_points_history(*args, **kwargs)
+
+    def get_customer_points_history(self, customer=None) -> List[Dict]:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.get_customer_points_history(customer)
+
+    def sync_exchange_from_excel(self, df_exchange: pd.DataFrame) -> int:
+        from modules.pg_database import PgDatabaseManager
+        mgr = PgDatabaseManager(self.dsn)
+        return mgr.sync_exchange_from_excel(df_exchange)
+
+
+# ============================================================
+# SQLite 降级实现
+# ============================================================
+class _SQLiteManager(_BaseManager):
+    """SQLite 降级管理器"""
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+    def _get_conn(self):
+        return sqlite3.connect(self.db_path)
+
+    def init_schema(self) -> None:
+        from modules.database import DatabaseManager
+        # 使用现有 DatabaseManager 创建表
+        DatabaseManager(self.db_path)
+
+    def ping(self) -> bool:
+        try:
+            conn = self._get_conn()
+            conn.execute("SELECT 1")
+            conn.close()
+            return True
+        except Exception:
+            return False
+
+    def add_log(self, log_type: str, message: str) -> bool:
+        try:
+            conn = self._get_conn()
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS system_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, log_type TEXT, message TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)"
+            )
+            conn.execute(
+                "INSERT INTO system_logs (log_type, message) VALUES (?, ?)",
+                (log_type, message),
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception:
+            return False
+
+    def get_next_quote_number(self) -> str:
+        # 降级：扫描本地目录
+        today = datetime.now()
+        date_str = today.strftime("%Y%m%d")
+        export_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "exports")
+        os.makedirs(export_dir, exist_ok=True)
+        existing = [f for f in os.listdir(export_dir) if f.startswith(f"CT-{date_str}")]
+        if not existing:
+            seq = 1
+        else:
+            seq = max(int(f.split("-")[-1].replace(".xlsx", "").replace(".pdf", "")) for f in existing) + 1
+        return f"CT-{date_str}-{seq:03d}"
+
+    def save_quotation(self, quotation_data: Dict) -> int:
+        # SQLite 降级：不保存，仅返回模拟ID
+        quote_number = quotation_data.get("quote_number", "")
+        self.add_log("INFO", f"SQLite降级模式 - 报价单 {quote_number} 仅保存到内存")
+        return 0
+
+    def get_quotation(self, quote_number: str) -> Optional[Dict]:
+        return None
+
+    def get_quotation_by_id(self, quote_id: int) -> Optional[Dict]:
+        return None
+
+    def list_quotations(self, **kwargs) -> List[Dict]:
+        return []
+
+    def delete_quotation(self, quote_id: int) -> bool:
+        return False
+
+    def upsert_price_items(self, customer_type: str, df: pd.DataFrame) -> int:
+        # SQLite 降级：保存为CSV
+        export_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "price_library")
+        os.makedirs(export_dir, exist_ok=True)
+        if df is not None and not df.empty:
+            df.to_csv(os.path.join(export_dir, f"{customer_type}_price.csv"), index=False)
+            return len(df)
+        return 0
+
+    def query_price(self, strain: str, long_genotype: str, age: str, sex: str,
+                    customer_type: str = "commercial") -> Dict:
+        # SQLite 降级：不支持数据库查询
+        return {"error": "SQLite降级模式不支持数据库查询", "found": False}
+
+    def is_price_loaded(self, customer_type: Optional[str] = None) -> bool:
+        return False
+
+    def get_price_library_as_dataframe(self, customer_type: Optional[str] = None) -> Dict[str, pd.DataFrame]:
+        return {}
+
+    def add_invoice_record(self, record: Dict) -> int:
+        self.add_log("INFO", f"SQLite降级 - 发票记录仅保存到内存: {record.get('filename', '')}")
+        return 0
+
+    def get_invoice_records(self, **kwargs) -> List[Dict]:
+        return []
+
+    def is_invoice_processed(self, email_uid: str) -> bool:
+        return False
+
+    def get_processed_invoice_uids(self) -> set:
+        return set()
+
+    def add_exchange_record(self, *args, **kwargs) -> bool:
+        from modules.database import DatabaseManager
+        mgr = DatabaseManager(self.db_path)
+        return mgr.add_exchange_record(*args, **kwargs)
+
+    def get_exchange_records(self) -> List[Dict]:
+        from modules.database import DatabaseManager
+        mgr = DatabaseManager(self.db_path)
+        return mgr.get_exchange_records()
+
+    def save_customer_points_history(self, *args, **kwargs) -> bool:
+        from modules.database import DatabaseManager
+        mgr = DatabaseManager(self.db_path)
+        return mgr.save_customer_points_history(*args, **kwargs)
+
+    def get_customer_points_history(self, customer=None) -> List[Dict]:
+        from modules.database import DatabaseManager
+        mgr = DatabaseManager(self.db_path)
+        return mgr.get_customer_points_history(customer)
+
+    def sync_exchange_from_excel(self, df_exchange: pd.DataFrame) -> int:
+        from modules.database import DatabaseManager
+        mgr = DatabaseManager(self.db_path)
+        return mgr.sync_exchange_from_excel(df_exchange)

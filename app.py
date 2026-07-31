@@ -11,6 +11,7 @@ import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
 import bcrypt
+import base64
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -21,6 +22,7 @@ from modules.database import DatabaseManager
 from modules.invoice_fetcher import InvoiceFetcher
 from modules.quotation_ui import show_quotation
 from modules.db_manager import get_db_manager
+from logo_base64 import get_logo_html, get_avatar_html, get_logo_data_url, get_avatar_data_url
 
 DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database", "points.db")
@@ -74,24 +76,42 @@ def show_home(config):
     
     apply_all_styles()
     
-    st.title("🏠 澄天小助手")
-    
     current_user = st.session_state.get('username')
     is_admin = False
     if current_user and config['credentials']['usernames'].get(current_user, {}).get('role') == 'admin':
         is_admin = True
     
+    col_logo, col_title = st.columns([1, 8])
+    with col_logo:
+        st.markdown(get_logo_html(80), unsafe_allow_html=True)
+    with col_title:
+        user_display = config['credentials']['usernames'].get(current_user, {}).get('name', current_user) if current_user else ''
+        admin_badge = ' <span style="background: linear-gradient(90deg, #ffd700, #ff8c00); color: #000; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 8px;">👑 ADMIN</span>' if is_admin else ''
+        st.markdown(f'<h1 style="margin-bottom: 4px;">🏠 澄天小助手</h1>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color: var(--text-secondary); font-size: 14px;">欢迎回来，<strong style="color: var(--primary);">{user_display}</strong>{admin_badge}</div>', unsafe_allow_html=True)
+    
     st.markdown("""
     <div style='
-        background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
-        padding: 24px;
-        border-radius: 16px;
+        background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 255, 213, 0.05) 100%);
+        padding: 28px;
+        border-radius: 20px;
         margin-bottom: 30px;
-        border-left: 4px solid #667eea;
-        animation: fadeInDown 0.8s ease;
+        border: 1px solid var(--border-glow);
+        box-shadow: 0 0 30px rgba(0, 212, 255, 0.1), inset 0 1px 0 rgba(255,255,255,0.05);
+        position: relative;
+        overflow: hidden;
     '>
-        <h3 style='color: #2c3e50; margin-bottom: 8px;'>👋 欢迎使用澄天小助手</h3>
-        <p style='color: #7f8c8d; margin: 0;'>一站式管理您的客户积分、邮件、发票和报价，请选择您需要的功能模块：</p>
+        <div style='
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            box-shadow: 0 0 15px var(--primary-glow);
+        '></div>
+        <h3 style='color: var(--text-primary); margin-bottom: 12px; font-weight: 700;'>👋 欢迎使用澄天小助手</h3>
+        <p style='color: var(--text-secondary); margin: 0; line-height: 1.8;'>一站式管理您的客户积分、邮件、发票和报价，请选择您需要的功能模块：</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -193,12 +213,12 @@ def show_dashboard(data):
                       title="📉 月度积分获得趋势", 
                       labels={"积分数量": "积分数量", "月份": "月份"},
                       markers=True,
-                      color_discrete_sequence=["#667eea"],
-                      template="plotly_white")
+                      color_discrete_sequence=["#00d4ff"],
+                      template="plotly_dark")
         fig.update_layout(
-            title_font=dict(size=18, color="#333"),
-            xaxis_title_font=dict(size=14, color="#666"),
-            yaxis_title_font=dict(size=14, color="#666"),
+            title_font=dict(size=18, color="#b8c1ec"),
+            xaxis_title_font=dict(size=14, color="#b8c1ec"),
+            yaxis_title_font=dict(size=14, color="#b8c1ec"),
             hovermode="x unified",
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
@@ -211,12 +231,12 @@ def show_dashboard(data):
                       title="📊 月度订单数量",
                       labels={"订单数": "订单数", "月份": "月份"},
                       color="订单数",
-                      color_continuous_scale="Blues",
-                      template="plotly_white")
+                      color_continuous_scale=["#00d4ff", "#00ffd5"],
+                      template="plotly_dark")
         fig2.update_layout(
-            title_font=dict(size=18, color="#333"),
-            xaxis_title_font=dict(size=14, color="#666"),
-            yaxis_title_font=dict(size=14, color="#666"),
+            title_font=dict(size=18, color="#b8c1ec"),
+            xaxis_title_font=dict(size=14, color="#b8c1ec"),
+            yaxis_title_font=dict(size=14, color="#b8c1ec"),
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
             margin=dict(l=50, r=50, t=60, b=50)
@@ -231,13 +251,13 @@ def show_dashboard(data):
                       title="🥇 客户积分排名Top20",
                       labels={"累计积分": "累计积分", "客户": "客户名称"},
                       color="累计积分",
-                      color_continuous_scale=["#667eea", "#764ba2"],
+                      color_continuous_scale=["#00d4ff", "#00ffd5"],
                       orientation="h",
-                      template="plotly_white")
+                      template="plotly_dark")
         fig4.update_layout(
-            title_font=dict(size=18, color="#333"),
-            xaxis_title_font=dict(size=14, color="#666"),
-            yaxis_title_font=dict(size=14, color="#666"),
+            title_font=dict(size=18, color="#b8c1ec"),
+            xaxis_title_font=dict(size=14, color="#b8c1ec"),
+            yaxis_title_font=dict(size=14, color="#b8c1ec"),
             height=500,
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
@@ -268,10 +288,10 @@ def show_dashboard(data):
         fig3 = px.pie(values=attribute_counts.values, names=attribute_counts.index,
                       title="👨‍👩‍👧‍👦 新老客户分布",
                       hole=0.4,
-                      color_discrete_sequence=["#667eea", "#f093fb"],
-                      template="plotly_white")
+                      color_discrete_sequence=["#00d4ff", "#00ffd5"],
+                      template="plotly_dark")
         fig3.update_layout(
-            title_font=dict(size=18, color="#333"),
+            title_font=dict(size=18, color="#b8c1ec"),
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
             margin=dict(l=50, r=50, t=60, b=50)
@@ -280,7 +300,7 @@ def show_dashboard(data):
             hoverinfo="label+percent+value",
             textinfo="label+percent",
             textfont=dict(size=14),
-            marker=dict(line=dict(color="#ffffff", width=2))
+            marker=dict(line=dict(color="#1a1f3a", width=2))
         )
         st.plotly_chart(fig3, use_container_width=True)
 
@@ -819,6 +839,15 @@ def main():
         initial_sidebar_state="collapsed"
     )
     
+    # 配置Plotly深色主题
+    try:
+        px.defaults.template = "plotly_dark"
+        # 设置自定义颜色
+        import plotly.graph_objects as go
+        go.layout.Template()
+    except:
+        pass
+    
     from modules.theme import apply_all_styles
     apply_all_styles()
     
@@ -904,13 +933,7 @@ def main():
         
         col_logo, col_title = st.columns([1, 4])
         with col_logo:
-            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
-            try:
-                with open(logo_path, "rb") as f:
-                    logo_bytes = f.read()
-                st.image(logo_bytes, width=70)
-            except Exception as e:
-                pass
+            st.markdown(get_logo_html(90), unsafe_allow_html=True)
         with col_title:
             st.title("澄天小助手")
             st.markdown('<div class="tech-badge">TECH ASSISTANT SYSTEM</div>', unsafe_allow_html=True)
@@ -993,9 +1016,10 @@ def main():
                 gap: 8px;
                 margin-bottom: 24px;
                 padding: 8px;
-                background: white;
+                background: var(--bg-card);
                 border-radius: 12px;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+                border: 1px solid var(--border);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
                 overflow-x: auto;
             }
             </style>

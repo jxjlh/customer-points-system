@@ -24,15 +24,15 @@ def show_quotation():
         if not price_service.is_loaded():
             st.markdown("""
             <div style='
-                background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+                background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 255, 213, 0.05) 100%);
                 padding: 24px;
                 border-radius: 16px;
                 margin-bottom: 20px;
-                border-left: 4px solid #667eea;
-                animation: fadeInDown 0.8s ease;
+                border: 1px solid var(--border-glow);
+                box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
             '>
-                <h3 style='color: #2c3e50; margin-bottom: 8px;'>📁 价格库尚未加载</h3>
-                <p style='color: #7f8c8d; margin: 0;'>请先上传JAX价格库Excel文件以启用报价功能</p>
+                <h3 style='color: var(--text-primary); margin-bottom: 8px;'>📁 价格库尚未加载</h3>
+                <p style='color: var(--text-secondary); margin: 0;'>请先上传JAX价格库Excel文件以启用报价功能</p>
             </div>
             """, unsafe_allow_html=True)
 

@@ -240,7 +240,24 @@ def _get_global_css() -> str:
 
     .stTextInput label,
     .stNumberInput label,
-    .stTextArea label {
+    .stTextArea label,
+    .stSelectbox label {
+        color: var(--text-primary) !important;
+        font-weight: 500 !important;
+    }
+
+    /* 输入框容器样式 */
+    .stTextInput > div,
+    .stNumberInput > div,
+    .stTextArea > div,
+    .stSelectbox > div {
+        color: var(--text-primary) !important;
+    }
+
+    /* 登录表单输入框特殊处理 */
+    [data-testid="stForm"] .stTextInput label,
+    [data-testid="stForm"] .stTextInput p,
+    [data-testid="stForm"] label {
         color: var(--text-primary) !important;
     }
 
@@ -301,6 +318,26 @@ def _get_global_css() -> str:
         background: rgba(0, 212, 255, 0.05) !important;
     }
 
+    /* AgGrid深色模式 */
+    .ag-theme-alpine {
+        --ag-header-background-color: var(--bg-secondary) !important;
+        --ag-odd-row-background-color: var(--bg-card) !important;
+        --ag-row-hover-color: rgba(0, 212, 255, 0.1) !important;
+        --ag-column-hover-color: rgba(0, 212, 255, 0.05) !important;
+        background-color: var(--bg-card) !important;
+        color: var(--text-secondary) !important;
+    }
+
+    .ag-theme-alpine .ag-header-cell {
+        color: var(--primary) !important;
+        border-color: var(--border) !important;
+    }
+
+    .ag-theme-alpine .ag-cell {
+        color: var(--text-secondary) !important;
+        border-color: var(--border) !important;
+    }
+
     /* ===== 侧边栏美化 ===== */
     section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%) !important;
@@ -354,12 +391,19 @@ def _get_global_css() -> str:
     }
     
     .stTabs [aria-selected="true"] p,
-    .stTabs [aria-selected="true"] span {
+    .stTabs [aria-selected="true"] span,
+    .stTabs [aria-selected="true"] div {
         color: var(--bg-primary) !important;
         font-weight: 600 !important;
     }
 
-    .stTabs [aria-selected="false"]:hover {
+    .stTabs [aria-selected="false"] p,
+    .stTabs [aria-selected="false"] span {
+        color: var(--text-muted) !important;
+    }
+    
+    .stTabs [aria-selected="false"]:hover p,
+    .stTabs [aria-selected="false"]:hover span {
         color: var(--primary) !important;
     }
     
@@ -437,6 +481,14 @@ def _get_global_css() -> str:
     /* ===== Plotly图表深色模式 ===== */
     .js-plotly-plot .plotly .modebar {
         background: transparent !important;
+    }
+
+    /* Plotly图表容器 */
+    .js-plotly-plot {
+        background: var(--bg-card) !important;
+        border-radius: 12px !important;
+        border: 1px solid var(--border) !important;
+        padding: 12px !important;
     }
     
     /* ===== 加载动画 ===== */

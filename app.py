@@ -841,51 +841,73 @@ def main():
     )
     
     if st.session_state.get('authentication_status') != True:
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
+        # 居中显示登录卡片
+        st.markdown("""
+        <style>
+        .login-container {
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        </style>
+        <div class="login-container">
+        """, unsafe_allow_html=True)
+        
+        col_logo, col_title = st.columns([1, 3])
+        with col_logo:
             logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
             try:
                 with open(logo_path, "rb") as f:
                     logo_bytes = f.read()
-                st.image(logo_bytes, width=150)
+                st.image(logo_bytes, width=80)
             except Exception as e:
                 pass
+        with col_title:
             st.title("澄天小助手")
+            st.caption("一站式管理您的业务")
+        
+        st.markdown("---")
+        
+        login_tab, register_tab = st.tabs(["🔐 登录", "📝 注册"])
+        
+        with login_tab:
+            authenticator.login(location="main")
+        
+        with register_tab:
+            st.subheader("用户注册")
             
-            login_tab, register_tab = st.tabs(["登录", "注册"])
+            new_username = st.text_input("用户名", key="reg_username")
+            new_email = st.text_input("邮箱", key="reg_email")
+            new_password = st.text_input("密码", type="password", key="reg_password")
+            confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password")
             
-            with login_tab:
-                authenticator.login(location="main")
-            
-            with register_tab:
-                st.subheader("用户注册")
-                
-                new_username = st.text_input("用户名", key="reg_username")
-                new_email = st.text_input("邮箱", key="reg_email")
-                new_password = st.text_input("密码", type="password", key="reg_password")
-                confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password")
-                
-                if st.button("注册", key="btn_register", use_container_width=True, type="primary"):
-                    if not new_username or not new_email or not new_password:
-                        st.error("请填写所有必填字段")
-                    elif new_password != confirm_password:
-                        st.error("两次输入的密码不一致")
-                    elif new_username in config['credentials']['usernames']:
-                        st.error("该用户名已存在")
-                    else:
-                        hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-                        
-                        config['credentials']['usernames'][new_username] = {
-                            "email": new_email,
-                            "name": new_username,
-                            "password": hashed_password,
-                            "role": "user"
-                        }
-                        
-                        with open(CONFIG_PATH, 'w') as file:
-                            yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
-                        
-                        st.success("注册成功！请返回登录页面登录")
+            if st.button("注册新账号", key="btn_register", use_container_width=True, type="primary"):
+                if not new_username or not new_email or not new_password:
+                    st.error("请填写所有必填字段")
+                elif new_password != confirm_password:
+                    st.error("两次输入的密码不一致")
+                elif new_username in config['credentials']['usernames']:
+                    st.error("该用户名已存在")
+                else:
+                    hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                    
+                    config['credentials']['usernames'][new_username] = {
+                        "email": new_email,
+                        "name": new_username,
+                        "password": hashed_password,
+                        "role": "user"
+                    }
+                    
+                    with open(CONFIG_PATH, 'w') as file:
+                        yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
+                    
+                    st.success("注册成功！请返回登录页面登录")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
         
         if st.session_state.get('authentication_status') == False:
             st.error("用户名或密码错误")

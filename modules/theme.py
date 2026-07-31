@@ -91,6 +91,19 @@ def _get_global_css() -> str:
         letter-spacing: -0.3px;
     }
     
+    /* ===== 登录表单样式修复 ===== */
+    [data-testid="stForm"] {
+        background: white;
+        padding: 24px;
+        border-radius: 16px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+    }
+    
+    [data-testid="stForm"] label {
+        color: #2c3e50 !important;
+        font-weight: 500 !important;
+    }
+    
     /* ===== 按钮美化 ===== */
     .stButton > button {
         border-radius: 12px !important;
@@ -191,11 +204,22 @@ def _get_global_css() -> str:
         padding: 10px 20px !important;
         transition: all 0.3s ease !important;
         font-weight: 500 !important;
+        color: #2c3e50 !important;
     }
     
     .stTabs [aria-selected="true"] {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    }
+    
+    .stTabs [aria-selected="true"] p,
+    .stTabs [aria-selected="true"] span,
+    .stTabs [aria-selected="true"] {
         color: white !important;
+    }
+    
+    .stTabs [aria-selected="false"] p,
+    .stTabs [aria-selected="false"] span {
+        color: #2c3e50 !important;
     }
     
     /* ===== 动画关键帧 ===== */

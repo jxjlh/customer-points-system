@@ -9,7 +9,19 @@ def show_quotation():
     st.title("📋 报价助手")
 
     if 'price_service' not in st.session_state:
-        st.warning("价格库尚未加载，请先上传价格文件")
+        st.markdown("""
+        <div style='
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+            padding: 24px;
+            border-radius: 16px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+            animation: fadeInDown 0.8s ease;
+        '>
+            <h3 style='color: #2c3e50; margin-bottom: 8px;'>📁 价格库尚未加载</h3>
+            <p style='color: #7f8c8d; margin: 0;'>请先上传JAX价格库Excel文件以启用报价功能</p>
+        </div>
+        """, unsafe_allow_html=True)
         
         price_file = st.file_uploader("选择JAX价格库Excel文件", type=["xlsx", "xls"])
         if price_file is not None:
@@ -18,7 +30,7 @@ def show_quotation():
             try:
                 price_service.load_price_data(file_bytes=price_file.getvalue())
                 st.session_state['price_service'] = price_service
-                st.success("价格库加载成功！")
+                st.success("✅ 价格库加载成功！")
                 st.rerun()
             except Exception as e:
                 st.error(f"价格库加载失败: {str(e)}")
@@ -32,12 +44,18 @@ def show_quotation():
     quotation_service = st.session_state['quotation_service']
 
     st.markdown("""
-    **使用说明：**
-    1. 填写客户信息
-    2. 添加小鼠品系
-    3. 系统自动查询价格并计算金额
-    4. 生成报价单Excel
-    """)
+    <div style='
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+        padding: 20px;
+        border-radius: 12px;
+        margin-bottom: 24px;
+        border-left: 4px solid #667eea;
+    '>
+        <p style='color: #5a6c7d; margin: 0; font-size: 14px;'>
+            💡 <strong>使用流程：</strong> 填写客户信息 → 添加小鼠品系 → 自动查询价格 → 生成报价单
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.header("👥 客户信息")
     col1, col2, col3, col4 = st.columns(4)

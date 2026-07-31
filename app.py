@@ -68,6 +68,11 @@ def load_data(excel_path=None, file_bytes=None):
 
 
 def show_home(config):
+    from modules.theme import apply_all_styles
+    from modules.home_cards import show_home_cards
+    
+    apply_all_styles()
+    
     st.title("🏠 澄天小助手")
     
     current_user = st.session_state.get('username')
@@ -76,67 +81,71 @@ def show_home(config):
         is_admin = True
     
     st.markdown("""
-    欢迎使用澄天小助手，请选择您需要的功能模块：
-    """)
+    <div style='
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+        padding: 24px;
+        border-radius: 16px;
+        margin-bottom: 30px;
+        border-left: 4px solid #667eea;
+        animation: fadeInDown 0.8s ease;
+    '>
+        <h3 style='color: #2c3e50; margin-bottom: 8px;'>👋 欢迎使用澄天小助手</h3>
+        <p style='color: #7f8c8d; margin: 0;'>一站式管理您的客户积分、邮件、发票和报价，请选择您需要的功能模块：</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    cols = st.columns(5 if is_admin else 4)
-    
-    with cols[0]:
-        if st.button("""📊
-
-客户积分智能分析
-
-数据概览 · 客户管理 · 积分管理 · 数据导入 · 报表导出
-
-点击进入 →""", key="btn-customer", help="点击进入客户积分智能分析模块", use_container_width=True, type="primary"):
-            st.session_state['selected_main'] = "📊 客户积分智能分析"
-            st.session_state['selected_sub'] = "📈 数据概览"
-            st.rerun()
-    
-    with cols[1]:
-        if st.button("""📧
-
-JAX邮件生成器
-
-自动生成JAX小鼠发货通知邮件
-
-点击进入 →""", key="btn-email", help="点击进入JAX邮件生成器模块", use_container_width=True, type="primary"):
-            st.session_state['selected_main'] = "📧 JAX邮件生成器"
-            st.rerun()
-    
-    with cols[2]:
-        if st.button("""🧾
-
-红冲发票自动登记
-
-自动从邮箱下载并登记电子发票
-
-点击进入 →""", key="btn-invoice", help="点击进入红冲发票自动登记模块", use_container_width=True, type="primary"):
-            st.session_state['selected_main'] = "🧾 红冲发票自动登记"
-            st.rerun()
-    
-    with cols[3]:
-        if st.button("""📋
-
-报价助手
-
-自动查询价格并生成报价单
-
-点击进入 →""", key="btn-quotation", help="点击进入报价助手模块", use_container_width=True, type="primary"):
-            st.session_state['selected_main'] = "📋 报价助手"
-            st.rerun()
+    cards_config = [
+        {
+            "icon": "📊",
+            "title": "客户积分智能分析",
+            "desc": "数据概览 · 客户管理 · 积分管理 · 数据导入 · 报表导出",
+            "color_class": "card-blue",
+            "key": "btn-customer",
+            "session_value": "📊 客户积分智能分析",
+            "session_sub": "📈 数据概览",
+            "help": "点击进入客户积分智能分析模块"
+        },
+        {
+            "icon": "📧",
+            "title": "JAX邮件生成器",
+            "desc": "自动生成JAX小鼠发货通知邮件",
+            "color_class": "card-green",
+            "key": "btn-email",
+            "session_value": "📧 JAX邮件生成器",
+            "help": "点击进入JAX邮件生成器模块"
+        },
+        {
+            "icon": "🧾",
+            "title": "红冲发票自动登记",
+            "desc": "自动从邮箱下载并登记电子发票",
+            "color_class": "card-orange",
+            "key": "btn-invoice",
+            "session_value": "🧾 红冲发票自动登记",
+            "help": "点击进入红冲发票自动登记模块"
+        },
+        {
+            "icon": "📋",
+            "title": "报价助手",
+            "desc": "自动查询价格并生成报价单",
+            "color_class": "card-purple",
+            "key": "btn-quotation",
+            "session_value": "📋 报价助手",
+            "help": "点击进入报价助手模块"
+        }
+    ]
     
     if is_admin:
-        with cols[4]:
-            if st.button("""👑
-
-用户管理
-
-查看所有用户信息和登录状态
-
-点击进入 →""", key="btn-admin", help="点击进入用户管理模块", use_container_width=True, type="primary"):
-                st.session_state['selected_main'] = "👑 用户管理"
-                st.rerun()
+        cards_config.append({
+            "icon": "👑",
+            "title": "用户管理",
+            "desc": "查看所有用户信息和登录状态",
+            "color_class": "card-pink",
+            "key": "btn-admin",
+            "session_value": "👑 用户管理",
+            "help": "点击进入用户管理模块"
+        })
+    
+    show_home_cards(cards_config)
 
 
 def show_dashboard(data):
@@ -775,6 +784,9 @@ def main():
         initial_sidebar_state="collapsed"
     )
     
+    from modules.theme import apply_all_styles
+    apply_all_styles()
+    
     st.markdown("""
     <style>
     [data-testid="stSidebar"] {
@@ -870,23 +882,35 @@ def main():
         elif selected_main == '📊 客户积分智能分析':
             selected_sub = st.session_state.get('selected_sub', '📈 数据概览')
             
-            col_menu, col_content = st.columns([1, 4])
+            st.markdown("""
+            <style>
+            .sub-nav-container {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 24px;
+                padding: 8px;
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+                overflow-x: auto;
+            }
+            </style>
+            """, unsafe_allow_html=True)
             
-            with col_menu:
-                st.subheader("功能菜单")
+            sub_options = [
+                ("📈 数据概览", "数据概览"),
+                ("👥 客户管理", "客户管理"),
+                ("🏆 积分管理", "积分管理"),
+                ("📥 数据导入", "数据导入"),
+                ("📝 报表导出", "报表导出")
+            ]
+            
+            sub_cols = st.columns(len(sub_options))
+            for i, (icon, label) in enumerate(sub_options):
+                btn_key = f"btn-sub-{label}"
+                is_active = selected_sub == icon
                 
-                sub_options = [
-                    ("📈 数据概览", "数据概览"),
-                    ("👥 客户管理", "客户管理"),
-                    ("🏆 积分管理", "积分管理"),
-                    ("📥 数据导入", "数据导入"),
-                    ("📝 报表导出", "报表导出")
-                ]
-                
-                for icon, label in sub_options:
-                    btn_key = f"btn-sub-{label}"
-                    is_active = selected_sub == icon
-                    
+                with sub_cols[i]:
                     if is_active:
                         if st.button(icon, key=btn_key, use_container_width=True, type="primary"):
                             st.session_state['selected_sub'] = icon
@@ -896,33 +920,34 @@ def main():
                             st.session_state['selected_sub'] = icon
                             st.rerun()
             
-            with col_content:
-                if selected_sub == "📈 数据概览":
-                    if data is None:
-                        data = load_data()
-                        if data:
-                            st.session_state['data'] = data
-                    show_dashboard(data)
-                elif selected_sub == "👥 客户管理":
-                    if data is None:
-                        data = load_data()
-                        if data:
-                            st.session_state['data'] = data
-                    show_customer_management(data)
-                elif selected_sub == "🏆 积分管理":
-                    if data is None:
-                        data = load_data()
-                        if data:
-                            st.session_state['data'] = data
-                    show_point_management(data)
-                elif selected_sub == "📥 数据导入":
-                    show_data_import()
-                elif selected_sub == "📝 报表导出":
-                    if data is None:
-                        data = load_data()
-                        if data:
-                            st.session_state['data'] = data
-                    show_reports(data)
+            st.markdown("---")
+            
+            if selected_sub == "📈 数据概览":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_dashboard(data)
+            elif selected_sub == "👥 客户管理":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_customer_management(data)
+            elif selected_sub == "🏆 积分管理":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_point_management(data)
+            elif selected_sub == "📥 数据导入":
+                show_data_import()
+            elif selected_sub == "📝 报表导出":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_reports(data)
         
         elif selected_main == '📧 JAX邮件生成器':
             show_email_generator()

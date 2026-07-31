@@ -841,49 +841,96 @@ def main():
     )
     
     if st.session_state.get('authentication_status') != True:
-        # 居中显示登录卡片
+        # 居中显示登录卡片 - 科技风
         st.markdown("""
         <style>
         .login-container {
-            max-width: 500px;
-            margin: 0 auto;
-            padding: 40px 20px;
+            max-width: 520px;
+            margin: 60px auto;
+            padding: 40px 32px;
+            background: rgba(26, 31, 58, 0.8);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            box-shadow: 0 0 60px rgba(0, 212, 255, 0.1), 
+                        0 20px 40px rgba(0, 0, 0, 0.4),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            position: relative;
+        }
+        .login-container::before {
+            content: '';
+            position: absolute;
+            top: -1px;
+            left: -1px;
+            right: -1px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--primary), var(--accent), transparent);
+            border-radius: 20px 20px 0 0;
+        }
+        .login-container::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: -1px;
+            right: -1px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent), var(--primary), transparent);
+            border-radius: 0 0 20px 20px;
         }
         .login-header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 32px;
+        }
+        .login-subtitle {
+            color: var(--text-muted);
+            font-size: 14px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        .tech-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid var(--border-glow);
+            border-radius: 20px;
+            color: var(--primary);
+            font-size: 12px;
+            letter-spacing: 1px;
+            margin-top: 12px;
         }
         </style>
         <div class="login-container">
         """, unsafe_allow_html=True)
         
-        col_logo, col_title = st.columns([1, 3])
+        col_logo, col_title = st.columns([1, 4])
         with col_logo:
             logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
             try:
                 with open(logo_path, "rb") as f:
                     logo_bytes = f.read()
-                st.image(logo_bytes, width=80)
+                st.image(logo_bytes, width=70)
             except Exception as e:
                 pass
         with col_title:
             st.title("澄天小助手")
-            st.caption("一站式管理您的业务")
+            st.markdown('<div class="tech-badge">TECH ASSISTANT SYSTEM</div>', unsafe_allow_html=True)
         
-        st.markdown("---")
+        st.markdown("""
+        <div style="height: 1px; background: linear-gradient(90deg, transparent, var(--border-glow), transparent); margin: 24px 0;"></div>
+        """, unsafe_allow_html=True)
         
-        login_tab, register_tab = st.tabs(["🔐 登录", "📝 注册"])
+        login_tab, register_tab = st.tabs(["🔐 登录系统", "📝 新用户注册"])
         
         with login_tab:
             authenticator.login(location="main")
         
         with register_tab:
-            st.subheader("用户注册")
+            st.markdown('<h3 style="color: var(--text-primary); margin-bottom: 16px;">创建新账号</h3>', unsafe_allow_html=True)
             
-            new_username = st.text_input("用户名", key="reg_username")
-            new_email = st.text_input("邮箱", key="reg_email")
-            new_password = st.text_input("密码", type="password", key="reg_password")
-            confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password")
+            new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名")
+            new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址")
+            new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符")
+            confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码")
             
             if st.button("注册新账号", key="btn_register", use_container_width=True, type="primary"):
                 if not new_username or not new_email or not new_password:
@@ -905,12 +952,12 @@ def main():
                     with open(CONFIG_PATH, 'w') as file:
                         yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
                     
-                    st.success("注册成功！请返回登录页面登录")
+                    st.success("🎉 注册成功！请切换到登录页面登录")
         
         st.markdown("</div>", unsafe_allow_html=True)
         
         if st.session_state.get('authentication_status') == False:
-            st.error("用户名或密码错误")
+            st.error("❌ 用户名或密码错误")
             return
         
         if st.session_state.get('authentication_status') == None:

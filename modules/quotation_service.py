@@ -139,31 +139,108 @@ class QuotationService:
             "grand_total": 0
         }
 
-    def generate_quote_number(self) -> str:
+    def generate_quote_number(self, db_manager=None) -> str:
+        """
+        生成报价单号（优先使用数据库序号，降级扫描目录）
+
+        Args:
+            db_manager: 数据库管理器（可选）
+
+        Returns:
+            CT-YYYYMMDD-NNN 格式的报价单号
+        """
+        if db_manager and hasattr(db_manager, 'get_next_quote_number'):
+            try:
+                return db_manager.get_next_quote_number()
+            except Exception:
+                pass
+
+        # 降级：扫描本地目录
         today = datetime.now()
         date_str = today.strftime("%Y%m%d")
-        
+
         export_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "exports")
         os.makedirs(export_dir, exist_ok=True)
-        
+
         existing_files = [f for f in os.listdir(export_dir) if f.startswith(f"CT-{date_str}")]
-        
+
         if not existing_files:
             sequence = "001"
         else:
-            max_seq = max(int(f.split("-")[-1].replace(".xlsx", "")) for f in existing_files)
+            max_seq = max(int(f.split("-")[-1].replace(".xlsx", "").replace(".pdf", "")) for f in existing_files)
             sequence = f"{max_seq + 1:03d}"
-        
+
         return f"CT-{date_str}-{sequence}"
 
-    def to_dict(self) -> Dict:
+    def to_dict(self, db_manager=None) -> Dict:
         return {
             "customer_info": self.customer_info,
             "items": self.items,
             "summary": self.summary,
-            "quote_number": self.generate_quote_number(),
+            "quote_number": self.generate_quote_number(db_manager),
             "quote_date": datetime.now().strftime("%Y-%m-%d")
         }
+
+    def save_to_db(self, db_manager) -> int:
+        """
+        保存报价单到数据库
+
+        Args:
+            db_manager: 数据库管理器
+
+        Returns:
+            quotation_id
+        """
+        quotation_data = self.to_dict(db_manager)
+        return db_manager.save_quotation(quotation_data)
+
+    def load_from_db(self, db_manager, quote_id: int) -> bool:
+        """
+        从数据库加载报价单（用于复用历史报价）
+
+        Args:
+            db_manager: 数据库管理器
+            quote_id: 报价单ID
+
+        Returns:
+            是否加载成功
+        """
+        quote = db_manager.get_quotation_by_id(quote_id) if hasattr(db_manager, 'get_quotation_by_id') else None
+        if not quote:
+            return False
+
+        self.customer_info = {
+            "customer_name": quote.get("customer_name", ""),
+            "contact_person": quote.get("contact_person", ""),
+            "sales_person": quote.get("sales_person", ""),
+            "customer_type": quote.get("customer_type", "commercial"),
+        }
+        self.summary = {
+            "subtotal": float(quote.get("subtotal", 0)),
+            "shipping": float(quote.get("shipping", 0)),
+            "service_fee": float(quote.get("service_fee", 0)),
+            "discount": float(quote.get("discount", 0)),
+            "tax": float(quote.get("tax", 0)),
+            "grand_total": float(quote.get("grand_total", 0)),
+        }
+
+        items = quote.get("items", [])
+        self.items = []
+        for i, item in enumerate(items):
+            self.items.append({
+                "id": i + 1,
+                "strain": item.get("strain", ""),
+                "name": item.get("strain_name", ""),
+                "genotype": item.get("genotype", ""),
+                "age": item.get("age", ""),
+                "sex": item.get("sex", ""),
+                "qty": int(item.get("qty", 0)),
+                "unit_price": float(item.get("unit_price", 0)),
+                "amount": float(item.get("amount", 0)),
+                "international_commercial": float(item.get("international_commercial") or 0),
+                "china_distributor_commercial": float(item.get("china_distributor_commercial") or 0),
+            })
+        return True
 
     def get_total_items(self) -> int:
         return len(self.items)

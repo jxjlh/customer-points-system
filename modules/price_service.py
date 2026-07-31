@@ -4,6 +4,8 @@ import json
 from io import BytesIO
 from typing import Dict, Optional, Tuple, List
 
+from modules.price_normalizer import normalize_age, normalize_sex
+
 
 class PriceService:
     _instance = None
@@ -14,14 +16,15 @@ class PriceService:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, price_file_path: str = None):
+    def __init__(self, price_file_path: str = None, db_manager=None):
         if self._initialized:
             return
-        
+
         self.price_file_path = price_file_path
         self.dataframes: Dict[str, pd.DataFrame] = {}
         self.mapping = {}
         self.sheet_mapping = {}
+        self._db = db_manager
         self._load_config()
         self._initialized = True
 
@@ -68,7 +71,43 @@ class PriceService:
                 df = self._normalize_columns(df)
                 self.dataframes[sheet_name] = df
 
+        # 新增：Excel 加载成功后自动入库
+        if self._db and self.dataframes:
+            try:
+                self._db.bulk_upsert_price_items(self.dataframes)
+            except Exception as e:
+                print(f"价格库入库失败（不影响使用）: {e}")
+
         return True
+
+    def _ensure_loaded(self, customer_type: str = "commercial") -> bool:
+        """
+        懒加载：若 DataFrame 为空且 DB 有数据，则从 DB 加载
+
+        Args:
+            customer_type: 客户类型
+
+        Returns:
+            是否已加载
+        """
+        if self.dataframes:
+            return True
+        if self._db and self._db.is_price_loaded(customer_type):
+            self._load_from_db(customer_type)
+            return True
+        return False
+
+    def _load_from_db(self, customer_type: str = None):
+        """从数据库加载价格库到 DataFrame"""
+        if not self._db:
+            return
+        try:
+            dfs = self._db.get_price_library_as_dataframe(customer_type)
+            for ct, df in dfs.items():
+                if not df.empty:
+                    self.dataframes[ct] = self._normalize_columns(df)
+        except Exception as e:
+            print(f"从数据库加载价格库失败: {e}")
 
     def _normalize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         column_mapping = {}
@@ -108,40 +147,43 @@ class PriceService:
             return age[:-1].strip()
         return age
 
-    def query_price(self, strain: str, long_genotype: str, age: str, sex: str, 
+    def query_price(self, strain: str, long_genotype: str, age: str, sex: str,
                     customer_type: str = "commercial") -> Dict:
+        # 新增：懒加载（DataFrame 空时尝试从 DB 加载）
+        self._ensure_loaded(customer_type)
+
         df = self.dataframes.get(customer_type)
         if df is None:
             df = self.dataframes.get(self.sheet_mapping.get("fallback_sheet", "commercial"))
-        
+
         if df is None or df.empty:
             return {"error": "未找到价格数据", "found": False}
 
         strain = str(strain).strip()
         long_genotype = str(long_genotype).strip()
-        age = self._normalize_age(age)
-        sex = self._normalize_sex(sex)
+        age = normalize_age(age)
+        sex = normalize_sex(sex)
 
         query = (
             (df["strain"].astype(str).str.strip() == strain) &
             (df["long_genotype"].astype(str).str.strip() == long_genotype) &
-            (df["age"].astype(str).apply(self._normalize_age) == age) &
-            (df["sex"].astype(str).apply(self._normalize_sex) == sex)
+            (df["age"].astype(str).apply(normalize_age) == age) &
+            (df["sex"].astype(str).apply(normalize_sex) == sex)
         )
 
         results = df[query]
 
         if len(results) == 0:
             return {"error": "未找到对应价格", "found": False}
-        
+
         if len(results) > 1:
             return {"error": "价格库存在重复数据", "found": False, "count": len(results)}
 
         row = results.iloc[0]
-        
+
         price_columns = self.mapping.get("price_columns", {})
         price_key = self._get_price_key(customer_type)
-        
+
         result = {
             "found": True,
             "strain": row.get("strain", strain),
@@ -166,28 +208,30 @@ class PriceService:
         return price_key_map.get(customer_type, "price")
 
     def get_all_strains(self, customer_type: str = "commercial") -> List[str]:
+        self._ensure_loaded(customer_type)
         df = self.dataframes.get(customer_type)
         if df is None:
             df = self.dataframes.get(self.sheet_mapping.get("fallback_sheet", "commercial"))
-        
+
         if df is None or df.empty:
             return []
-        
+
         return df["strain"].astype(str).str.strip().unique().tolist()
 
     def get_strain_info(self, strain: str, customer_type: str = "commercial") -> Optional[Dict]:
+        self._ensure_loaded(customer_type)
         df = self.dataframes.get(customer_type)
         if df is None:
             df = self.dataframes.get(self.sheet_mapping.get("fallback_sheet", "commercial"))
-        
+
         if df is None or df.empty:
             return None
-        
+
         results = df[df["strain"].astype(str).str.strip() == strain.strip()]
-        
+
         if results.empty:
             return None
-        
+
         row = results.iloc[0]
         return {
             "strain": row.get("strain", strain),
@@ -198,7 +242,12 @@ class PriceService:
         }
 
     def is_loaded(self) -> bool:
-        return len(self.dataframes) > 0
+        """检查价格库是否已加载（DataFrame 或 DB 任一可用即可）"""
+        if self.dataframes:
+            return True
+        if self._db and self._db.is_price_loaded():
+            return True
+        return False
 
     def get_available_customer_types(self) -> List[str]:
         return list(self.dataframes.keys())

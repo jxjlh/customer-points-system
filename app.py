@@ -20,10 +20,30 @@ from modules.point_calculation import PointCalculation
 from modules.database import DatabaseManager
 from modules.invoice_fetcher import InvoiceFetcher
 from modules.quotation_ui import show_quotation
+from modules.pg_database import get_pg_manager, PgDatabaseManager
 
 DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database", "points.db")
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
+
+
+def get_db_manager():
+    """
+    获取数据库管理器（PostgreSQL 优先，降级到 SQLite）
+
+    Returns:
+        PgDatabaseManager 或 DatabaseManager
+    """
+    if 'db_manager' not in st.session_state:
+        try:
+            mgr = get_pg_manager()
+            if mgr.ping():
+                st.session_state['db_manager'] = mgr
+            else:
+                raise Exception("PostgreSQL ping failed")
+        except Exception as e:
+            st.session_state['db_manager'] = DatabaseManager(DB_PATH)
+    return st.session_state['db_manager']
 
 
 def load_data(excel_path=None, file_bytes=None):
@@ -49,7 +69,7 @@ def load_data(excel_path=None, file_bytes=None):
         df_points = point_calculation.calculate_points(df_raw, df_customer, column_mapping)
         df_account = point_calculation.calculate_point_account(df_points, df_exchange)
         
-        db_manager = DatabaseManager(DB_PATH)
+        db_manager = get_db_manager()
         db_manager.sync_exchange_from_excel(df_exchange)
         
         return {
@@ -739,41 +759,75 @@ def show_invoice_registration():
     }
     
     dry_run = st.checkbox("试运行（不实际下载）", value=False)
-    
+
     if st.button("开始下载发票", key="btn-fetch-invoices", type="primary", use_container_width=True):
-        invoice_fetcher = InvoiceFetcher(config)
-        
+        db_manager = get_db_manager()
+        invoice_fetcher = InvoiceFetcher(config, db_manager=db_manager)
+
         errors = invoice_fetcher.validate_config()
         if errors:
             for error in errors:
                 st.error(error)
             return
-        
+
         with st.spinner("正在连接邮箱并下载发票..."):
             results, summary = invoice_fetcher.fetch_invoices(days=config["days_back"], dry_run=dry_run)
-        
+
         if results is None:
             st.error(summary)
             return
-        
+
         st.success(f"处理完成！共处理 {summary['total_processed']} 封邮件，成功 {summary['success_count']} 封，失败 {summary['failed_count']} 封")
-        
+
         st.subheader(f"📂 保存目录: {summary['output_dir']}")
-        
+
         success_results = [r for r in results if r["status"] == "success"]
         failed_results = [r for r in results if r["status"] == "failed"]
-        
+
         if success_results:
             st.subheader("✅ 成功下载的发票")
             success_df = pd.DataFrame(success_results)
             success_df = success_df[["date", "buyer", "amount", "filename", "source", "folder"]]
             st.dataframe(success_df, use_container_width=True)
-        
+
         if failed_results:
             st.subheader("❌ 失败的邮件")
             failed_df = pd.DataFrame(failed_results)
             failed_df = failed_df[["date", "subject", "folder", "reason"]]
             st.dataframe(failed_df, use_container_width=True)
+
+    # 历史发票记录（从数据库加载）
+    try:
+        db_manager = get_db_manager()
+        if hasattr(db_manager, 'get_invoice_records'):
+            st.header("📚 历史发票记录")
+
+            with st.expander("查看历史发票记录", expanded=False):
+                hist_col1, hist_col2 = st.columns(2)
+                with hist_col1:
+                    hist_status = st.selectbox("状态筛选", ["全部", "success", "failed"], key="hist_inv_status")
+                with hist_col2:
+                    hist_buyer = st.text_input("购方名称筛选", key="hist_inv_buyer")
+
+                try:
+                    history = db_manager.get_invoice_records(
+                        status=None if hist_status == "全部" else hist_status,
+                        buyer=hist_buyer if hist_buyer else None,
+                        limit=100,
+                    )
+                    if history:
+                        hist_df = pd.DataFrame(history)
+                        display_cols = ["id", "invoice_date", "subject", "buyer", "amount",
+                                        "status", "filename", "source"]
+                        available_cols = [c for c in display_cols if c in hist_df.columns]
+                        st.dataframe(hist_df[available_cols], use_container_width=True, hide_index=True)
+                        st.caption(f"共 {len(history)} 条记录")
+                    else:
+                        st.info("暂无历史发票记录")
+                except Exception as e:
+                    st.warning(f"加载历史发票失败: {e}")
+    except Exception:
+        pass
 
 
 def main():

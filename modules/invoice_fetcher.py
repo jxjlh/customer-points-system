@@ -268,10 +268,11 @@ def imap_since_date(days_back: int) -> str:
 
 
 class InvoiceFetcher:
-    def __init__(self, config=None):
+    def __init__(self, config=None, db_manager=None):
         self.config = dict(DEFAULT_CONFIG)
         if config:
             self.config.update(config)
+        self._db = db_manager
 
     def fetch_invoices(self, days=None, dry_run=False):
         server = self.config["imap_server"]
@@ -302,6 +303,14 @@ class InvoiceFetcher:
             state_path = Path(self.config.get("state_file") or (Path(__file__).parent.parent / "database" / "invoice_state.json"))
             state = load_state(state_path)
             processed_set = set(state.get("processed", []))
+
+            # 新增：从数据库加载已处理 UID（优先）
+            if self._db and hasattr(self._db, 'get_processed_invoice_uids'):
+                try:
+                    db_uids = self._db.get_processed_invoice_uids()
+                    processed_set = processed_set | db_uids
+                except Exception:
+                    pass
 
             total_new = 0
             failed_count = 0
@@ -359,13 +368,21 @@ class InvoiceFetcher:
                     if result[0] is None:
                         processed_set.add(ukey)
                         failed_count += 1
-                        results.append({
+                        fail_record = {
                             "status": "failed",
                             "subject": subj,
                             "date": parse_email_date(probe),
                             "folder": folder,
-                            "reason": result[1] if len(result) > 1 else "未找到可下载的 PDF"
-                        })
+                            "reason": result[1] if len(result) > 1 else "未找到可下载的 PDF",
+                            "email_uid": ukey,
+                        }
+                        results.append(fail_record)
+                        # 新增：失败记录也保存到数据库
+                        if self._db and not dry_run:
+                            try:
+                                self._db.add_invoice_record(fail_record)
+                            except Exception:
+                                pass
                         continue
 
                     pdf_bytes, buyer, amount, subject, date_str, src = result
@@ -386,7 +403,7 @@ class InvoiceFetcher:
                     processed_set.add(ukey)
                     total_new += 1
 
-                    results.append({
+                    success_record = {
                         "status": "success",
                         "subject": subject,
                         "date": date_str,
@@ -395,8 +412,17 @@ class InvoiceFetcher:
                         "filename": fname,
                         "filepath": str(target),
                         "source": src,
-                        "folder": folder
-                    })
+                        "folder": folder,
+                        "email_uid": ukey,
+                    }
+                    results.append(success_record)
+
+                    # 新增：成功记录保存到数据库
+                    if self._db and not dry_run:
+                        try:
+                            self._db.add_invoice_record(success_record)
+                        except Exception:
+                            pass
 
             state["processed"] = list(processed_set)
             if not dry_run:

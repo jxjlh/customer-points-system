@@ -650,19 +650,58 @@ def format_date_email(date_value):
     except (ValueError, TypeError):
         pass
     
-    # 字符串处理
+    # 字符串处理 - 提取日期部分
     if isinstance(date_value, str):
-        clean_str = date_value.split(' ')[0].strip()
+        clean_str = date_value.strip()
+        
+        # 处理 "18上午5:00" 这种格式 - 提取数字部分
+        # 尝试找到日期相关的数字模式
+        import re
+        
+        # 先尝试标准格式
         if '-' in clean_str:
-            parts = clean_str.split('-')
+            parts = clean_str.split(' ')[0].split('-')
             if len(parts) == 3:
-                return f"{int(parts[1])}月{int(parts[2])}日"
+                try:
+                    return f"{int(parts[1])}月{int(parts[2])}日"
+                except ValueError:
+                    pass
+        
         if '/' in clean_str:
-            parts = clean_str.split('/')
+            parts = clean_str.split(' ')[0].split('/')
             if len(parts) == 3 and len(parts[0]) == 4:
-                return f"{int(parts[1])}月{int(parts[2])}日"
+                try:
+                    return f"{int(parts[1])}月{int(parts[2])}日"
+                except ValueError:
+                    pass
             elif len(parts) >= 2:
-                return f"{int(parts[0])}月{int(parts[1])}日"
+                try:
+                    return f"{int(parts[0])}月{int(parts[1])}日"
+                except ValueError:
+                    pass
+        
+        # 处理 "18上午5:00" 这种非标准格式
+        # 用正则提取所有数字
+        numbers = re.findall(r'\d+', clean_str)
+        if len(numbers) >= 2:
+            # 假设前两个数字是日和月，或者只有日
+            if len(numbers) == 2:
+                # 可能是 "18 5:00" -> 取第一个数字作为日
+                return f"{numbers[0]}日"
+            elif len(numbers) >= 3:
+                # 可能是 "2026-8-19 18上午5:00"
+                # 取前三个数字中最相关的
+                # 检查是否有4位数年份
+                if len(numbers) >= 3 and len(numbers[0]) == 4:
+                    return f"{int(numbers[1])}月{int(numbers[2])}日"
+                else:
+                    # 尝试用前两个数字作为月日
+                    try:
+                        return f"{int(numbers[0])}月{int(numbers[1])}日"
+                    except ValueError:
+                        return clean_str
+        
+        return clean_str
     
     return str(date_value)
 

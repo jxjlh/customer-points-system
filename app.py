@@ -566,21 +566,23 @@ def format_date_email(date_value):
 def build_strain_list(group_df):
     strain_items = []
     
-    for _, row in group_df.iterrows():
-        strain_id = str(row["品系号"]).strip()
-        gender = str(row["性别"]).strip().upper()
-        quantity = int(row["数量"]) if pd.notna(row["数量"]) else 0
-        age = str(row["年龄"]).strip()
+    # 按品系号和年龄分组，合并数量
+    grouped = group_df.groupby(["品系号", "年龄"])
+    
+    for (strain_id, age), group in grouped:
+        strain_id = str(strain_id).strip()
+        age = str(age).strip()
+        gender = str(group.iloc[0]["性别"]).strip().upper()
+        total_quantity = group["数量"].sum() if "数量" in group.columns else len(group)
         
         gender_text = "雌" if gender in ("雌", "F", "FEMALE") else "雄"
         
         if age.isdigit():
-            ship_age = int(age)
-            age_text = f"{ship_age}周"
+            age_text = f"{age}周"
         else:
             age_text = f"{age}周"
         
-        strain_items.append(f"您订购的JAX小鼠https://www.jax.org/strain/{strain_id}，性别：{gender_text}，发货周龄：{age_text}，数量：{quantity}。")
+        strain_items.append(f"您订购的JAX小鼠https://www.jax.org/strain/{strain_id}，性别：{gender_text}，发货周龄：{age_text}，数量：{total_quantity}。")
     
     return "\n".join(strain_items)
 

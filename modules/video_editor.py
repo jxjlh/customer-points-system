@@ -429,11 +429,11 @@ def _render_config_form() -> None:
             changed.clear()
             st.rerun()
 
-    st.subheader("🧵 并发池 / 绑定地址")
+    st.subheader("🧵 并发池")
     with st.form("crayotter_pool_form", border=False):
         cols = st.columns(2)
-        all_pool = pool_rows + bind_rows
-        for idx, (key, label, kind) in enumerate(all_pool):
+        changed: dict[str, str] = {}
+        for idx, (key, label, kind) in enumerate(pool_rows):
             col = cols[idx % 2]
             cur = val_for(key)
             with col:
@@ -442,16 +442,46 @@ def _render_config_form() -> None:
                         cv = int(cur) if cur else 1
                     except Exception:
                         cv = 1
-                    v = st.number_input(label, min_value=1, max_value=64, value=cv, key=f"f_{key}")
+                    v = st.number_input(
+                        label, min_value=1, max_value=64, value=cv, key=f"pool_{key}"
+                    )
                     if int(v) != cv:
                         changed[key] = str(int(v))
                 else:
-                    v = st.text_input(label, value=cur, key=f"f_{key}")
+                    v = st.text_input(label, value=cur, key=f"pool_{key}")
                     if v != cur:
                         changed[key] = v
-        if st.form_submit_button("💾 保存并发/绑定", use_container_width=True):
+        if st.form_submit_button("💾 保存并发池", use_container_width=True):
             _write_env(changed)
-            st.success("已保存并发/绑定配置，绑定地址变更需重启后端生效。")
+            st.success("已保存并发配置。")
+            changed.clear()
+            st.rerun()
+
+    st.subheader("🔌 绑定地址")
+    with st.form("crayotter_bind_form", border=False):
+        cols = st.columns(2)
+        changed = {}
+        for idx, (key, label, kind) in enumerate(bind_rows):
+            col = cols[idx % 2]
+            cur = val_for(key)
+            with col:
+                if kind == "int":
+                    try:
+                        cv = int(cur) if cur else 1
+                    except Exception:
+                        cv = 1
+                    v = st.number_input(
+                        label, min_value=1, max_value=65535, value=cv, key=f"bind_{key}"
+                    )
+                    if int(v) != cv:
+                        changed[key] = str(int(v))
+                else:
+                    v = st.text_input(label, value=cur, key=f"bind_{key}")
+                    if v != cur:
+                        changed[key] = v
+        if st.form_submit_button("💾 保存绑定地址", use_container_width=True):
+            _write_env(changed)
+            st.success("已保存绑定地址，变更需重启后端生效。")
             changed.clear()
             st.rerun()
 

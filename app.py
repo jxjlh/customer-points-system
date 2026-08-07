@@ -535,6 +535,58 @@ def validate_columns_email(df):
         raise ValueError(f"Excel文件缺少必要的列：{', '.join(missing_columns)}")
 
 
+def read_genotype_from_second_sheet(file_bytes):
+    """从第二个子表读取Genotype信息，按Job No或品系号关联"""
+    xls = pd.ExcelFile(BytesIO(file_bytes))
+    sheet_names = xls.sheet_names
+    
+    if len(sheet_names) < 2:
+        return {}
+    
+    second_sheet_name = sheet_names[1]
+    df_second = pd.read_excel(xls, sheet_name=second_sheet_name, header=None)
+    
+    # 查找Genotype表头行
+    header_idx = None
+    genotype_col = None
+    key_col = None
+    
+    for idx, row in df_second.iterrows():
+        row_values = [str(v).strip() for v in row.tolist()]
+        if "Genotype" in row_values:
+            header_idx = idx
+            genotype_col = row_values.index("Genotype")
+            # 优先用Job No关联，其次用品系号
+            if "Job No" in row_values:
+                key_col = row_values.index("Job No")
+            elif "品系号" in row_values:
+                key_col = row_values.index("品系号")
+            elif "Strain Number" in row_values:
+                key_col = row_values.index("Strain Number")
+            break
+    
+    if header_idx is None or genotype_col is None:
+        return {}
+    
+    new_header = df_second.iloc[header_idx].tolist()
+    df_second = df_second.iloc[header_idx + 1:]
+    df_second.columns = new_header
+    df_second = df_second.dropna(how='all')
+    
+    genotype_map = {}
+    key_col_name = new_header[key_col] if key_col is not None else None
+    genotype_col_name = new_header[genotype_col]
+    
+    if key_col_name and genotype_col_name:
+        for _, row in df_second.iterrows():
+            key_val = str(row[key_col_name]).strip() if pd.notna(row[key_col_name]) else ""
+            genotype_val = str(row[genotype_col_name]).strip() if pd.notna(row[genotype_col_name]) else ""
+            if key_val and genotype_val and genotype_val.lower() not in ("nan", "none", ""):
+                genotype_map[key_val] = genotype_val
+    
+    return genotype_map
+
+
 def format_date_email(date_value):
     if pd.isna(date_value):
         return ""
@@ -564,21 +616,41 @@ def format_date_email(date_value):
 
 
 def build_strain_list(group_df):
-    # 按品系号、年龄、性别分组，三者都相同才合并数量
-    grouped = group_df.groupby(["品系号", "年龄", "性别"])
+    # 按品系号、基因型、性别分组，三者都相同才合并数量
+    group_keys = ["品系号"]
+    if "基因型" in group_df.columns:
+        group_keys.append("基因型")
+    else:
+        group_keys.append("_no_genotype_")
+        group_df["_no_genotype_"] = ""
+    group_keys.append("性别")
+    
+    grouped = group_df.groupby(group_keys, dropna=False)
     
     # 检查是否所有品系号都一样
     unique_strains = group_df["品系号"].unique()
     all_same_strain = len(unique_strains) == 1
     common_strain_id = str(unique_strains[0]).strip() if all_same_strain else None
     
+    # 检查是否所有基因型都一样（仅当同品系号时有效）
+    all_same_genotype = False
+    common_genotype = ""
+    if all_same_strain and "基因型" in group_df.columns:
+        unique_genotypes = group_df["基因型"].dropna().unique()
+        all_same_genotype = len(unique_genotypes) == 1
+        common_genotype = str(unique_genotypes[0]).strip() if all_same_genotype else ""
+    
     # 构建分组信息列表
     groups_info = []
-    for (strain_id, age, gender), group in grouped:
-        strain_id = str(strain_id).strip()
-        age = str(age).strip()
-        gender = str(gender).strip().upper()
+    for key_tuple, group in grouped:
+        strain_id = str(key_tuple[0]).strip()
+        genotype_val = str(key_tuple[1]).strip() if key_tuple[1] else ""
+        gender = str(key_tuple[2]).strip().upper()
         total_quantity = group["数量"].sum() if "数量" in group.columns else len(group)
+        
+        # 年龄取分组第一条
+        first_row = group.iloc[0]
+        age = str(first_row["年龄"]).strip() if "年龄" in group.columns else ""
         
         gender_text = "雌" if gender in ("雌", "F", "FEMALE") else "雄"
         
@@ -589,6 +661,7 @@ def build_strain_list(group_df):
         
         groups_info.append({
             "strain_id": strain_id,
+            "genotype": genotype_val,
             "gender_text": gender_text,
             "age_text": age_text,
             "quantity": total_quantity
@@ -597,19 +670,25 @@ def build_strain_list(group_df):
     # 生成输出文本
     if all_same_strain:
         # 所有品系号相同，只写一遍URL
-        parts = [f"您订购的JAX小鼠https://www.jax.org/strain/{common_strain_id}"]
-        for i, info in enumerate(groups_info):
-            if i == 0:
+        first_line = f"您订购的JAX小鼠https://www.jax.org/strain/{common_strain_id}"
+        if all_same_genotype and common_genotype:
+            first_line += f"，基因型：{common_genotype}"
+        parts = [first_line]
+        for info in groups_info:
+            if all_same_genotype and common_genotype:
+                # 基因型已经写在开头，这里不再重复
                 line = f"性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
             else:
-                line = f"性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
+                gt = f"基因型：{info['genotype']}，" if info['genotype'] else ""
+                line = f"{gt}性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
             parts.append(line)
         return "\n".join(parts)
     else:
         # 品系号不同，每行都写完整
         lines = []
         for info in groups_info:
-            line = f"您订购的JAX小鼠https://www.jax.org/strain/{info['strain_id']}，性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
+            gt = f"，基因型：{info['genotype']}" if info['genotype'] else ""
+            line = f"您订购的JAX小鼠https://www.jax.org/strain/{info['strain_id']}{gt}，性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
             lines.append(line)
         return "\n".join(lines)
 
@@ -666,12 +745,31 @@ def process_excel_email(file_bytes):
     
     validate_columns_email(df)
     
+    # 从第二个子表读取Genotype信息
+    genotype_map = read_genotype_from_second_sheet(file_bytes)
+    
+    # 将基因型合并到主表
+    df["基因型"] = ""
+    if genotype_map:
+        # 优先用Job No关联
+        if "Job No" in df.columns:
+            df["基因型"] = df["Job No"].astype(str).str.strip().map(genotype_map).fillna("")
+        # Job No没匹配到的再用品系号关联
+        unmatched = df["基因型"] == ""
+        if unmatched.any():
+            strain_map = {}
+            for k, v in genotype_map.items():
+                # 用品系号做一个备用映射
+                strain_map[k] = v
+            if "品系号" in df.columns:
+                df.loc[unmatched, "基因型"] = df.loc[unmatched, "品系号"].astype(str).str.strip().map(strain_map).fillna("")
+    
     po_order = df["Individual PO Number"].dropna().unique().tolist()
     
     result_rows = []
     for po_number, group_data in df.groupby("Individual PO Number"):
         first_row = group_data.iloc[0]
-        strain_list = build_strain_list(group_data)
+        strain_list = build_strain_list(group_data.copy())
         
         receiver = str(first_row["收货人"]).strip() if pd.notna(first_row["收货人"]) else "老师"
         ship_date = format_date_email(first_row["提货时间"])

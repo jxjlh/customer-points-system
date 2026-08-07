@@ -18,6 +18,7 @@ import os
 import signal
 import subprocess
 import sys
+import textwrap
 import time
 import urllib.request
 from pathlib import Path
@@ -284,27 +285,29 @@ def show_video_editor() -> None:
     status = backend_status()
 
     st.markdown(
-        """
-    <div style='
-        background: linear-gradient(135deg, rgba(0, 212, 255, 0.12) 0%, rgba(0, 255, 213, 0.06) 100%);
-        padding: 28px; border-radius: 20px; margin-bottom: 24px;
-        border: 1px solid var(--border-glow);
-        box-shadow: 0 0 30px rgba(0, 212, 255, 0.1), inset 0 1px 0 rgba(255,255,255,0.05);
-        position: relative; overflow: hidden;
-    '>
-        <div style='position:absolute;top:0;left:0;right:0;height:3px;
-             background:linear-gradient(90deg, var(--primary), var(--accent));
-             box-shadow:0 0 15px var(--primary-glow);'></div>
-        <h3 style='color: var(--text-primary); margin-bottom: 12px; font-weight: 700;'>
-          🎬 AI 视频剪辑 · Crayotter
-        </h3>
-        <p style='color: var(--text-secondary); line-height: 1.8; margin: 0;'>
-          一句话需求驱动三阶段工作流：<strong>Planner</strong> 素材规划 → <strong>Editing Research</strong>
-          剪辑研究蓝图 → <strong>ReAct Editor</strong> 工具执行出片。支持 B 站/抖音/小红书/YouTube 素材搜索、
-          多模态视频分析、专业转场、配音、字幕与日志轨迹可视化。
-        </p>
-    </div>
-    """,
+        textwrap.dedent(
+            """
+            <div style='
+                background: linear-gradient(135deg, rgba(0, 212, 255, 0.12) 0%, rgba(0, 255, 213, 0.06) 100%);
+                padding: 28px; border-radius: 20px; margin-bottom: 24px;
+                border: 1px solid var(--border-glow);
+                box-shadow: 0 0 30px rgba(0, 212, 255, 0.1), inset 0 1px 0 rgba(255,255,255,0.05);
+                position: relative; overflow: hidden;
+            '>
+                <div style='position:absolute;top:0;left:0;right:0;height:3px;
+                     background:linear-gradient(90deg, var(--primary), var(--accent));
+                     box-shadow:0 0 15px var(--primary-glow);'></div>
+                <h3 style='color: var(--text-primary); margin-bottom: 12px; font-weight: 700;'>
+                  🎬 AI 视频剪辑 · Crayotter
+                </h3>
+                <p style='color: var(--text-secondary); line-height: 1.8; margin: 0;'>
+                  一句话需求驱动三阶段工作流：<strong>Planner</strong> 素材规划 → <strong>Editing Research</strong>
+                  剪辑研究蓝图 → <strong>ReAct Editor</strong> 工具执行出片。支持 B 站/抖音/小红书/YouTube 素材搜索、
+                  多模态视频分析、专业转场、配音、字幕与日志轨迹可视化。
+                </p>
+            </div>
+            """
+        ),
         unsafe_allow_html=True,
     )
 
@@ -351,36 +354,40 @@ def show_video_editor() -> None:
             ui_url = _backend_url("/ui/")
             st.caption(f"直接在新窗口打开：{ui_url}")
             st.markdown(
-                f"""
-                <div style='border:1px solid var(--border); border-radius:16px; overflow:hidden;
-                            background:#0a0e27; box-shadow: 0 8px 30px rgba(0,0,0,0.5);'>
-                  <div style='height: 6px; background: linear-gradient(90deg, var(--primary), var(--accent));'></div>
-                  <iframe src='{ui_url}' width='100%' height='1000px'
-                          style='border:none; background:#0a0e27;'
-                          title='Crayotter Workbench'
-                          allow='clipboard-read; clipboard-write'></iframe>
-                </div>
-                """,
+                textwrap.dedent(
+                    f"""
+                    <div style='border:1px solid var(--border); border-radius:16px; overflow:hidden;
+                                background:#0a0e27; box-shadow: 0 8px 30px rgba(0,0,0,0.5);'>
+                      <div style='height: 6px; background: linear-gradient(90deg, var(--primary), var(--accent));'></div>
+                      <iframe src='{ui_url}' width='100%' height='1000px'
+                              style='border:none; background:#0a0e27;'
+                              title='Crayotter Workbench'
+                              allow='clipboard-read; clipboard-write'></iframe>
+                    </div>
+                    """
+                ),
                 unsafe_allow_html=True,
             )
         else:
             st.info("🎬 先点击右上角「🚀 启动后端」，然后就能在下方直接使用 Crayotter 工作台啦。")
             with st.expander("🧭 使用流程速览", expanded=True):
                 st.markdown(
-                    """
-                **1. 在「⚙️ 配置」页填好 API Key（默认为阿里云百炼 Qwen 系列）。**
-                - `CRAYOTTER_API_KEY`：主模型 key（百炼 DashScope）
-                - 视频理解与 TTS 默认复用主 key，需要单独 key 可在下方填写
+                    textwrap.dedent(
+                        """
+                        **1. 在「⚙️ 配置」页填好 API Key（默认为阿里云百炼 Qwen 系列）。**
+                        - `CRAYOTTER_API_KEY`：主模型 key（百炼 DashScope）
+                        - 视频理解与 TTS 默认复用主 key，需要单独 key 可在下方填写
 
-                **2. 回到「🎛️ 工作台」启动后端。**
+                        **2. 回到「🎛️ 工作台」启动后端。**
 
-                **3. 在工作台里输入一句话需求，例如：**
-                > 做一个 1 分钟实验室小鼠配送宣传片，清新科技风，配字幕和旁白
+                        **3. 在工作台里输入一句话需求，例如：**
+                        > 做一个 1 分钟实验室小鼠配送宣传片，清新科技风，配字幕和旁白
 
-                **4. 日志轨迹可视化：**
-                任务完成后，在 Crayotter 的产物区可下载成片，日志文件保存在 `crayotter_runtime/logs/`，
-                可以用 Crayotter 自带的 `crayotter/script/visualize.py` 再做可视化。
-                """
+                        **4. 日志轨迹可视化：**
+                        任务完成后，在 Crayotter 的产物区可下载成片，日志文件保存在 `crayotter_runtime/logs/`，
+                        可以用 Crayotter 自带的 `crayotter/script/visualize.py` 再做可视化。
+                        """
+                    )
                 )
 
     with tab_config:

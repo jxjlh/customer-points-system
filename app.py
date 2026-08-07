@@ -536,102 +536,132 @@ def validate_columns_email(df):
 
 
 def read_genotype_from_second_sheet(file_bytes):
-    """从第二个子表读取Genotype信息，按Job No或品系号关联"""
+    """从第二个子表读取Genotype信息"""
     xls = pd.ExcelFile(BytesIO(file_bytes))
     sheet_names = xls.sheet_names
     
     if len(sheet_names) < 2:
-        return {}, f"Excel只有{len(sheet_names)}个子表，需要至少2个"
+        return {}, f"Excel只有{len(sheet_names)}个子表"
     
     second_sheet_name = sheet_names[1]
+    debug_info = f"第二个子表：{second_sheet_name}\n"
+    
     df_second = pd.read_excel(xls, sheet_name=second_sheet_name, header=None)
+    debug_info += f"共{len(df_second)}行，{len(df_second.columns)}列\n"
     
-    debug_info = f"第二个子表：{second_sheet_name}，共{len(df_second)}行\n"
-    
-    # 显示前几行帮助调试
-    preview_rows = min(10, len(df_second))
-    debug_info += f"前{preview_rows}行预览：\n"
-    for idx in range(preview_rows):
-        row_vals = [str(v)[:30] for v in df_second.iloc[idx].tolist()]
+    # 显示所有行的预览，帮助找到正确的表头位置
+    debug_info += "\n前20行数据预览:\n"
+    for idx in range(min(20, len(df_second))):
+        row_vals = [str(v)[:25] for v in df_second.iloc[idx].tolist()]
         debug_info += f"  行{idx}: {row_vals}\n"
     
-    # 查找Genotype表头行 - 尝试多种可能的拼写
+    # 策略：扫描每一行，查找包含Genotype的表头
     genotype_aliases = ["Genotype", "genotype", "基因型", "GENOTYPE"]
-    header_idx = None
-    genotype_col = None
-    key_col = None
-    key_col_name = None
     
+    # 找到Genotype所在的行作为表头行
+    header_idx = None
     for idx, row in df_second.iterrows():
         row_values = [str(v).strip() for v in row.tolist()]
-        # 检查是否有Genotype列
-        for col_idx, val in enumerate(row_values):
-            if val in genotype_aliases or val.lower() in [a.lower() for a in genotype_aliases]:
+        for val in row_values:
+            if val in genotype_aliases:
                 header_idx = idx
-                genotype_col = col_idx
                 break
         if header_idx is not None:
-            # 查找关联键列
-            if "Job No" in row_values or "Job_No" in row_values:
-                job_vals = [v for v in row_values if v in ("Job No", "Job_No")]
-                if job_vals:
-                    key_col = row_values.index(job_vals[0])
-                    key_col_name = "Job No"
-            elif "品系号" in row_values or "Strain Number" in row_values or "Strain" in row_values:
-                for alias in ["品系号", "Strain Number", "Strain"]:
-                    if alias in row_values:
-                        key_col = row_values.index(alias)
-                        key_col_name = alias
-                        break
             break
     
     if header_idx is None:
-        return {}, debug_info + "未找到Genotype表头"
+        # 尝试从所有sheet中搜索
+        debug_info += "\n在第二个子表中未找到Genotype，尝试其他子表...\n"
+        for sheet_name in sheet_names:
+            if sheet_name == second_sheet_name:
+                continue
+            df_temp = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+            for idx, row in df_temp.iterrows():
+                row_values = [str(v).strip() for v in row.tolist()]
+                for val in row_values:
+                    if val in genotype_aliases:
+                        debug_info += f"  在Sheet '{sheet_name}' 行{idx}找到Genotype\n"
+                        # 但我们还是用第二个子表
+                        break
     
-    debug_info += f"\n找到表头行：{header_idx}，Genotype列：{genotype_col}，关联键列：{key_col}({key_col_name})\n"
+    if header_idx is None:
+        return {}, debug_info + "未找到Genotype列"
     
+    debug_info += f"\n在行{header_idx}找到Genotype表头\n"
+    
+    # 用找到的行作为表头
     new_header = df_second.iloc[header_idx].tolist()
-    df_second = df_second.iloc[header_idx + 1:]
-    df_second.columns = new_header
-    df_second = df_second.dropna(how='all')
+    debug_info += f"表头: {[str(h)[:20] for h in new_header]}\n"
     
-    genotype_map = {}
+    # 读取数据（跳过表头和可能的空行）
+    df_data = df_second.iloc[header_idx + 2:].copy()
+    df_data.columns = new_header
+    df_data = df_data.dropna(how='all')
+    df_data = df_data[df_data.apply(lambda x: any(pd.notna(x)), axis=1)]
     
-    # 查找正确的列名
+    debug_info += f"数据行数: {len(df_data)}\n"
+    
+    # 找Genotype列名
     genotype_col_name = None
     for col in new_header:
-        if str(col).strip() in genotype_aliases:
+        col_str = str(col).strip()
+        if col_str in genotype_aliases:
             genotype_col_name = col
             break
     
     if genotype_col_name is None:
-        genotype_col_name = new_header[genotype_col] if genotype_col < len(new_header) else None
+        return {}, debug_info + "无法确定Genotype列"
     
-    if genotype_col_name is None:
-        return {}, debug_info + "无法确定Genotype列名"
+    debug_info += f"Genotype列: {genotype_col_name}\n"
     
-    # 确定关联键列名
-    actual_key_col_name = None
+    # 构建基因型映射 - 尝试所有可能的关联键
+    genotype_map = {}
+    
+    # 可能的关联键列
+    possible_keys = {
+        "Job No": None,
+        "Job_No": None, 
+        "品系号": None,
+        "Strain Number": None,
+        "Strain": None
+    }
+    
     for col in new_header:
         col_str = str(col).strip()
-        if col_str in ("Job No", "Job_No"):
-            actual_key_col_name = col
-            break
-        elif col_str in ("品系号", "Strain Number", "Strain"):
-            actual_key_col_name = col
-            break
+        if col_str in possible_keys:
+            possible_keys[col_str] = col
     
-    debug_info += f"Genotype列名：{genotype_col_name}，关联键列名：{actual_key_col_name}\n"
-    debug_info += f"数据行数：{len(df_second)}\n"
+    # 尝试用每个可用的关联键构建映射
+    for key_name, key_col_name in possible_keys.items():
+        if key_col_name is None:
+            continue
+        
+        temp_map = {}
+        for _, row in df_data.iterrows():
+            key_val = str(row[key_col_name]).strip() if pd.notna(row[key_col_name]) else ""
+            genotype_val = str(row[genotype_col_name]).strip() if pd.notna(row[genotype_col_name]) else ""
+            if key_val and genotype_val and genotype_val.lower() not in ("nan", "none", ""):
+                temp_map[key_val] = genotype_val
+        
+        if temp_map:
+            debug_info += f"用'{key_name}'关联，找到{len(temp_map)}个映射\n"
+            # 合并到总映射
+            genotype_map.update(temp_map)
     
-    if actual_key_col_name and genotype_col_name:
-        for _, row in df_second.iterrows():
-            key_val = str(row[actual_key_col_name]).strip() if pd.notna(row[actual_key_col_name]) else ""
+    # 如果上面的方法不行，尝试第一列作为键
+    if not genotype_map and len(df_data) > 0:
+        first_col = new_header[0]
+        debug_info += f"\n尝试用第一列'{first_col}'作为关联键...\n"
+        for _, row in df_data.iterrows():
+            key_val = str(row[first_col]).strip() if pd.notna(row[first_col]) else ""
             genotype_val = str(row[genotype_col_name]).strip() if pd.notna(row[genotype_col_name]) else ""
             if key_val and genotype_val and genotype_val.lower() not in ("nan", "none", ""):
                 genotype_map[key_val] = genotype_val
+        
+        if genotype_map:
+            debug_info += f"用第一列关联，找到{len(genotype_map)}个映射\n"
     
-    debug_info += f"提取的基因型映射：{genotype_map}\n"
+    debug_info += f"\n最终基因型映射: {genotype_map}\n"
     return genotype_map, debug_info
 
 
@@ -815,27 +845,36 @@ def process_excel_email(file_bytes):
     validate_columns_email(df)
     
     # 从第二个子表读取Genotype信息
-    genotype_result = read_genotype_from_second_sheet(file_bytes)
-    if isinstance(genotype_result, tuple):
-        genotype_map, debug_info = genotype_result
-    else:
-        genotype_map = genotype_result
-        debug_info = ""
+    genotype_map, debug_info = read_genotype_from_second_sheet(file_bytes)
     
-    # 将基因型合并到主表
+    # 将基因型合并到主表 - 尝试多种关联方式
     df["基因型"] = ""
+    
     if genotype_map:
-        # 优先用Job No关联
+        # 方式1：用Job No关联
         if "Job No" in df.columns:
             df["基因型"] = df["Job No"].astype(str).str.strip().map(genotype_map).fillna("")
-        # Job No没匹配到的再用品系号关联
+            match_count_1 = (df["基因型"] != "").sum()
+        else:
+            match_count_1 = 0
+        
+        # 方式2：用品系号关联（补充）
         unmatched = df["基因型"] == ""
-        if unmatched.any():
+        if unmatched.any() and "品系号" in df.columns:
             strain_map = {}
             for k, v in genotype_map.items():
                 strain_map[k] = v
-            if "品系号" in df.columns:
-                df.loc[unmatched, "基因型"] = df.loc[unmatched, "品系号"].astype(str).str.strip().map(strain_map).fillna("")
+            df.loc[unmatched, "基因型"] = df.loc[unmatched, "品系号"].astype(str).str.strip().map(strain_map).fillna("")
+            match_count_2 = (df["基因型"] != "").sum() - match_count_1
+        else:
+            match_count_2 = 0
+        
+        debug_info += f"\n关联结果:\n"
+        debug_info += f"  用Job No匹配: {match_count_1}条\n"
+        debug_info += f"  用品系号匹配: {match_count_2}条\n"
+        debug_info += f"  总匹配数: {(df['基因型'] != '').sum()}条\n"
+    else:
+        debug_info += "\n基因型映射为空，无法关联\n"
     
     # 记录调试信息
     process_excel_email._debug_info = debug_info

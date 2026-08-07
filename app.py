@@ -88,36 +88,20 @@ def show_home(config):
         st.markdown(get_logo_html(80), unsafe_allow_html=True)
     with col_title:
         user_display = config['credentials']['usernames'].get(current_user, {}).get('name', current_user) if current_user else ''
-        admin_badge = ' <span style="background: linear-gradient(90deg, #ffd700, #ff8c00); color: #000; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 8px;">👑 ADMIN</span>' if is_admin else ''
-        st.markdown(f'<h1 style="margin-bottom: 4px;">🏠 澄天小助手</h1>', unsafe_allow_html=True)
-        st.markdown(f'<div style="color: var(--text-secondary); font-size: 14px;">欢迎回来，<strong style="color: var(--primary);">{user_display}</strong>{admin_badge}</div>', unsafe_allow_html=True)
-    
-    st.markdown(textwrap.dedent(
-        """
-    <div style='
-        background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 255, 213, 0.05) 100%);
-        padding: 28px;
-        border-radius: 20px;
-        margin-bottom: 30px;
-        border: 1px solid var(--border-glow);
-        box-shadow: 0 0 30px rgba(0, 212, 255, 0.1), inset 0 1px 0 rgba(255,255,255,0.05);
-        position: relative;
-        overflow: hidden;
-    '>
-        <div style='
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, var(--primary), var(--accent));
-            box-shadow: 0 0 15px var(--primary-glow);
-        '></div>
-        <h3 style='color: var(--text-primary); margin-bottom: 12px; font-weight: 700;'>👋 欢迎使用澄天小助手</h3>
-        <p style='color: var(--text-secondary); margin: 0; line-height: 1.8;'>一站式管理您的客户积分、邮件、发票和报价，请选择您需要的功能模块：</p>
-    </div>
-    """), unsafe_allow_html=True)
-    
+        admin_badge = (
+            ' <span style="background:#fef3c7;color:#92400e;'
+            'padding:2px 8px;border-radius:4px;font-size:12px;margin-left:8px;border:1px solid #fcd34d;">ADMIN</span>'
+            if is_admin
+            else ""
+        )
+        st.title("🏠 澄天小助手")
+        st.caption(f"欢迎回来，{user_display}{admin_badge}")
+
+    # 极简模式下不再用自定义装饰 banner（渐变/发光/阴影），直接原生 Streamlit
+    st.subheader("👋 欢迎使用澄天小助手")
+    st.write("一站式管理您的客户积分、邮件、发票和报价，请选择您需要的功能模块：")
+    st.divider()
+
     cards_config = [
         {
             "icon": "📊",
@@ -1151,15 +1135,16 @@ def main():
     
     from modules.theme import apply_all_styles
     apply_all_styles()
-    
-    st.markdown(textwrap.dedent(
+
+    # 登录路由下隐藏侧边栏：用 class 匹配 theme.py 的 .no-show 规则，其他路由侧边栏默认保留
+    hide_sidebar_css = textwrap.dedent(
         """
-    <style>
-    [data-testid="stSidebar"] {
-        display: none;
-    }
-    </style>
-    """), unsafe_allow_html=True)
+        <style>
+        [data-testid="stSidebar"] { display: none; }
+        </style>
+        """
+    )
+    st.markdown(hide_sidebar_css, unsafe_allow_html=True)
     
     with open(CONFIG_PATH) as file:
         config = yaml.load(file, Loader=SafeLoader)
@@ -1172,87 +1157,26 @@ def main():
     )
     
     if st.session_state.get('authentication_status') != True:
-        # 居中显示登录卡片 - 科技风
-        st.markdown(textwrap.dedent(
-            """
-        <style>
-        .login-container {
-            max-width: 520px;
-            margin: 60px auto;
-            padding: 40px 32px;
-            background: rgba(26, 31, 58, 0.8);
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            box-shadow: 0 0 60px rgba(0, 212, 255, 0.1),
-                        0 20px 40px rgba(0, 0, 0, 0.4),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(20px);
-            position: relative;
-        }
-        .login-container::before {
-            content: '';
-            position: absolute;
-            top: -1px;
-            left: -1px;
-            right: -1px;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--primary), var(--accent), transparent);
-            border-radius: 20px 20px 0 0;
-        }
-        .login-container::after {
-            content: '';
-            position: absolute;
-            bottom: -1px;
-            left: -1px;
-            right: -1px;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--accent), var(--primary), transparent);
-            border-radius: 0 0 20px 20px;
-        }
-        .login-header {
-            text-align: center;
-            margin-bottom: 32px;
-        }
-        .login-subtitle {
-            color: var(--text-muted);
-            font-size: 14px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-        }
-        .tech-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            background: rgba(0, 212, 255, 0.1);
-            border: 1px solid var(--border-glow);
-            border-radius: 20px;
-            color: var(--primary);
-            font-size: 12px;
-            letter-spacing: 1px;
-            margin-top: 12px;
-        }
-        </style>
-        <div class="login-container">
-        """), unsafe_allow_html=True)
-        
+        # 极简模式：theme.py 已提供 .login-container 最小居中样式（max-width 460 + margin auto），
+        # 此处仅开一个简单容器 div 包裹内容，去掉科技风发光/渐变装饰。
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+
         col_logo, col_title = st.columns([1, 4])
         with col_logo:
             st.markdown(get_logo_html(90), unsafe_allow_html=True)
         with col_title:
             st.title("澄天小助手")
-            st.markdown('<div class="tech-badge">TECH ASSISTANT SYSTEM</div>', unsafe_allow_html=True)
-        
-        st.markdown(textwrap.dedent(
-            """
-        <div style="height: 1px; background: linear-gradient(90deg, transparent, var(--border-glow), transparent); margin: 24px 0;"></div>
-        """), unsafe_allow_html=True)
-        
-        login_tab, register_tab = st.tabs(["🔐 登录系统", "📝 新用户注册"])
-        
+            st.caption("TECH ASSISTANT SYSTEM")
+
+        st.divider()
+
+        login_tab, register_tab = st.tabs(["登录系统", "新用户注册"])
+
         with login_tab:
             authenticator.login(location="main")
-        
+
         with register_tab:
-            st.markdown('<h3 style="color: var(--text-primary); margin-bottom: 16px;">创建新账号</h3>', unsafe_allow_html=True)
+            st.subheader("创建新账号")
             
             new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名")
             new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址")
@@ -1312,24 +1236,7 @@ def main():
             show_home(config)
         elif selected_main == '📊 客户积分智能分析':
             selected_sub = st.session_state.get('selected_sub', '📈 数据概览')
-            
-            st.markdown(textwrap.dedent(
-                """
-            <style>
-            .sub-nav-container {
-                display: flex;
-                gap: 8px;
-                margin-bottom: 24px;
-                padding: 8px;
-                background: var(--bg-card);
-                border-radius: 12px;
-                border: 1px solid var(--border);
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                overflow-x: auto;
-            }
-            </style>
-            """), unsafe_allow_html=True)
-            
+
             sub_options = [
                 ("📈 数据概览", "数据概览"),
                 ("👥 客户管理", "客户管理"),
@@ -1337,12 +1244,12 @@ def main():
                 ("📥 数据导入", "数据导入"),
                 ("📝 报表导出", "报表导出")
             ]
-            
+
             sub_cols = st.columns(len(sub_options))
             for i, (icon, label) in enumerate(sub_options):
                 btn_key = f"btn-sub-{label}"
                 is_active = selected_sub == icon
-                
+
                 with sub_cols[i]:
                     if is_active:
                         if st.button(icon, key=btn_key, use_container_width=True, type="primary"):
@@ -1352,8 +1259,8 @@ def main():
                         if st.button(icon, key=btn_key, use_container_width=True):
                             st.session_state['selected_sub'] = icon
                             st.rerun()
-            
-            st.markdown("---")
+
+            st.divider()
             
             if selected_sub == "📈 数据概览":
                 if data is None:

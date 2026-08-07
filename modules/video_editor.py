@@ -284,51 +284,29 @@ def show_video_editor() -> None:
     _ensure_runtime_layout()
     status = backend_status()
 
-    st.markdown(
-        textwrap.dedent(
-            """
-            <div style='
-                background: linear-gradient(135deg, rgba(0, 212, 255, 0.12) 0%, rgba(0, 255, 213, 0.06) 100%);
-                padding: 28px; border-radius: 20px; margin-bottom: 24px;
-                border: 1px solid var(--border-glow);
-                box-shadow: 0 0 30px rgba(0, 212, 255, 0.1), inset 0 1px 0 rgba(255,255,255,0.05);
-                position: relative; overflow: hidden;
-            '>
-                <div style='position:absolute;top:0;left:0;right:0;height:3px;
-                     background:linear-gradient(90deg, var(--primary), var(--accent));
-                     box-shadow:0 0 15px var(--primary-glow);'></div>
-                <h3 style='color: var(--text-primary); margin-bottom: 12px; font-weight: 700;'>
-                  🎬 AI 视频剪辑 · Crayotter
-                </h3>
-                <p style='color: var(--text-secondary); line-height: 1.8; margin: 0;'>
-                  一句话需求驱动三阶段工作流：<strong>Planner</strong> 素材规划 → <strong>Editing Research</strong>
-                  剪辑研究蓝图 → <strong>ReAct Editor</strong> 工具执行出片。支持 B 站/抖音/小红书/YouTube 素材搜索、
-                  多模态视频分析、专业转场、配音、字幕与日志轨迹可视化。
-                </p>
-            </div>
-            """
-        ),
-        unsafe_allow_html=True,
+    # 极简：纯原生 Streamlit 组件，不再用自定义 hero banner / 渐变 border / 发光装饰
+    st.header("🎬 AI 视频剪辑 · Crayotter")
+    st.caption(
+        "一句话需求驱动三阶段工作流："
+        "Planner 素材规划 → Editing Research 剪辑研究蓝图 → ReAct Editor 工具执行出片。"
+        "支持素材搜索、视频分析、转场、配音、字幕与日志轨迹可视化。"
     )
+    st.divider()
 
     status_col1, status_col2, status_col3 = st.columns([3, 2, 2])
-    badge_ok = (
-        '<span style="background:rgba(81,207,102,0.15);color:#51cf66;border:1px solid rgba(81,207,102,0.4);'
-        'padding:4px 12px;border-radius:20px;">● 运行中</span>'
-    )
-    badge_bad = (
-        '<span style="background:rgba(255,107,107,0.15);color:#ff6b6b;border:1px solid rgba(255,107,107,0.4);'
-        'padding:4px 12px;border-radius:20px;">● 未启动</span>'
-    )
-    status_col1.markdown(
-        f"<div style='color:var(--text-secondary);font-size:13px;margin-top:6px;'>"
-        f"后端状态：{badge_ok if status['healthy'] else badge_bad}"
-        f" &nbsp; <span style='color:var(--text-muted);'>PID {status['pid'] or '—'} · "
-        f"{status['host']}:{status['port']}</span></div>",
-        unsafe_allow_html=True,
-    )
+    with status_col1:
+        if status["healthy"]:
+            st.success(
+                f"后端运行中 · PID {status['pid'] or '—'} · 监听 {status['host']}:{status['port']}",
+                icon="✅",
+            )
+        else:
+            st.warning(
+                f"后端未启动 · 配置监听 {status['host']}:{status['port']}",
+                icon="⏸️",
+            )
     with status_col2:
-        if st.button("🚀 启动后端", type="primary", use_container_width=True, disabled=status["healthy"]):
+        if st.button("启动后端", type="primary", use_container_width=True, disabled=status["healthy"]):
             with st.spinner("正在启动 Crayotter 后端..."):
                 ok, msg = start_backend()
                 if ok:
@@ -338,7 +316,11 @@ def show_video_editor() -> None:
                 time.sleep(0.5)
                 st.rerun()
     with status_col3:
-        if st.button("🛑 停止后端", use_container_width=True, disabled=not (status["pid"] and status["pid_alive"])):
+        if st.button(
+            "停止后端",
+            use_container_width=True,
+            disabled=not (status["pid"] and status["pid_alive"]),
+        ):
             ok, msg = stop_backend()
             if ok:
                 st.success(msg)
@@ -347,20 +329,19 @@ def show_video_editor() -> None:
             time.sleep(0.5)
             st.rerun()
 
-    tab_workbench, tab_config, tab_logs = st.tabs(["🎛️ 工作台", "⚙️ 配置", "📜 日志"])
+    tab_workbench, tab_config, tab_logs = st.tabs(["工作台", "配置", "日志"])
 
     with tab_workbench:
         if status["healthy"]:
             ui_url = _backend_url("/ui/")
             st.caption(f"直接在新窗口打开：{ui_url}")
+            # 朴素 iframe 容器：只用 1px 边框，不再用霓虹色条 / 深背景 / 阴影
             st.markdown(
                 textwrap.dedent(
                     f"""
-                    <div style='border:1px solid var(--border); border-radius:16px; overflow:hidden;
-                                background:#0a0e27; box-shadow: 0 8px 30px rgba(0,0,0,0.5);'>
-                      <div style='height: 6px; background: linear-gradient(90deg, var(--primary), var(--accent));'></div>
+                    <div style='border:1px solid #e5e7eb; border-radius:6px; overflow:hidden; background:#fff;'>
                       <iframe src='{ui_url}' width='100%' height='1000px'
-                              style='border:none; background:#0a0e27;'
+                              style='border:none; background:#fff;'
                               title='Crayotter Workbench'
                               allow='clipboard-read; clipboard-write'></iframe>
                     </div>
@@ -369,23 +350,24 @@ def show_video_editor() -> None:
                 unsafe_allow_html=True,
             )
         else:
-            st.info("🎬 先点击右上角「🚀 启动后端」，然后就能在下方直接使用 Crayotter 工作台啦。")
-            with st.expander("🧭 使用流程速览", expanded=True):
+            st.info("请先点击上方的「启动后端」，准备就绪后即可在下方直接使用 Crayotter 工作台。")
+            with st.expander("使用流程说明", expanded=False):
                 st.markdown(
                     textwrap.dedent(
                         """
-                        **1. 在「⚙️ 配置」页填好 API Key（默认为阿里云百炼 Qwen 系列）。**
-                        - `CRAYOTTER_API_KEY`：主模型 key（百炼 DashScope）
-                        - 视频理解与 TTS 默认复用主 key，需要单独 key 可在下方填写
+                        **1. 在「配置」页填写 API Key（默认为阿里云百炼 Qwen 系列）。**
+                        - `CRAYOTTER_API_KEY`：主模型 Key（百炼 DashScope）
+                        - 视频理解与 TTS 默认复用主 Key，需要单独配置可在同页填写。
 
-                        **2. 回到「🎛️ 工作台」启动后端。**
+                        **2. 回到「工作台」页点击「启动后端」。**
 
                         **3. 在工作台里输入一句话需求，例如：**
-                        > 做一个 1 分钟实验室小鼠配送宣传片，清新科技风，配字幕和旁白
+                        > 做一个 1 分钟实验室小鼠配送宣传片，清新风格，配字幕和旁白。
 
-                        **4. 日志轨迹可视化：**
-                        任务完成后，在 Crayotter 的产物区可下载成片，日志文件保存在 `crayotter_runtime/logs/`，
-                        可以用 Crayotter 自带的 `crayotter/script/visualize.py` 再做可视化。
+                        **4. 查看结果与日志：**
+                        任务完成后，在 Crayotter 的产物区可下载成片；日志文件保存在
+                        `crayotter_runtime/logs/`，可以用 Crayotter 自带的
+                        `crayotter/script/visualize.py` 做进一步可视化。
                         """
                     )
                 )

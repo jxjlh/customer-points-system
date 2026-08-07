@@ -593,7 +593,11 @@ def build_strain_list(group_df):
 
 
 def render_mail(receiver, strain_list, ship_date, receive_date):
-    mail_body = f"""让您久等了。
+    mail_body = f"""尊敬的{receiver}：
+您好！
+本封邮件为JAX小鼠配送通知。
+
+让您久等了。
 
 您的小鼠{strain_list}，预计于{ship_date}从美国发货，并将在{receive_date}左右的工作日送货。
 
@@ -645,12 +649,11 @@ def process_excel_email(file_bytes):
         
         mail_body = render_mail(receiver, strain_list, ship_date, receive_date)
         
-        full_content = f"JAX小鼠发货通知\n\n{mail_body}"
         result_rows.append({
             "Individual PO Number": po_number,
             "单位名称": first_row["单位名称"],
             "收货人": first_row["收货人"],
-            "邮件内容": full_content
+            "邮件内容": mail_body
         })
     
     result_df = pd.DataFrame(result_rows)

@@ -541,32 +541,54 @@ def read_genotype_from_second_sheet(file_bytes):
     sheet_names = xls.sheet_names
     
     if len(sheet_names) < 2:
-        return {}
+        return {}, f"Excel只有{len(sheet_names)}个子表，需要至少2个"
     
     second_sheet_name = sheet_names[1]
     df_second = pd.read_excel(xls, sheet_name=second_sheet_name, header=None)
     
-    # 查找Genotype表头行
+    debug_info = f"第二个子表：{second_sheet_name}，共{len(df_second)}行\n"
+    
+    # 显示前几行帮助调试
+    preview_rows = min(10, len(df_second))
+    debug_info += f"前{preview_rows}行预览：\n"
+    for idx in range(preview_rows):
+        row_vals = [str(v)[:30] for v in df_second.iloc[idx].tolist()]
+        debug_info += f"  行{idx}: {row_vals}\n"
+    
+    # 查找Genotype表头行 - 尝试多种可能的拼写
+    genotype_aliases = ["Genotype", "genotype", "基因型", "GENOTYPE"]
     header_idx = None
     genotype_col = None
     key_col = None
+    key_col_name = None
     
     for idx, row in df_second.iterrows():
         row_values = [str(v).strip() for v in row.tolist()]
-        if "Genotype" in row_values:
-            header_idx = idx
-            genotype_col = row_values.index("Genotype")
-            # 优先用Job No关联，其次用品系号
-            if "Job No" in row_values:
-                key_col = row_values.index("Job No")
-            elif "品系号" in row_values:
-                key_col = row_values.index("品系号")
-            elif "Strain Number" in row_values:
-                key_col = row_values.index("Strain Number")
+        # 检查是否有Genotype列
+        for col_idx, val in enumerate(row_values):
+            if val in genotype_aliases or val.lower() in [a.lower() for a in genotype_aliases]:
+                header_idx = idx
+                genotype_col = col_idx
+                break
+        if header_idx is not None:
+            # 查找关联键列
+            if "Job No" in row_values or "Job_No" in row_values:
+                job_vals = [v for v in row_values if v in ("Job No", "Job_No")]
+                if job_vals:
+                    key_col = row_values.index(job_vals[0])
+                    key_col_name = "Job No"
+            elif "品系号" in row_values or "Strain Number" in row_values or "Strain" in row_values:
+                for alias in ["品系号", "Strain Number", "Strain"]:
+                    if alias in row_values:
+                        key_col = row_values.index(alias)
+                        key_col_name = alias
+                        break
             break
     
-    if header_idx is None or genotype_col is None:
-        return {}
+    if header_idx is None:
+        return {}, debug_info + "未找到Genotype表头"
+    
+    debug_info += f"\n找到表头行：{header_idx}，Genotype列：{genotype_col}，关联键列：{key_col}({key_col_name})\n"
     
     new_header = df_second.iloc[header_idx].tolist()
     df_second = df_second.iloc[header_idx + 1:]
@@ -574,43 +596,73 @@ def read_genotype_from_second_sheet(file_bytes):
     df_second = df_second.dropna(how='all')
     
     genotype_map = {}
-    key_col_name = new_header[key_col] if key_col is not None else None
-    genotype_col_name = new_header[genotype_col]
     
-    if key_col_name and genotype_col_name:
+    # 查找正确的列名
+    genotype_col_name = None
+    for col in new_header:
+        if str(col).strip() in genotype_aliases:
+            genotype_col_name = col
+            break
+    
+    if genotype_col_name is None:
+        genotype_col_name = new_header[genotype_col] if genotype_col < len(new_header) else None
+    
+    if genotype_col_name is None:
+        return {}, debug_info + "无法确定Genotype列名"
+    
+    # 确定关联键列名
+    actual_key_col_name = None
+    for col in new_header:
+        col_str = str(col).strip()
+        if col_str in ("Job No", "Job_No"):
+            actual_key_col_name = col
+            break
+        elif col_str in ("品系号", "Strain Number", "Strain"):
+            actual_key_col_name = col
+            break
+    
+    debug_info += f"Genotype列名：{genotype_col_name}，关联键列名：{actual_key_col_name}\n"
+    debug_info += f"数据行数：{len(df_second)}\n"
+    
+    if actual_key_col_name and genotype_col_name:
         for _, row in df_second.iterrows():
-            key_val = str(row[key_col_name]).strip() if pd.notna(row[key_col_name]) else ""
+            key_val = str(row[actual_key_col_name]).strip() if pd.notna(row[actual_key_col_name]) else ""
             genotype_val = str(row[genotype_col_name]).strip() if pd.notna(row[genotype_col_name]) else ""
             if key_val and genotype_val and genotype_val.lower() not in ("nan", "none", ""):
                 genotype_map[key_val] = genotype_val
     
-    return genotype_map
+    debug_info += f"提取的基因型映射：{genotype_map}\n"
+    return genotype_map, debug_info
 
 
 def format_date_email(date_value):
     if pd.isna(date_value):
         return ""
     
+    # 如果是datetime对象
     if hasattr(date_value, 'month') and hasattr(date_value, 'day'):
         return f"{date_value.month}月{date_value.day}日"
     
+    # 尝试用pandas统一转换
     try:
-        if isinstance(date_value, str):
-            clean_str = date_value.split(' ')[0]
-            if '-' in clean_str:
-                parts = clean_str.split('-')
-                if len(parts) == 3:
-                    return f"{int(parts[1])}月{int(parts[2])}日"
-            if '/' in clean_str:
-                parts = clean_str.split('/')
-                if len(parts) == 3 and len(parts[0]) == 4:
-                    return f"{int(parts[1])}月{int(parts[2])}日"
-                elif len(parts) >= 2:
-                    return f"{int(parts[0])}月{int(parts[1])}日"
-            date_obj = pd.to_datetime(date_value)
-            return f"{date_obj.month}月{date_obj.day}日"
+        date_obj = pd.to_datetime(date_value)
+        return f"{date_obj.month}月{date_obj.day}日"
     except (ValueError, TypeError):
         pass
+    
+    # 字符串处理
+    if isinstance(date_value, str):
+        clean_str = date_value.split(' ')[0].strip()
+        if '-' in clean_str:
+            parts = clean_str.split('-')
+            if len(parts) == 3:
+                return f"{int(parts[1])}月{int(parts[2])}日"
+        if '/' in clean_str:
+            parts = clean_str.split('/')
+            if len(parts) == 3 and len(parts[0]) == 4:
+                return f"{int(parts[1])}月{int(parts[2])}日"
+            elif len(parts) >= 2:
+                return f"{int(parts[0])}月{int(parts[1])}日"
     
     return str(date_value)
 
@@ -746,7 +798,12 @@ def process_excel_email(file_bytes):
     validate_columns_email(df)
     
     # 从第二个子表读取Genotype信息
-    genotype_map = read_genotype_from_second_sheet(file_bytes)
+    genotype_result = read_genotype_from_second_sheet(file_bytes)
+    if isinstance(genotype_result, tuple):
+        genotype_map, debug_info = genotype_result
+    else:
+        genotype_map = genotype_result
+        debug_info = ""
     
     # 将基因型合并到主表
     df["基因型"] = ""
@@ -759,10 +816,14 @@ def process_excel_email(file_bytes):
         if unmatched.any():
             strain_map = {}
             for k, v in genotype_map.items():
-                # 用品系号做一个备用映射
                 strain_map[k] = v
             if "品系号" in df.columns:
                 df.loc[unmatched, "基因型"] = df.loc[unmatched, "品系号"].astype(str).str.strip().map(strain_map).fillna("")
+    
+    # 记录调试信息
+    process_excel_email._debug_info = debug_info
+    process_excel_email._genotype_map = genotype_map
+    process_excel_email._genotype_match_count = (df["基因型"] != "").sum()
     
     po_order = df["Individual PO Number"].dropna().unique().tolist()
     
@@ -800,6 +861,8 @@ def show_email_generator():
     1. 上传Excel文件（需包含【出隔离场】Sheet）
     2. 系统自动解析数据并生成邮件内容
     3. 下载生成的邮件结果Excel文件
+    
+    **注意：** 基因型信息会从Excel的第二个子表中读取
     """)
     
     uploaded_file = st.file_uploader("选择Excel文件", type=["xlsx", "xls"])
@@ -810,6 +873,19 @@ def show_email_generator():
                 result_df = process_excel_email(uploaded_file.getvalue())
                 
                 st.success("邮件生成完成！")
+                
+                # 显示基因型读取的调试信息
+                debug_info = getattr(process_excel_email, '_debug_info', '')
+                genotype_map = getattr(process_excel_email, '_genotype_map', {})
+                match_count = getattr(process_excel_email, '_genotype_match_count', 0)
+                
+                with st.expander("🔍 基因型读取调试信息", expanded=False):
+                    if debug_info:
+                        st.text(debug_info)
+                    if genotype_map:
+                        st.info(f"成功提取 {len(genotype_map)} 个基因型映射，匹配 {match_count} 条记录")
+                    else:
+                        st.warning("未提取到任何基因型信息，请检查Excel第二个子表是否包含Genotype列")
                 
                 st.subheader("生成的邮件列表")
                 st.dataframe(result_df, width="stretch", height=400)

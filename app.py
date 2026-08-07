@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import sys
+import textwrap
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
@@ -91,7 +92,8 @@ def show_home(config):
         st.markdown(f'<h1 style="margin-bottom: 4px;">🏠 澄天小助手</h1>', unsafe_allow_html=True)
         st.markdown(f'<div style="color: var(--text-secondary); font-size: 14px;">欢迎回来，<strong style="color: var(--primary);">{user_display}</strong>{admin_badge}</div>', unsafe_allow_html=True)
     
-    st.markdown("""
+    st.markdown(textwrap.dedent(
+        """
     <div style='
         background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 255, 213, 0.05) 100%);
         padding: 28px;
@@ -114,7 +116,7 @@ def show_home(config):
         <h3 style='color: var(--text-primary); margin-bottom: 12px; font-weight: 700;'>👋 欢迎使用澄天小助手</h3>
         <p style='color: var(--text-secondary); margin: 0; line-height: 1.8;'>一站式管理您的客户积分、邮件、发票和报价，请选择您需要的功能模块：</p>
     </div>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
     
     cards_config = [
         {
@@ -922,14 +924,15 @@ def process_excel_email(file_bytes):
 def show_email_generator():
     st.title("📧 JAX小鼠发货通知邮件生成器")
     
-    st.markdown("""
+    st.markdown(textwrap.dedent(
+        """
     **使用说明：**
     1. 上传Excel文件（需包含【出隔离场】Sheet）
     2. 系统自动解析数据并生成邮件内容
     3. 下载生成的邮件结果Excel文件
-    
+
     **注意：** 基因型信息会从Excel的第二个子表中读取
-    """)
+    """))
     
     uploaded_file = st.file_uploader("选择Excel文件", type=["xlsx", "xls"])
     
@@ -1001,10 +1004,11 @@ def show_email_generator():
 def show_user_management(config):
     st.title("👑 用户管理")
     
-    st.markdown("""
+    st.markdown(textwrap.dedent(
+        """
     **功能说明：**
     管理员可以查看所有用户信息、登录状态和域名信息。
-    """)
+    """))
     
     st.subheader("📊 当前域名")
     domain = st.secrets.get("domain", "customer-points-system.streamlit.app") if hasattr(st, 'secrets') else "customer-points-system.streamlit.app"
@@ -1039,10 +1043,11 @@ def show_user_management(config):
 def show_invoice_registration():
     st.title("🧾 红冲发票自动登记")
     
-    st.markdown("""
+    st.markdown(textwrap.dedent(
+        """
     **功能说明：**
     通过IMAP连接邮箱，自动检索发票邮件，下载PDF发票并按规则命名保存到本地目录。
-    """)
+    """))
     
     config = {
         "imap_server": st.text_input("IMAP服务器", "imap.qiye.163.com"),
@@ -1147,13 +1152,14 @@ def main():
     from modules.theme import apply_all_styles
     apply_all_styles()
     
-    st.markdown("""
+    st.markdown(textwrap.dedent(
+        """
     <style>
     [data-testid="stSidebar"] {
         display: none;
     }
     </style>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
     
     with open(CONFIG_PATH) as file:
         config = yaml.load(file, Loader=SafeLoader)
@@ -1167,7 +1173,8 @@ def main():
     
     if st.session_state.get('authentication_status') != True:
         # 居中显示登录卡片 - 科技风
-        st.markdown("""
+        st.markdown(textwrap.dedent(
+            """
         <style>
         .login-container {
             max-width: 520px;
@@ -1176,7 +1183,7 @@ def main():
             background: rgba(26, 31, 58, 0.8);
             border: 1px solid var(--border);
             border-radius: 20px;
-            box-shadow: 0 0 60px rgba(0, 212, 255, 0.1), 
+            box-shadow: 0 0 60px rgba(0, 212, 255, 0.1),
                         0 20px 40px rgba(0, 0, 0, 0.4),
                         inset 0 1px 0 rgba(255, 255, 255, 0.05);
             backdrop-filter: blur(20px);
@@ -1225,7 +1232,7 @@ def main():
         }
         </style>
         <div class="login-container">
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
         
         col_logo, col_title = st.columns([1, 4])
         with col_logo:
@@ -1234,9 +1241,10 @@ def main():
             st.title("澄天小助手")
             st.markdown('<div class="tech-badge">TECH ASSISTANT SYSTEM</div>', unsafe_allow_html=True)
         
-        st.markdown("""
+        st.markdown(textwrap.dedent(
+            """
         <div style="height: 1px; background: linear-gradient(90deg, transparent, var(--border-glow), transparent); margin: 24px 0;"></div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
         
         login_tab, register_tab = st.tabs(["🔐 登录系统", "📝 新用户注册"])
         
@@ -1305,7 +1313,8 @@ def main():
         elif selected_main == '📊 客户积分智能分析':
             selected_sub = st.session_state.get('selected_sub', '📈 数据概览')
             
-            st.markdown("""
+            st.markdown(textwrap.dedent(
+                """
             <style>
             .sub-nav-container {
                 display: flex;
@@ -1319,7 +1328,7 @@ def main():
                 overflow-x: auto;
             }
             </style>
-            """, unsafe_allow_html=True)
+            """), unsafe_allow_html=True)
             
             sub_options = [
                 ("📈 数据概览", "数据概览"),

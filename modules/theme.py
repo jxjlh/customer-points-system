@@ -8,6 +8,7 @@
 - 文字：白色/浅灰
 - 效果：发光边框、玻璃态、霓虹辉光
 """
+import textwrap
 
 
 def apply_theme():
@@ -796,24 +797,37 @@ def _get_transition_css() -> str:
 def render_home_card(icon: str, title: str, desc: str, color_class: str = "card-blue") -> str:
     """
     渲染单个首页卡片的HTML
-    
+
+    注意：返回的HTML必须「行首无缩进、无多余空行」。
+    因为调用方会把这个字符串塞进 st.markdown(unsafe_allow_html=True)，
+    而 Markdown 解析规则里「行首 4 空格 = 缩进代码块」会把带缩进的 HTML
+    同时渲染成 <pre><code> 代码块，导致每张卡片旁边多一个灰色代码块。
+
     Args:
         icon: 图标emoji
         title: 卡片标题
         desc: 卡片描述
         color_class: 颜色类名
-        
+
     Returns:
-        HTML字符串
+        干净的单行/无行首缩进的HTML字符串
     """
-    return f"""
-    <div class="home-card {color_class}" onclick="this.querySelector('button').click()">
-        <div class="home-card-icon">{icon}</div>
-        <div class="home-card-title">{title}</div>
-        <div class="home-card-desc">{desc}</div>
-        <span class="home-card-arrow">点击进入 →</span>
-    </div>
-    """
+    # 转义 desc/title 里的 <>& 避免破坏 HTML 结构
+    import html
+    icon_safe = html.escape(str(icon))
+    title_safe = html.escape(str(title))
+    desc_safe = html.escape(str(desc))
+    color_safe = html.escape(str(color_class), quote=True)
+    return textwrap.dedent(
+        f"""
+        <div class="home-card {color_safe}" onclick="this.querySelector('button').click()">
+          <div class="home-card-icon">{icon_safe}</div>
+          <div class="home-card-title">{title_safe}</div>
+          <div class="home-card-desc">{desc_safe}</div>
+          <span class="home-card-arrow">点击进入 →</span>
+        </div>
+        """
+    ).strip() + "\n"
 
 
 def apply_all_styles():

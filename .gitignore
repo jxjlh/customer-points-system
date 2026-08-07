@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+.env
+*.db
+data/*.xlsx
+database/*.db
+*.log
+.DS_Store
+.streamlit/secrets.toml

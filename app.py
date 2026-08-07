@@ -1,0 +1,1380 @@
+import streamlit as st
+import os
+import sys
+import pandas as pd
+import plotly.express as px
+from datetime import datetime
+from io import BytesIO
+from st_aggrid import AgGrid, GridUpdateMode, DataReturnMode
+from st_aggrid.grid_options_builder import GridOptionsBuilder
+import yaml
+from yaml.loader import SafeLoader
+import streamlit_authenticator as stauth
+import bcrypt
+import base64
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from modules.excel_reader import ExcelReader
+from modules.customer_analysis import CustomerAnalysis
+from modules.point_calculation import PointCalculation
+from modules.database import DatabaseManager
+from modules.invoice_fetcher import InvoiceFetcher
+from modules.quotation_ui import show_quotation
+from modules.db_manager import get_db_manager
+from logo_base64 import get_logo_html, get_avatar_html, get_logo_data_url, get_avatar_data_url
+
+DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database", "points.db")
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
+
+
+def load_data(excel_path=None, file_bytes=None):
+    try:
+        if file_bytes:
+            excel_reader = ExcelReader(file_bytes=file_bytes)
+        elif excel_path:
+            excel_reader = ExcelReader(excel_path=excel_path)
+        else:
+            excel_reader = ExcelReader(excel_path=DEFAULT_EXCEL_PATH)
+        
+        excel_reader.read_excel()
+        
+        df_raw = excel_reader.get_raw_data()
+        settings = excel_reader.get_settings()
+        df_exchange = excel_reader.get_exchange_records()
+        column_mapping = excel_reader.get_column_mapping()
+        
+        customer_analysis = CustomerAnalysis(settings)
+        df_customer = customer_analysis.analyze_customer_attributes(df_raw, column_mapping)
+        
+        point_calculation = PointCalculation(settings)
+        df_points = point_calculation.calculate_points(df_raw, df_customer, column_mapping)
+        df_account = point_calculation.calculate_point_account(df_points, df_exchange)
+        
+        db_manager = get_db_manager()
+        db_manager.sync_exchange_from_excel(df_exchange)
+        
+        return {
+            "df_raw": df_raw,
+            "df_customer": df_customer,
+            "df_points": df_points,
+            "df_account": df_account,
+            "df_exchange": df_exchange,
+            "settings": settings,
+            "column_mapping": column_mapping,
+            "excel_reader": excel_reader
+        }
+    except Exception as e:
+        st.error(f"数据加载失败: {str(e)}")
+        return None
+
+
+def show_home(config):
+    from modules.theme import apply_all_styles
+    from modules.home_cards import show_home_cards
+    
+    apply_all_styles()
+    
+    current_user = st.session_state.get('username')
+    is_admin = False
+    if current_user and config['credentials']['usernames'].get(current_user, {}).get('role') == 'admin':
+        is_admin = True
+    
+    col_logo, col_title = st.columns([1, 8])
+    with col_logo:
+        st.markdown(get_logo_html(80), unsafe_allow_html=True)
+    with col_title:
+        user_display = config['credentials']['usernames'].get(current_user, {}).get('name', current_user) if current_user else ''
+        admin_badge = ' <span style="background: linear-gradient(90deg, #ffd700, #ff8c00); color: #000; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 8px;">👑 ADMIN</span>' if is_admin else ''
+        st.markdown(f'<h1 style="margin-bottom: 4px;">🏠 澄天小助手</h1>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color: var(--text-secondary); font-size: 14px;">欢迎回来，<strong style="color: var(--primary);">{user_display}</strong>{admin_badge}</div>', unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div style='
+        background: linear-gradient(135deg, rgba(0, 212, 255, 0.1) 0%, rgba(0, 255, 213, 0.05) 100%);
+        padding: 28px;
+        border-radius: 20px;
+        margin-bottom: 30px;
+        border: 1px solid var(--border-glow);
+        box-shadow: 0 0 30px rgba(0, 212, 255, 0.1), inset 0 1px 0 rgba(255,255,255,0.05);
+        position: relative;
+        overflow: hidden;
+    '>
+        <div style='
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            box-shadow: 0 0 15px var(--primary-glow);
+        '></div>
+        <h3 style='color: var(--text-primary); margin-bottom: 12px; font-weight: 700;'>👋 欢迎使用澄天小助手</h3>
+        <p style='color: var(--text-secondary); margin: 0; line-height: 1.8;'>一站式管理您的客户积分、邮件、发票和报价，请选择您需要的功能模块：</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    cards_config = [
+        {
+            "icon": "📊",
+            "title": "客户积分智能分析",
+            "desc": "数据概览 · 客户管理 · 积分管理 · 数据导入 · 报表导出",
+            "color_class": "card-blue",
+            "key": "btn-customer",
+            "session_value": "📊 客户积分智能分析",
+            "session_sub": "📈 数据概览",
+            "help": "点击进入客户积分智能分析模块"
+        },
+        {
+            "icon": "📧",
+            "title": "JAX邮件生成器",
+            "desc": "自动生成JAX小鼠发货通知邮件",
+            "color_class": "card-green",
+            "key": "btn-email",
+            "session_value": "📧 JAX邮件生成器",
+            "help": "点击进入JAX邮件生成器模块"
+        },
+        {
+            "icon": "🧾",
+            "title": "红冲发票自动登记",
+            "desc": "自动从邮箱下载并登记电子发票",
+            "color_class": "card-orange",
+            "key": "btn-invoice",
+            "session_value": "🧾 红冲发票自动登记",
+            "help": "点击进入红冲发票自动登记模块"
+        },
+        {
+            "icon": "📋",
+            "title": "报价助手",
+            "desc": "自动查询价格并生成报价单",
+            "color_class": "card-purple",
+            "key": "btn-quotation",
+            "session_value": "📋 报价助手",
+            "help": "点击进入报价助手模块"
+        }
+    ]
+    
+    if is_admin:
+        cards_config.append({
+            "icon": "👑",
+            "title": "用户管理",
+            "desc": "查看所有用户信息和登录状态",
+            "color_class": "card-pink",
+            "key": "btn-admin",
+            "session_value": "👑 用户管理",
+            "help": "点击进入用户管理模块"
+        })
+    
+    show_home_cards(cards_config)
+
+
+def show_dashboard(data):
+    if data is None:
+        return
+    
+    df_points = data["df_points"]
+    df_customer = data["df_customer"]
+    df_exchange = data["df_exchange"]
+    df_account = data["df_account"]
+    settings = data["settings"]
+    
+    st.title("📊 数据概览")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    total_points = PointCalculation(settings).get_total_points(df_points)
+    total_value = PointCalculation(settings).get_total_point_value(df_points)
+    total_exchanged = PointCalculation(settings).get_total_exchanged_points(df_exchange)
+    exchange_count = PointCalculation(settings).get_exchange_customer_count(df_exchange)
+    
+    col1.metric("累计获得积分", f"{total_points:,}")
+    col2.metric("积分总价值", f"¥{total_value:,}")
+    col3.metric("累计兑换积分", f"{total_exchanged:,}")
+    col4.metric("兑换客户数", exchange_count)
+    
+    col5, col6, col7, col8 = st.columns(4)
+    
+    new_customers = CustomerAnalysis(settings).get_new_customer_count(df_customer)
+    old_customers = CustomerAnalysis(settings).get_old_customer_count(df_customer)
+    total_customers = len(df_customer)
+    new_ratio = CustomerAnalysis(settings).get_new_customer_ratio(df_customer)
+    
+    col5.metric("新客户数", new_customers)
+    col6.metric("老客户数", old_customers)
+    col7.metric("总客户数", total_customers)
+    col8.metric("新客户占比", f"{new_ratio}%")
+    
+    st.subheader("📈 积分趋势分析")
+    trend_df = PointCalculation(settings).get_points_trend(df_points)
+    
+    if not trend_df.empty:
+        fig = px.line(trend_df, x="月份", y="积分数量", 
+                      title="📉 月度积分获得趋势", 
+                      labels={"积分数量": "积分数量", "月份": "月份"},
+                      markers=True,
+                      color_discrete_sequence=["#00d4ff"],
+                      template="plotly_dark")
+        fig.update_layout(
+            title_font=dict(size=18, color="#b8c1ec"),
+            xaxis_title_font=dict(size=14, color="#b8c1ec"),
+            yaxis_title_font=dict(size=14, color="#b8c1ec"),
+            hovermode="x unified",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=50, r=50, t=60, b=50)
+        )
+        fig.update_traces(line=dict(width=3), marker=dict(size=8, symbol="circle"))
+        st.plotly_chart(fig, use_container_width=True)
+        
+        fig2 = px.bar(trend_df, x="月份", y="订单数",
+                      title="📊 月度订单数量",
+                      labels={"订单数": "订单数", "月份": "月份"},
+                      color="订单数",
+                      color_continuous_scale=["#00d4ff", "#00ffd5"],
+                      template="plotly_dark")
+        fig2.update_layout(
+            title_font=dict(size=18, color="#b8c1ec"),
+            xaxis_title_font=dict(size=14, color="#b8c1ec"),
+            yaxis_title_font=dict(size=14, color="#b8c1ec"),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=50, r=50, t=60, b=50)
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+    
+    st.subheader("🏆 客户积分排名")
+    top_customers = PointCalculation(settings).get_top_customers_by_points(df_points)
+    
+    if not top_customers.empty:
+        fig4 = px.bar(top_customers, y="客户", x="累计积分",
+                      title="🥇 客户积分排名Top20",
+                      labels={"累计积分": "累计积分", "客户": "客户名称"},
+                      color="累计积分",
+                      color_continuous_scale=["#00d4ff", "#00ffd5"],
+                      orientation="h",
+                      template="plotly_dark")
+        fig4.update_layout(
+            title_font=dict(size=18, color="#b8c1ec"),
+            xaxis_title_font=dict(size=14, color="#b8c1ec"),
+            yaxis_title_font=dict(size=14, color="#b8c1ec"),
+            height=500,
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=120, r=50, t=60, b=50)
+        )
+        fig4.update_traces(
+            hovertemplate="客户: %{y}<br>累计积分: %{x:,}",
+            marker=dict(line=dict(width=0))
+        )
+        st.plotly_chart(fig4, use_container_width=True)
+        
+        st.subheader("📋 客户积分排名详情")
+        gb = GridOptionsBuilder.from_dataframe(top_customers)
+        gb.configure_pagination(paginationAutoPageSize=True)
+        gb.configure_side_bar()
+        gb.configure_default_column(editable=False)
+        
+        grid_options = gb.build()
+        AgGrid(top_customers, gridOptions=grid_options, height=300,
+               data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+               update_mode=GridUpdateMode.NO_UPDATE,
+               fit_columns_on_grid_load=True)
+    
+    st.subheader("👥 客户属性分布")
+    if not df_customer.empty:
+        attribute_counts = df_customer["客户属性"].value_counts()
+        
+        fig3 = px.pie(values=attribute_counts.values, names=attribute_counts.index,
+                      title="👨‍👩‍👧‍👦 新老客户分布",
+                      hole=0.4,
+                      color_discrete_sequence=["#00d4ff", "#00ffd5"],
+                      template="plotly_dark")
+        fig3.update_layout(
+            title_font=dict(size=18, color="#b8c1ec"),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=50, r=50, t=60, b=50)
+        )
+        fig3.update_traces(
+            hoverinfo="label+percent+value",
+            textinfo="label+percent",
+            textfont=dict(size=14),
+            marker=dict(line=dict(color="#1a1f3a", width=2))
+        )
+        st.plotly_chart(fig3, use_container_width=True)
+
+
+def show_customer_management(data):
+    if data is None:
+        return
+    
+    df_customer = data["df_customer"]
+    df_account = data["df_account"]
+    
+    st.title("👥 客户管理")
+    
+    st.subheader("客户列表")
+    if not df_customer.empty:
+        gb = GridOptionsBuilder.from_dataframe(df_customer)
+        gb.configure_pagination(paginationAutoPageSize=True)
+        gb.configure_side_bar()
+        gb.configure_default_column(editable=False)
+        
+        grid_options = gb.build()
+        AgGrid(df_customer, gridOptions=grid_options, height=400,
+               data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+               update_mode=GridUpdateMode.NO_UPDATE,
+               fit_columns_on_grid_load=True)
+    
+    st.subheader("客户积分账户")
+    if not df_account.empty:
+        gb = GridOptionsBuilder.from_dataframe(df_account)
+        gb.configure_pagination(paginationAutoPageSize=True)
+        gb.configure_side_bar()
+        gb.configure_default_column(editable=False)
+        
+        grid_options = gb.build()
+        AgGrid(df_account, gridOptions=grid_options, height=400,
+               data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+               update_mode=GridUpdateMode.NO_UPDATE,
+               fit_columns_on_grid_load=True)
+    
+    st.subheader("客户搜索")
+    search_name = st.text_input("输入客户名称搜索")
+    
+    if search_name:
+        filtered = df_customer[df_customer["客户"].str.contains(search_name, na=False)]
+        if not filtered.empty:
+            st.dataframe(filtered)
+        else:
+            st.warning("未找到匹配的客户")
+
+
+def show_point_management(data):
+    if data is None:
+        return
+    
+    df_points = data["df_points"]
+    df_exchange = data["df_exchange"]
+    settings = data["settings"]
+    
+    st.title("🏆 积分管理")
+    
+    st.subheader("积分明细")
+    if not df_points.empty:
+        gb = GridOptionsBuilder.from_dataframe(df_points)
+        gb.configure_pagination(paginationAutoPageSize=True)
+        gb.configure_side_bar()
+        gb.configure_default_column(editable=False)
+        
+        grid_options = gb.build()
+        AgGrid(df_points, gridOptions=grid_options, height=400,
+               data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+               update_mode=GridUpdateMode.NO_UPDATE,
+               fit_columns_on_grid_load=True)
+    
+    st.subheader("积分兑换记录")
+    if not df_exchange.empty:
+        gb = GridOptionsBuilder.from_dataframe(df_exchange)
+        gb.configure_pagination(paginationAutoPageSize=True)
+        gb.configure_side_bar()
+        gb.configure_default_column(editable=False)
+        
+        grid_options = gb.build()
+        AgGrid(df_exchange, gridOptions=grid_options, height=400,
+               data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+               update_mode=GridUpdateMode.NO_UPDATE,
+               fit_columns_on_grid_load=True)
+    
+    st.subheader("积分参数设置")
+    col1, col2, col3 = st.columns(3)
+    
+    new_multiplier = col1.number_input("新客户积分倍率", min_value=1, max_value=10, 
+                                       value=int(settings.get("新客户积分倍率", 2)))
+    old_multiplier = col2.number_input("老客户积分倍率", min_value=1, max_value=10,
+                                       value=int(settings.get("老客户积分倍率", 1)))
+    exchange_rate = col3.number_input("积分兑换比例", min_value=0.1, max_value=1.0,
+                                      value=float(settings.get("积分兑换比例", 0.3)), step=0.1)
+    
+    if st.button("保存设置"):
+        settings["新客户积分倍率"] = new_multiplier
+        settings["老客户积分倍率"] = old_multiplier
+        settings["积分兑换比例"] = exchange_rate
+        st.success("设置已保存")
+    
+    st.subheader("兑换趋势")
+    exchange_trend = PointCalculation(settings).get_exchange_trend(df_exchange)
+    
+    if not exchange_trend.empty:
+        fig = px.line(exchange_trend, x="月份", y="兑换积分",
+                      title="月度兑换积分趋势",
+                      markers=True)
+        st.plotly_chart(fig, use_container_width=True)
+
+
+def show_data_import():
+    st.title("📥 数据导入")
+    
+    st.subheader("上传Excel文件")
+    uploaded_file = st.file_uploader("选择Excel文件", type=["xlsx", "xls"])
+    
+    if uploaded_file is not None:
+        with st.spinner("正在处理Excel文件..."):
+            try:
+                data = load_data(file_bytes=uploaded_file.getvalue())
+                if data:
+                    st.success("数据导入成功！")
+                    st.session_state['data'] = data
+                    
+                    st.subheader("导入数据预览")
+                    st.dataframe(data["df_raw"].head(20))
+                    
+                    st.download_button(
+                        label="下载导入的数据",
+                        data=uploaded_file.getvalue(),
+                        file_name=f"导入数据_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+            except Exception as e:
+                st.error(f"数据导入失败: {str(e)}")
+    
+    st.subheader("使用默认数据")
+    if st.button("加载默认数据"):
+        with st.spinner("正在加载默认数据..."):
+            try:
+                data = load_data()
+                if data:
+                    st.success("默认数据加载成功！")
+                    st.session_state['data'] = data
+            except Exception as e:
+                st.error(f"加载默认数据失败: {str(e)}")
+
+
+def show_reports(data):
+    if data is None:
+        return
+    
+    df_points = data["df_points"]
+    df_customer = data["df_customer"]
+    df_exchange = data["df_exchange"]
+    settings = data["settings"]
+    
+    st.title("📝 报表导出")
+    
+    st.subheader("选择报表类型")
+    report_type = st.selectbox("请选择报表类型", [
+        "客户积分汇总报表",
+        "积分兑换明细报表",
+        "客户属性分析报表",
+        "积分趋势报表"
+    ])
+    
+    if st.button("生成报表"):
+        buffer = BytesIO()
+        
+        if report_type == "客户积分汇总报表":
+            top_customers = PointCalculation(settings).get_top_customers_by_points(df_points)
+            
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                top_customers.to_excel(writer, sheet_name="客户积分排名", index=False)
+                data["df_account"].to_excel(writer, sheet_name="客户积分账户", index=False)
+        
+        elif report_type == "积分兑换明细报表":
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                df_exchange.to_excel(writer, sheet_name="积分兑换记录", index=False)
+        
+        elif report_type == "客户属性分析报表":
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                df_customer.to_excel(writer, sheet_name="客户属性分析", index=False)
+        
+        elif report_type == "积分趋势报表":
+            trend_df = PointCalculation(settings).get_points_trend(df_points)
+            exchange_trend = PointCalculation(settings).get_exchange_trend(df_exchange)
+            
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                trend_df.to_excel(writer, sheet_name="积分获得趋势", index=False)
+                exchange_trend.to_excel(writer, sheet_name="积分兑换趋势", index=False)
+        
+        buffer.seek(0)
+        
+        st.download_button(
+            label="下载报表",
+            data=buffer,
+            file_name=f"{report_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+        st.success("报表生成成功！")
+
+
+def validate_columns_email(df):
+    required_columns = [
+        "Job No",
+        "Individual PO Number",
+        "JAX销售",
+        "单位名称",
+        "品系号",
+        "年龄",
+        "性别",
+        "数量",
+        "发运笼数",
+        "隔离后预估笼数",
+        "实际出运笼数",
+        "提货时间",
+        "承运方",
+        "城市",
+        "收货人",
+        "送货地址",
+        "拟收货时间",
+        "收货备注"
+    ]
+    
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Excel文件缺少必要的列：{', '.join(missing_columns)}")
+
+
+def read_genotype_from_second_sheet(file_bytes):
+    """从第二个子表读取Genotype信息"""
+    xls = pd.ExcelFile(BytesIO(file_bytes))
+    sheet_names = xls.sheet_names
+    
+    if len(sheet_names) < 2:
+        return {}, f"Excel只有{len(sheet_names)}个子表"
+    
+    second_sheet_name = sheet_names[1]
+    debug_info = f"第二个子表：{second_sheet_name}\n"
+    
+    df_second = pd.read_excel(xls, sheet_name=second_sheet_name, header=None)
+    debug_info += f"共{len(df_second)}行，{len(df_second.columns)}列\n"
+    
+    # 显示所有行的预览，帮助找到正确的表头位置
+    debug_info += "\n前20行数据预览:\n"
+    for idx in range(min(20, len(df_second))):
+        row_vals = [str(v)[:25] for v in df_second.iloc[idx].tolist()]
+        debug_info += f"  行{idx}: {row_vals}\n"
+    
+    # 策略：扫描每一行，查找包含Genotype的表头
+    genotype_aliases = ["Genotype", "genotype", "基因型", "GENOTYPE"]
+    
+    # 找到Genotype所在的行作为表头行
+    header_idx = None
+    for idx, row in df_second.iterrows():
+        row_values = [str(v).strip() for v in row.tolist()]
+        for val in row_values:
+            if val in genotype_aliases:
+                header_idx = idx
+                break
+        if header_idx is not None:
+            break
+    
+    if header_idx is None:
+        # 尝试从所有sheet中搜索
+        debug_info += "\n在第二个子表中未找到Genotype，尝试其他子表...\n"
+        for sheet_name in sheet_names:
+            if sheet_name == second_sheet_name:
+                continue
+            df_temp = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+            for idx, row in df_temp.iterrows():
+                row_values = [str(v).strip() for v in row.tolist()]
+                for val in row_values:
+                    if val in genotype_aliases:
+                        debug_info += f"  在Sheet '{sheet_name}' 行{idx}找到Genotype\n"
+                        # 但我们还是用第二个子表
+                        break
+    
+    if header_idx is None:
+        return {}, debug_info + "未找到Genotype列"
+    
+    debug_info += f"\n在行{header_idx}找到Genotype表头\n"
+    
+    # 用找到的行作为表头
+    new_header = df_second.iloc[header_idx].tolist()
+    debug_info += f"表头: {[str(h)[:20] for h in new_header]}\n"
+    
+    # 读取数据（跳过表头和可能的空行）
+    df_data = df_second.iloc[header_idx + 2:].copy()
+    df_data.columns = new_header
+    df_data = df_data.dropna(how='all')
+    df_data = df_data[df_data.apply(lambda x: any(pd.notna(x)), axis=1)]
+    
+    debug_info += f"数据行数: {len(df_data)}\n"
+    
+    # 找Genotype列名
+    genotype_col_name = None
+    for col in new_header:
+        col_str = str(col).strip()
+        if col_str in genotype_aliases:
+            genotype_col_name = col
+            break
+    
+    if genotype_col_name is None:
+        return {}, debug_info + "无法确定Genotype列"
+    
+    debug_info += f"Genotype列: {genotype_col_name}\n"
+    
+    # 构建基因型映射 - 尝试所有可能的关联键
+    genotype_map = {}
+    
+    # 可能的关联键列
+    possible_keys = {
+        "Job No": None,
+        "Job_No": None, 
+        "品系号": None,
+        "Strain Number": None,
+        "Strain": None
+    }
+    
+    for col in new_header:
+        col_str = str(col).strip()
+        if col_str in possible_keys:
+            possible_keys[col_str] = col
+    
+    # 尝试用每个可用的关联键构建映射
+    for key_name, key_col_name in possible_keys.items():
+        if key_col_name is None:
+            continue
+        
+        temp_map = {}
+        for _, row in df_data.iterrows():
+            key_val = str(row[key_col_name]).strip() if pd.notna(row[key_col_name]) else ""
+            genotype_val = str(row[genotype_col_name]).strip() if pd.notna(row[genotype_col_name]) else ""
+            if key_val and genotype_val and genotype_val.lower() not in ("nan", "none", ""):
+                temp_map[key_val] = genotype_val
+        
+        if temp_map:
+            debug_info += f"用'{key_name}'关联，找到{len(temp_map)}个映射\n"
+            # 合并到总映射
+            genotype_map.update(temp_map)
+    
+    # 如果上面的方法不行，尝试第一列作为键
+    if not genotype_map and len(df_data) > 0:
+        first_col = new_header[0]
+        debug_info += f"\n尝试用第一列'{first_col}'作为关联键...\n"
+        for _, row in df_data.iterrows():
+            key_val = str(row[first_col]).strip() if pd.notna(row[first_col]) else ""
+            genotype_val = str(row[genotype_col_name]).strip() if pd.notna(row[genotype_col_name]) else ""
+            if key_val and genotype_val and genotype_val.lower() not in ("nan", "none", ""):
+                genotype_map[key_val] = genotype_val
+        
+        if genotype_map:
+            debug_info += f"用第一列关联，找到{len(genotype_map)}个映射\n"
+    
+    debug_info += f"\n最终基因型映射: {genotype_map}\n"
+    return genotype_map, debug_info
+
+
+def format_date_email(date_value):
+    if pd.isna(date_value):
+        return ""
+    
+    import re
+    
+    # 如果是datetime对象
+    if hasattr(date_value, 'month') and hasattr(date_value, 'day'):
+        return f"{date_value.month}月{date_value.day}日"
+    
+    # 尝试用pandas统一转换
+    try:
+        date_obj = pd.to_datetime(date_value)
+        return f"{date_obj.month}月{date_obj.day}日"
+    except (ValueError, TypeError):
+        pass
+    
+    # 字符串处理
+    if isinstance(date_value, str):
+        clean_str = str(date_value).strip()
+        
+        # 处理非标准格式如 "18上午5:00" 或 "8月19日上午5:00"
+        # 用正则提取所有连续数字
+        numbers = re.findall(r'\d+', clean_str)
+        
+        # 尝试标准格式
+        if '-' in clean_str or '/' in clean_str:
+            try:
+                date_obj = pd.to_datetime(clean_str)
+                return f"{date_obj.month}月{date_obj.day}日"
+            except:
+                pass
+        
+        # 处理中文日期格式 "X月X日"
+        month_match = re.search(r'(\d+)月', clean_str)
+        day_match = re.search(r'(\d+)日', clean_str)
+        if month_match and day_match:
+            return f"{month_match.group(1)}月{day_match.group(1)}日"
+        
+        # 只有日的情况 "18上午5:00"
+        if len(numbers) >= 1:
+            # 取第一个数字作为日
+            return f"{numbers[0]}日"
+        
+        return clean_str
+    
+    return str(date_value)
+
+
+def build_strain_list(group_df):
+    # 按品系号、基因型、性别分组，三者都相同才合并数量
+    group_keys = ["品系号"]
+    if "基因型" in group_df.columns:
+        group_keys.append("基因型")
+    else:
+        group_keys.append("_no_genotype_")
+        group_df["_no_genotype_"] = ""
+    group_keys.append("性别")
+    
+    grouped = group_df.groupby(group_keys, dropna=False)
+    
+    # 检查是否所有品系号都一样
+    unique_strains = group_df["品系号"].unique()
+    all_same_strain = len(unique_strains) == 1
+    common_strain_id = str(unique_strains[0]).strip() if all_same_strain else None
+    
+    # 检查是否所有基因型都一样（仅当同品系号时有效）
+    all_same_genotype = False
+    common_genotype = ""
+    if all_same_strain and "基因型" in group_df.columns:
+        unique_genotypes = group_df["基因型"].dropna().unique()
+        all_same_genotype = len(unique_genotypes) == 1
+        common_genotype = str(unique_genotypes[0]).strip() if all_same_genotype else ""
+    
+    # 构建分组信息列表
+    groups_info = []
+    for key_tuple, group in grouped:
+        strain_id = str(key_tuple[0]).strip()
+        genotype_val = str(key_tuple[1]).strip() if key_tuple[1] else ""
+        gender = str(key_tuple[2]).strip().upper()
+        total_quantity = group["数量"].sum() if "数量" in group.columns else len(group)
+        
+        # 年龄取分组第一条
+        first_row = group.iloc[0]
+        age = str(first_row["年龄"]).strip() if "年龄" in group.columns else ""
+        
+        gender_text = "雌" if gender in ("雌", "F", "FEMALE") else "雄"
+        
+        if age.isdigit():
+            age_text = f"{age}周"
+        else:
+            age_text = f"{age}周"
+        
+        groups_info.append({
+            "strain_id": strain_id,
+            "genotype": genotype_val,
+            "gender_text": gender_text,
+            "age_text": age_text,
+            "quantity": total_quantity
+        })
+    
+    # 生成输出文本
+    if all_same_strain:
+        # 所有品系号相同，只写一遍URL
+        first_line = f"您订购的JAX小鼠https://www.jax.org/strain/{common_strain_id}"
+        if all_same_genotype and common_genotype:
+            first_line += f"，基因型：{common_genotype}"
+        parts = [first_line]
+        for info in groups_info:
+            if all_same_genotype and common_genotype:
+                # 基因型已经写在开头，这里不再重复
+                line = f"性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
+            else:
+                gt = f"基因型：{info['genotype']}，" if info['genotype'] else ""
+                line = f"{gt}性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
+            parts.append(line)
+        return "\n".join(parts)
+    else:
+        # 品系号不同，每行都写完整
+        lines = []
+        for info in groups_info:
+            gt = f"，基因型：{info['genotype']}" if info['genotype'] else ""
+            line = f"您订购的JAX小鼠https://www.jax.org/strain/{info['strain_id']}{gt}，性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
+            lines.append(line)
+        return "\n".join(lines)
+
+
+def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address):
+    mail_body = f"""尊敬的老师：
+
+您好！
+
+本封邮件为JAX小鼠配送通知。
+
+{strain_list}
+
+预计将在{receive_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？
+
+附件是本批小鼠的相关文件：美国健康证书AHC，JAX鼠房微生物报告， 隔离场微生物报告以及JAX小鼠接收指南。
+
+为了确保小鼠在接收后可以尽快的服务于您的研究，建议您：
+
+1.严格遵照随附的《JAX 小鼠接收指南》开展相关操作。小鼠签收时，请即刻检查外包装完整性，并仔细核验小鼠核心信息（品系、数量、性别等）。所有问题须在24 小时内反馈至北京澄天生物科技有限公司，逾期将视为验收合格。请注意，退款及补发政策申请需满足以下条件：相关问题需在小鼠送达贵单位后48 小时内，由贵方提供有效证明材料并提交反馈；后续需经北京澄天生物科技有限公司及JAX 联合核验通过，方可启动对应流程。
+
+2. 建议您收到小鼠后尽快按照官网上提供的基因鉴定方案对小鼠进行鉴定核实，以便于您后续合理的制定繁育/使用方案。
+
+若有问题欢迎随时与我们联系。
+
+预祝您实验一切顺利！"""
+    
+    return mail_body
+
+
+def process_excel_email(file_bytes):
+    df = pd.read_excel(BytesIO(file_bytes), sheet_name='出隔离场', header=None)
+    
+    header_row_index = None
+    for idx, row in df.iterrows():
+        first_cell = str(row.iloc[0]).strip()
+        if first_cell == "Job No":
+            second_cell = str(row.iloc[1]).strip()
+            if second_cell == "Individual PO Number":
+                third_cell = str(row.iloc[2]).strip()
+                if third_cell == "JAX销售":
+                    header_row_index = idx
+                    break
+    
+    if header_row_index is None:
+        raise ValueError("未找到表头行，请确保Excel文件包含正确的表头")
+    
+    new_header = df.iloc[header_row_index].tolist()
+    df = df.iloc[header_row_index + 2:]
+    df.columns = new_header
+    
+    df = df.dropna(how='all')
+    df = df[~df["Job No"].astype(str).str.contains("Job No|Quantity", na=False)]
+    
+    validate_columns_email(df)
+    
+    # 从第二个子表读取Genotype信息
+    genotype_map, debug_info = read_genotype_from_second_sheet(file_bytes)
+    
+    # 将基因型合并到主表 - 尝试多种关联方式
+    df["基因型"] = ""
+    
+    if genotype_map:
+        # 方式1：用Job No关联
+        if "Job No" in df.columns:
+            df["基因型"] = df["Job No"].astype(str).str.strip().map(genotype_map).fillna("")
+            match_count_1 = (df["基因型"] != "").sum()
+        else:
+            match_count_1 = 0
+        
+        # 方式2：用品系号关联（补充）
+        unmatched = df["基因型"] == ""
+        if unmatched.any() and "品系号" in df.columns:
+            strain_map = {}
+            for k, v in genotype_map.items():
+                strain_map[k] = v
+            df.loc[unmatched, "基因型"] = df.loc[unmatched, "品系号"].astype(str).str.strip().map(strain_map).fillna("")
+            match_count_2 = (df["基因型"] != "").sum() - match_count_1
+        else:
+            match_count_2 = 0
+        
+        debug_info += f"\n关联结果:\n"
+        debug_info += f"  用Job No匹配: {match_count_1}条\n"
+        debug_info += f"  用品系号匹配: {match_count_2}条\n"
+        debug_info += f"  总匹配数: {(df['基因型'] != '').sum()}条\n"
+    else:
+        debug_info += "\n基因型映射为空，无法关联\n"
+    
+    # 记录调试信息
+    process_excel_email._debug_info = debug_info
+    process_excel_email._genotype_map = genotype_map
+    process_excel_email._genotype_match_count = (df["基因型"] != "").sum()
+    
+    po_order = df["Individual PO Number"].dropna().unique().tolist()
+    
+    result_rows = []
+    for po_number, group_data in df.groupby("Individual PO Number"):
+        first_row = group_data.iloc[0]
+        strain_list = build_strain_list(group_data.copy())
+        
+        receiver = str(first_row["收货人"]).strip() if pd.notna(first_row["收货人"]) else "老师"
+        ship_date = format_date_email(first_row["提货时间"])
+        receive_date = format_date_email(first_row["拟收货时间"])
+        delivery_address = str(first_row["送货地址"]).strip() if pd.notna(first_row["送货地址"]) else ""
+        
+        mail_body = render_mail(receiver, strain_list, ship_date, receive_date, delivery_address)
+        
+        result_rows.append({
+            "Individual PO Number": po_number,
+            "单位名称": first_row["单位名称"],
+            "收货人": first_row["收货人"],
+            "邮件内容": mail_body
+        })
+    
+    result_df = pd.DataFrame(result_rows)
+    result_df['po_order'] = result_df['Individual PO Number'].map(lambda x: po_order.index(x) if x in po_order else len(po_order))
+    result_df = result_df.sort_values('po_order').drop('po_order', axis=1)
+    
+    return result_df
+
+
+def show_email_generator():
+    st.title("📧 JAX小鼠发货通知邮件生成器")
+    
+    st.markdown("""
+    **使用说明：**
+    1. 上传Excel文件（需包含【出隔离场】Sheet）
+    2. 系统自动解析数据并生成邮件内容
+    3. 下载生成的邮件结果Excel文件
+    
+    **注意：** 基因型信息会从Excel的第二个子表中读取
+    """)
+    
+    uploaded_file = st.file_uploader("选择Excel文件", type=["xlsx", "xls"])
+    
+    if uploaded_file is not None:
+        with st.spinner("正在处理Excel文件..."):
+            try:
+                result_df = process_excel_email(uploaded_file.getvalue())
+                
+                st.success("邮件生成完成！")
+                
+                # 显示调试信息
+                debug_info = getattr(process_excel_email, '_debug_info', '')
+                genotype_map = getattr(process_excel_email, '_genotype_map', {})
+                match_count = getattr(process_excel_email, '_genotype_match_count', 0)
+                
+                with st.expander("🔍 调试信息", expanded=False):
+                    if debug_info:
+                        st.text(debug_info)
+                    if genotype_map:
+                        st.success(f"✅ 成功提取 {len(genotype_map)} 个基因型映射，匹配 {match_count} 条记录")
+                    else:
+                        st.warning("⚠️ 未提取到任何基因型信息")
+                    
+                    # 显示日期列的实际值
+                    st.subheader("📅 日期格式检查")
+                    try:
+                        df_check = pd.read_excel(BytesIO(uploaded_file.getvalue()), sheet_name='出隔离场', header=None)
+                        # 找表头
+                        for idx, row in df_check.iterrows():
+                            vals = [str(v).strip() for v in row.tolist()]
+                            if "Job No" in vals and "Individual PO Number" in vals:
+                                if "拟收货时间" in vals:
+                                    col_idx = vals.index("拟收货时间")
+                                    dates = []
+                                    for r in range(idx + 2, min(idx + 12, len(df_check))):
+                                        val = df_check.iloc[r, col_idx]
+                                        dates.append(f"  行{r}: {repr(val)}")
+                                    st.code("\n".join(dates))
+                                break
+                    except Exception as e:
+                        st.error(f"日期检查错误: {e}")
+                
+                st.subheader("生成的邮件列表")
+                st.dataframe(result_df, width="stretch", height=400)
+                
+                excel_buffer = BytesIO()
+                result_df.to_excel(excel_buffer, index=False, sheet_name="邮件生成结果")
+                excel_buffer.seek(0)
+                
+                st.download_button(
+                    label="📥 下载邮件结果",
+                    data=excel_buffer,
+                    file_name=f"JAX邮件生成结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+                
+                st.subheader("邮件预览")
+                for _, row in result_df.iterrows():
+                    with st.expander(f"📧 {row['Individual PO Number']} - {row['单位名称']}"):
+                        st.text(row['邮件内容'])
+            
+            except Exception as e:
+                st.error(f"处理过程中发生错误：\n\n{str(e)}")
+                import traceback
+                with st.expander("查看详细错误信息"):
+                    st.code(traceback.format_exc())
+
+
+def show_user_management(config):
+    st.title("👑 用户管理")
+    
+    st.markdown("""
+    **功能说明：**
+    管理员可以查看所有用户信息、登录状态和域名信息。
+    """)
+    
+    st.subheader("📊 当前域名")
+    domain = st.secrets.get("domain", "customer-points-system.streamlit.app") if hasattr(st, 'secrets') else "customer-points-system.streamlit.app"
+    st.info(f"当前域名：{domain}")
+    
+    st.subheader("👥 用户列表")
+    
+    users_data = []
+    for username, info in config['credentials']['usernames'].items():
+        is_logged_in = st.session_state.get('username') == username
+        users_data.append({
+            "用户名": username,
+            "姓名": info.get('name', ''),
+            "邮箱": info.get('email', ''),
+            "角色": info.get('role', 'user'),
+            "登录状态": "✅ 在线" if is_logged_in else "❌ 离线"
+        })
+    
+    if users_data:
+        users_df = pd.DataFrame(users_data)
+        st.dataframe(users_df, use_container_width=True)
+        
+        st.subheader("📈 用户统计")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("总用户数", len(users_data))
+        col2.metric("管理员数", len([u for u in users_data if u['角色'] == 'admin']))
+        col3.metric("在线用户", len([u for u in users_data if u['登录状态'] == '✅ 在线']))
+    else:
+        st.warning("暂无用户数据")
+
+
+def show_invoice_registration():
+    st.title("🧾 红冲发票自动登记")
+    
+    st.markdown("""
+    **功能说明：**
+    通过IMAP连接邮箱，自动检索发票邮件，下载PDF发票并按规则命名保存到本地目录。
+    """)
+    
+    config = {
+        "imap_server": st.text_input("IMAP服务器", "imap.qiye.163.com"),
+        "imap_port": st.number_input("IMAP端口", min_value=1, max_value=65535, value=993),
+        "email": st.text_input("邮箱地址", "huiyin.guo@ibiologistics.com"),
+        "password": st.text_input("客户端授权码", type="password"),
+        "sender": st.text_input("发件人过滤", "百旺金穗云dzfpfwpt@hnfapiao.com"),
+        "subject_filter": st.text_input("主题关键字", "开具的发票"),
+        "output_dir": st.text_input("保存目录", r"C:\Users\Admin\Downloads\发票汇总"),
+        "days_back": st.number_input("检索天数", min_value=1, max_value=30, value=5),
+    }
+    
+    dry_run = st.checkbox("试运行（不实际下载）", value=False)
+
+    if st.button("开始下载发票", key="btn-fetch-invoices", type="primary", use_container_width=True):
+        db_manager = get_db_manager()
+        invoice_fetcher = InvoiceFetcher(config, db_manager=db_manager)
+
+        errors = invoice_fetcher.validate_config()
+        if errors:
+            for error in errors:
+                st.error(error)
+            return
+
+        with st.spinner("正在连接邮箱并下载发票..."):
+            results, summary = invoice_fetcher.fetch_invoices(days=config["days_back"], dry_run=dry_run)
+
+        if results is None:
+            st.error(summary)
+            return
+
+        st.success(f"处理完成！共处理 {summary['total_processed']} 封邮件，成功 {summary['success_count']} 封，失败 {summary['failed_count']} 封")
+
+        st.subheader(f"📂 保存目录: {summary['output_dir']}")
+
+        success_results = [r for r in results if r["status"] == "success"]
+        failed_results = [r for r in results if r["status"] == "failed"]
+
+        if success_results:
+            st.subheader("✅ 成功下载的发票")
+            success_df = pd.DataFrame(success_results)
+            success_df = success_df[["date", "buyer", "amount", "filename", "source", "folder"]]
+            st.dataframe(success_df, use_container_width=True)
+
+        if failed_results:
+            st.subheader("❌ 失败的邮件")
+            failed_df = pd.DataFrame(failed_results)
+            failed_df = failed_df[["date", "subject", "folder", "reason"]]
+            st.dataframe(failed_df, use_container_width=True)
+
+    # 历史发票记录（从数据库加载）
+    try:
+        db_manager = get_db_manager()
+        if hasattr(db_manager, 'get_invoice_records'):
+            st.header("📚 历史发票记录")
+
+            with st.expander("查看历史发票记录", expanded=False):
+                hist_col1, hist_col2 = st.columns(2)
+                with hist_col1:
+                    hist_status = st.selectbox("状态筛选", ["全部", "success", "failed"], key="hist_inv_status")
+                with hist_col2:
+                    hist_buyer = st.text_input("购方名称筛选", key="hist_inv_buyer")
+
+                try:
+                    history = db_manager.get_invoice_records(
+                        status=None if hist_status == "全部" else hist_status,
+                        buyer=hist_buyer if hist_buyer else None,
+                        limit=100,
+                    )
+                    if history:
+                        hist_df = pd.DataFrame(history)
+                        display_cols = ["id", "invoice_date", "subject", "buyer", "amount",
+                                        "status", "filename", "source"]
+                        available_cols = [c for c in display_cols if c in hist_df.columns]
+                        st.dataframe(hist_df[available_cols], use_container_width=True, hide_index=True)
+                        st.caption(f"共 {len(history)} 条记录")
+                    else:
+                        st.info("暂无历史发票记录")
+                except Exception as e:
+                    st.warning(f"加载历史发票失败: {e}")
+    except Exception:
+        pass
+
+
+def main():
+    st.set_page_config(
+        page_title="澄天小助手",
+        page_icon="🐭",
+        layout="wide",
+        initial_sidebar_state="collapsed"
+    )
+    
+    # 配置Plotly深色主题
+    try:
+        px.defaults.template = "plotly_dark"
+        # 设置自定义颜色
+        import plotly.graph_objects as go
+        go.layout.Template()
+    except:
+        pass
+    
+    from modules.theme import apply_all_styles
+    apply_all_styles()
+    
+    st.markdown("""
+    <style>
+    [data-testid="stSidebar"] {
+        display: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    with open(CONFIG_PATH) as file:
+        config = yaml.load(file, Loader=SafeLoader)
+    
+    authenticator = stauth.Authenticate(
+        config['credentials'],
+        config['cookie']['name'],
+        config['cookie']['key'],
+        config['cookie']['expiry_days']
+    )
+    
+    if st.session_state.get('authentication_status') != True:
+        # 居中显示登录卡片 - 科技风
+        st.markdown("""
+        <style>
+        .login-container {
+            max-width: 520px;
+            margin: 60px auto;
+            padding: 40px 32px;
+            background: rgba(26, 31, 58, 0.8);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            box-shadow: 0 0 60px rgba(0, 212, 255, 0.1), 
+                        0 20px 40px rgba(0, 0, 0, 0.4),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            position: relative;
+        }
+        .login-container::before {
+            content: '';
+            position: absolute;
+            top: -1px;
+            left: -1px;
+            right: -1px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--primary), var(--accent), transparent);
+            border-radius: 20px 20px 0 0;
+        }
+        .login-container::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: -1px;
+            right: -1px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent), var(--primary), transparent);
+            border-radius: 0 0 20px 20px;
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .login-subtitle {
+            color: var(--text-muted);
+            font-size: 14px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        .tech-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid var(--border-glow);
+            border-radius: 20px;
+            color: var(--primary);
+            font-size: 12px;
+            letter-spacing: 1px;
+            margin-top: 12px;
+        }
+        </style>
+        <div class="login-container">
+        """, unsafe_allow_html=True)
+        
+        col_logo, col_title = st.columns([1, 4])
+        with col_logo:
+            st.markdown(get_logo_html(90), unsafe_allow_html=True)
+        with col_title:
+            st.title("澄天小助手")
+            st.markdown('<div class="tech-badge">TECH ASSISTANT SYSTEM</div>', unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div style="height: 1px; background: linear-gradient(90deg, transparent, var(--border-glow), transparent); margin: 24px 0;"></div>
+        """, unsafe_allow_html=True)
+        
+        login_tab, register_tab = st.tabs(["🔐 登录系统", "📝 新用户注册"])
+        
+        with login_tab:
+            authenticator.login(location="main")
+        
+        with register_tab:
+            st.markdown('<h3 style="color: var(--text-primary); margin-bottom: 16px;">创建新账号</h3>', unsafe_allow_html=True)
+            
+            new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名")
+            new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址")
+            new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符")
+            confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码")
+            
+            if st.button("注册新账号", key="btn_register", use_container_width=True, type="primary"):
+                if not new_username or not new_email or not new_password:
+                    st.error("请填写所有必填字段")
+                elif new_password != confirm_password:
+                    st.error("两次输入的密码不一致")
+                elif new_username in config['credentials']['usernames']:
+                    st.error("该用户名已存在")
+                else:
+                    hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                    
+                    config['credentials']['usernames'][new_username] = {
+                        "email": new_email,
+                        "name": new_username,
+                        "password": hashed_password,
+                        "role": "user"
+                    }
+                    
+                    with open(CONFIG_PATH, 'w') as file:
+                        yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
+                    
+                    st.success("🎉 注册成功！请切换到登录页面登录")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        if st.session_state.get('authentication_status') == False:
+            st.error("❌ 用户名或密码错误")
+            return
+        
+        if st.session_state.get('authentication_status') == None:
+            return
+    
+    if st.session_state.get('authentication_status'):
+        selected_main = st.session_state.get('selected_main', '🏠 首页')
+        data = st.session_state.get('data')
+        
+        col_header_left, col_header_right = st.columns([4, 1])
+        with col_header_right:
+            col_btns = st.columns([1, 1])
+            with col_btns[0]:
+                if selected_main != '🏠 首页':
+                    if st.button("← 返回首页", key="btn-back", use_container_width=True):
+                        st.session_state['selected_main'] = '🏠 首页'
+                        st.rerun()
+            with col_btns[1]:
+                if st.button("退出登录", key="btn-logout", use_container_width=True):
+                    for key in list(st.session_state.keys()):
+                        del st.session_state[key]
+                    st.rerun()
+        
+        if selected_main == '🏠 首页':
+            show_home(config)
+        elif selected_main == '📊 客户积分智能分析':
+            selected_sub = st.session_state.get('selected_sub', '📈 数据概览')
+            
+            st.markdown("""
+            <style>
+            .sub-nav-container {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 24px;
+                padding: 8px;
+                background: var(--bg-card);
+                border-radius: 12px;
+                border: 1px solid var(--border);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                overflow-x: auto;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            sub_options = [
+                ("📈 数据概览", "数据概览"),
+                ("👥 客户管理", "客户管理"),
+                ("🏆 积分管理", "积分管理"),
+                ("📥 数据导入", "数据导入"),
+                ("📝 报表导出", "报表导出")
+            ]
+            
+            sub_cols = st.columns(len(sub_options))
+            for i, (icon, label) in enumerate(sub_options):
+                btn_key = f"btn-sub-{label}"
+                is_active = selected_sub == icon
+                
+                with sub_cols[i]:
+                    if is_active:
+                        if st.button(icon, key=btn_key, use_container_width=True, type="primary"):
+                            st.session_state['selected_sub'] = icon
+                            st.rerun()
+                    else:
+                        if st.button(icon, key=btn_key, use_container_width=True):
+                            st.session_state['selected_sub'] = icon
+                            st.rerun()
+            
+            st.markdown("---")
+            
+            if selected_sub == "📈 数据概览":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_dashboard(data)
+            elif selected_sub == "👥 客户管理":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_customer_management(data)
+            elif selected_sub == "🏆 积分管理":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_point_management(data)
+            elif selected_sub == "📥 数据导入":
+                show_data_import()
+            elif selected_sub == "📝 报表导出":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_reports(data)
+        
+        elif selected_main == '📧 JAX邮件生成器':
+            show_email_generator()
+        
+        elif selected_main == '🧾 红冲发票自动登记':
+            show_invoice_registration()
+        
+        elif selected_main == '📋 报价助手':
+            show_quotation()
+        
+        elif selected_main == '👑 用户管理':
+            show_user_management(config)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,37 @@
+{
+  "customer_info": {
+    "customer_name": {"row": 6, "col": 2},
+    "contact_person": {"row": 7, "col": 2},
+    "sales_person": {"row": 8, "col": 2},
+    "customer_type": {"row": 9, "col": 2},
+    "quote_date": {"row": 10, "col": 2},
+    "quote_number": {"row": 11, "col": 2}
+  },
+  "quote_items": {
+    "start_row": 15,
+    "columns": {
+      "strain": 0,
+      "name": 1,
+      "genotype": 2,
+      "age": 3,
+      "sex": 4,
+      "qty": 5,
+      "unit_price": 6,
+      "amount": 7
+    }
+  },
+  "summary": {
+    "subtotal": {"row": 35, "col": 7},
+    "shipping": {"row": 36, "col": 7},
+    "service_fee": {"row": 37, "col": 7},
+    "discount": {"row": 38, "col": 7},
+    "tax": {"row": 39, "col": 7},
+    "grand_total": {"row": 40, "col": 7}
+  },
+  "style": {
+    "font_name": "微软雅黑",
+    "font_size": 11,
+    "header_font_size": 14,
+    "currency_format": "#,##0.00"
+  }
+}

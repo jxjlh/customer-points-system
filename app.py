@@ -639,6 +639,8 @@ def format_date_email(date_value):
     if pd.isna(date_value):
         return ""
     
+    import re
+    
     # 如果是datetime对象
     if hasattr(date_value, 'month') and hasattr(date_value, 'day'):
         return f"{date_value.month}月{date_value.day}日"
@@ -650,56 +652,32 @@ def format_date_email(date_value):
     except (ValueError, TypeError):
         pass
     
-    # 字符串处理 - 提取日期部分
+    # 字符串处理
     if isinstance(date_value, str):
-        clean_str = date_value.strip()
+        clean_str = str(date_value).strip()
         
-        # 处理 "18上午5:00" 这种格式 - 提取数字部分
-        # 尝试找到日期相关的数字模式
-        import re
-        
-        # 先尝试标准格式
-        if '-' in clean_str:
-            parts = clean_str.split(' ')[0].split('-')
-            if len(parts) == 3:
-                try:
-                    return f"{int(parts[1])}月{int(parts[2])}日"
-                except ValueError:
-                    pass
-        
-        if '/' in clean_str:
-            parts = clean_str.split(' ')[0].split('/')
-            if len(parts) == 3 and len(parts[0]) == 4:
-                try:
-                    return f"{int(parts[1])}月{int(parts[2])}日"
-                except ValueError:
-                    pass
-            elif len(parts) >= 2:
-                try:
-                    return f"{int(parts[0])}月{int(parts[1])}日"
-                except ValueError:
-                    pass
-        
-        # 处理 "18上午5:00" 这种非标准格式
-        # 用正则提取所有数字
+        # 处理非标准格式如 "18上午5:00" 或 "8月19日上午5:00"
+        # 用正则提取所有连续数字
         numbers = re.findall(r'\d+', clean_str)
-        if len(numbers) >= 2:
-            # 假设前两个数字是日和月，或者只有日
-            if len(numbers) == 2:
-                # 可能是 "18 5:00" -> 取第一个数字作为日
-                return f"{numbers[0]}日"
-            elif len(numbers) >= 3:
-                # 可能是 "2026-8-19 18上午5:00"
-                # 取前三个数字中最相关的
-                # 检查是否有4位数年份
-                if len(numbers) >= 3 and len(numbers[0]) == 4:
-                    return f"{int(numbers[1])}月{int(numbers[2])}日"
-                else:
-                    # 尝试用前两个数字作为月日
-                    try:
-                        return f"{int(numbers[0])}月{int(numbers[1])}日"
-                    except ValueError:
-                        return clean_str
+        
+        # 尝试标准格式
+        if '-' in clean_str or '/' in clean_str:
+            try:
+                date_obj = pd.to_datetime(clean_str)
+                return f"{date_obj.month}月{date_obj.day}日"
+            except:
+                pass
+        
+        # 处理中文日期格式 "X月X日"
+        month_match = re.search(r'(\d+)月', clean_str)
+        day_match = re.search(r'(\d+)日', clean_str)
+        if month_match and day_match:
+            return f"{month_match.group(1)}月{day_match.group(1)}日"
+        
+        # 只有日的情况 "18上午5:00"
+        if len(numbers) >= 1:
+            # 取第一个数字作为日
+            return f"{numbers[0]}日"
         
         return clean_str
     
@@ -913,18 +891,37 @@ def show_email_generator():
                 
                 st.success("邮件生成完成！")
                 
-                # 显示基因型读取的调试信息
+                # 显示调试信息
                 debug_info = getattr(process_excel_email, '_debug_info', '')
                 genotype_map = getattr(process_excel_email, '_genotype_map', {})
                 match_count = getattr(process_excel_email, '_genotype_match_count', 0)
                 
-                with st.expander("🔍 基因型读取调试信息", expanded=False):
+                with st.expander("🔍 调试信息", expanded=False):
                     if debug_info:
                         st.text(debug_info)
                     if genotype_map:
-                        st.info(f"成功提取 {len(genotype_map)} 个基因型映射，匹配 {match_count} 条记录")
+                        st.success(f"✅ 成功提取 {len(genotype_map)} 个基因型映射，匹配 {match_count} 条记录")
                     else:
-                        st.warning("未提取到任何基因型信息，请检查Excel第二个子表是否包含Genotype列")
+                        st.warning("⚠️ 未提取到任何基因型信息")
+                    
+                    # 显示日期列的实际值
+                    st.subheader("📅 日期格式检查")
+                    try:
+                        df_check = pd.read_excel(BytesIO(uploaded_file.getvalue()), sheet_name='出隔离场', header=None)
+                        # 找表头
+                        for idx, row in df_check.iterrows():
+                            vals = [str(v).strip() for v in row.tolist()]
+                            if "Job No" in vals and "Individual PO Number" in vals:
+                                if "拟收货时间" in vals:
+                                    col_idx = vals.index("拟收货时间")
+                                    dates = []
+                                    for r in range(idx + 2, min(idx + 12, len(df_check))):
+                                        val = df_check.iloc[r, col_idx]
+                                        dates.append(f"  行{r}: {repr(val)}")
+                                    st.code("\n".join(dates))
+                                break
+                    except Exception as e:
+                        st.error(f"日期检查错误: {e}")
                 
                 st.subheader("生成的邮件列表")
                 st.dataframe(result_df, width="stretch", height=400)
@@ -947,6 +944,9 @@ def show_email_generator():
             
             except Exception as e:
                 st.error(f"处理过程中发生错误：\n\n{str(e)}")
+                import traceback
+                with st.expander("查看详细错误信息"):
+                    st.code(traceback.format_exc())
 
 
 def show_user_management(config):

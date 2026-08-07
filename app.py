@@ -22,6 +22,7 @@ from modules.database import DatabaseManager
 from modules.invoice_fetcher import InvoiceFetcher
 from modules.quotation_ui import show_quotation
 from modules.db_manager import get_db_manager
+from modules.video_editor import show_video_editor
 from logo_base64 import get_logo_html, get_avatar_html, get_logo_data_url, get_avatar_data_url
 
 DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
@@ -152,6 +153,15 @@ def show_home(config):
             "key": "btn-quotation",
             "session_value": "📋 报价助手",
             "help": "点击进入报价助手模块"
+        },
+        {
+            "icon": "🎬",
+            "title": "AI 视频剪辑",
+            "desc": "Crayotter 多模态Agent · 一句话自动出片",
+            "color_class": "card-cyan",
+            "key": "btn-video-editor",
+            "session_value": "🎬 AI 视频剪辑",
+            "help": "点击进入 AI 视频剪辑（Crayotter）模块"
         }
     ]
     
@@ -1371,6 +1381,9 @@ def main():
         
         elif selected_main == '📋 报价助手':
             show_quotation()
+        
+        elif selected_main == '🎬 AI 视频剪辑':
+            show_video_editor()
         
         elif selected_main == '👑 用户管理':
             show_user_management(config)

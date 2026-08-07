@@ -1,0 +1,1408 @@
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import shutil
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Mapping
+
+from openai import OpenAI
+from app.runtime_paths import configure_runtime_environment, get_runtime_root, runtime_path
+from memory_reference import (
+    STORAGE_MEMORY_CHAR_LIMIT,
+    load_memory_reference,
+    sanitize_memory_reference,
+)
+from model_runtime import ModelCallError, emit_benchmark_event, reset_model_abort
+from runtime import RuntimeSettings, WorkflowContext
+from workflow import SkillRegistry
+
+# ═══════════════════════════════════════════════════════════════════════════
+# API 配置 - 请在此处设置你的密钥和中转站地址
+# ═══════════════════════════════════════════════════════════════════════════
+
+configure_runtime_environment()
+
+API_KEY = os.environ.get("CRAYOTTER_API_KEY") or os.environ.get("DASHSCOPE_API_KEY") or "EMPTY"
+BASE_URL = os.environ.get("CRAYOTTER_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+MODEL_NAME = os.environ.get("CRAYOTTER_MODEL_NAME", "qwen-plus")
+ENABLE_PHASE2_RESEARCH = str(
+    os.environ.get("CRAYOTTER_ENABLE_PHASE2_RESEARCH", "true")
+).strip().lower() not in {"0", "false", "no", "off"}
+ENABLE_PLAN_REVIEW = str(
+    os.environ.get("CRAYOTTER_ENABLE_PLAN_REVIEW", "true")
+).strip().lower() not in {"0", "false", "no", "off"}
+REVISION = max(1, int(os.environ.get("CRAYOTTER_REVISION", "1") or 1))
+DIRECT_PHASE3_EXECUTION = str(
+    os.environ.get("CRAYOTTER_DIRECT_PHASE3_EXECUTION", "false")
+).strip().lower() not in {"0", "false", "no", "off"}
+PREFER_LOCAL_MATERIALS = str(
+    os.environ.get("CRAYOTTER_PREFER_LOCAL_MATERIALS", "false")
+).strip().lower() not in {"0", "false", "no", "off"}
+POST_TASK_REVIEW_MODE = str(
+    os.environ.get("CRAYOTTER_POST_TASK_REVIEW_MODE", "async")
+).strip().lower() or "async"
+SHORT_FORM_OPTIMIZATIONS = str(
+    os.environ.get("CRAYOTTER_SHORT_FORM_OPTIMIZATIONS", "true")
+).strip().lower() not in {"0", "false", "no", "off"}
+try:
+    SEARCH_POOL_SIZE = max(1, int(os.environ.get("CRAYOTTER_SEARCH_POOL_SIZE", "4") or 4))
+    DOWNLOAD_POOL_SIZE = max(1, int(os.environ.get("CRAYOTTER_DOWNLOAD_POOL_SIZE", "3") or 3))
+    VIDEO_ANALYSIS_POOL_SIZE = max(1, int(os.environ.get("CRAYOTTER_VIDEO_ANALYSIS_POOL_SIZE", "3") or 3))
+    LLM_POOL_SIZE = max(1, int(os.environ.get("CRAYOTTER_LLM_POOL_SIZE", "4") or 4))
+    FFMPEG_POOL_SIZE = max(1, int(os.environ.get("CRAYOTTER_FFMPEG_POOL_SIZE", "3") or 3))
+    TTS_POOL_SIZE = max(1, int(os.environ.get("CRAYOTTER_TTS_POOL_SIZE", "3") or 3))
+    EXPORT_POOL_SIZE = max(1, int(os.environ.get("CRAYOTTER_EXPORT_POOL_SIZE", "1") or 1))
+    SHORT_FORM_MAX_SOURCES = min(
+        4,
+        max(1, int(os.environ.get("CRAYOTTER_SHORT_FORM_MAX_SOURCES", "2") or 2)),
+    )
+    VIDEO_ANALYSIS_PROXY_MAX_SECONDS = max(
+        15,
+        int(os.environ.get("CRAYOTTER_VIDEO_ANALYSIS_PROXY_MAX_SECONDS", "45") or 45),
+    )
+    DOWNLOAD_MAX_HEIGHT = max(
+        360,
+        int(os.environ.get("CRAYOTTER_DOWNLOAD_MAX_HEIGHT", "720") or 720),
+    )
+    STANDARDIZE_TARGET_FPS = max(
+        1,
+        int(os.environ.get("CRAYOTTER_STANDARDIZE_TARGET_FPS", "30") or 30),
+    )
+    _audio_loudnorm_raw = str(os.environ.get("CRAYOTTER_AUDIO_LOUDNORM_TARGET", "0") or "0").strip().lower()
+    AUDIO_LOUDNORM_TARGET = (
+        0.0
+        if _audio_loudnorm_raw in {"", "0", "off", "false", "no", "none", "null"}
+        else float(_audio_loudnorm_raw)
+    )
+except (TypeError, ValueError):
+    SEARCH_POOL_SIZE = 4
+    DOWNLOAD_POOL_SIZE = 3
+    VIDEO_ANALYSIS_POOL_SIZE = 3
+    LLM_POOL_SIZE = 4
+    FFMPEG_POOL_SIZE = 3
+    TTS_POOL_SIZE = 3
+    EXPORT_POOL_SIZE = 1
+    SHORT_FORM_MAX_SOURCES = 2
+    VIDEO_ANALYSIS_PROXY_MAX_SECONDS = 45
+    DOWNLOAD_MAX_HEIGHT = 720
+    STANDARDIZE_TARGET_FPS = 30
+    AUDIO_LOUDNORM_TARGET = 0.0
+
+VIDEO_API_KEY = os.environ.get("CRAYOTTER_VIDEO_API_KEY") or API_KEY
+VIDEO_BASE_URL = os.environ.get("CRAYOTTER_VIDEO_BASE_URL", BASE_URL)
+VIDEO_MODEL_NAME = os.environ.get("CRAYOTTER_VIDEO_MODEL_NAME", "qwen-vl-max-latest")
+
+# TTS API configuration (DashScope TTS)
+TTS_API_KEY = os.environ.get("CRAYOTTER_TTS_API_KEY") or API_KEY
+TTS_BASE_URL = os.environ.get("CRAYOTTER_TTS_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+TTS_MODEL_NAME = os.environ.get("CRAYOTTER_TTS_MODEL_NAME", "qwen-tts-latest")
+try:
+    AGENT_STALL_TIMEOUT_SECONDS = max(
+        10,
+        int(os.environ.get("CRAYOTTER_AGENT_STALL_TIMEOUT_SECONDS", "150") or 150),
+    )
+except (TypeError, ValueError):
+    AGENT_STALL_TIMEOUT_SECONDS = 150
+RESUME_EXECUTION = False
+DEFAULT_DEADLINE_SECONDS = max(
+    60, int(os.environ.get("CRAYOTTER_DEFAULT_DEADLINE_SECONDS", "600") or 600)
+)
+PHASE1_MAX_SECONDS = max(
+    30, int(os.environ.get("CRAYOTTER_PHASE1_MAX_SECONDS", "180") or 180)
+)
+PROCESSING_MODE = str(os.environ.get("CRAYOTTER_PROCESSING_MODE", "auto") or "auto").strip().lower()
+YOUTUBE_MODE = str(os.environ.get("CRAYOTTER_YOUTUBE_MODE", "auto") or "auto").strip().lower()
+OUTPUT_PROFILE = str(os.environ.get("CRAYOTTER_OUTPUT_PROFILE", "auto") or "auto").strip()
+BROWSER_AUTH_BROWSER = str(os.environ.get("CRAYOTTER_BROWSER_AUTH_BROWSER", "") or "").strip()
+BROWSER_AUTH_PROFILE = str(os.environ.get("CRAYOTTER_BROWSER_AUTH_PROFILE", "") or "").strip()
+ENABLED_MATERIAL_PLATFORMS = [
+    item.strip().lower()
+    for item in str(
+        os.environ.get(
+            "CRAYOTTER_ENABLED_MATERIAL_PLATFORMS",
+            "bilibili,douyin,xiaohongshu,youtube",
+        )
+    ).split(",")
+    if item.strip()
+]
+TARGET_DURATION_SECONDS = 0.0
+RUNTIME_SETTINGS: RuntimeSettings | None = None
+
+# 配置 agent 日志（始终写到仓库根目录 logs/）
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = get_runtime_root()
+
+
+def _select_logs_dir() -> Path:
+    primary = runtime_path("logs")
+    fallback = runtime_path("runtime_logs")
+
+    for candidate in (primary, fallback):
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / ".write_test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return candidate
+        except Exception:
+            continue
+
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+LOGS_DIR = _select_logs_dir()
+
+_agent_log_file = LOGS_DIR / f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+_agent_file_handler = logging.FileHandler(_agent_log_file, encoding='utf-8')
+_agent_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+_agent_file_handler.setLevel(logging.DEBUG)
+
+agent_logger = logging.getLogger('agent')
+if not agent_logger.handlers:
+    agent_logger.addHandler(_agent_file_handler)
+    agent_logger.setLevel(logging.DEBUG)
+    agent_logger.info(f"Agent日志已初始化: {_agent_log_file}")
+
+RuntimeEventCallback = Callable[[dict[str, Any]], None]
+
+_PLAN_SUMMARY_RE = re.compile(r"素材准备计划 \((\d+) 步\): (.+)")
+_STEP_SCHEDULED_RE = re.compile(
+    r"DAG 调度步骤 \[(\d+)\]: tool=([^,]+), depends_on=(.+)"
+)
+_DEPENDENCY_WAITING_RE = re.compile(
+    r"DAG 等待步骤 \[(\d+)\]: depends_on=(.+)"
+)
+_STEP_START_RE = re.compile(r"Executor 步骤 \[(\d+)\]: (.+)")
+_STEP_COMPLETE_RE = re.compile(r"步骤 \[(\d+)\] 完成(?:\(确定性(?:下载|分析)\))?: (.+)")
+_STEP_FAILED_RE = re.compile(r"步骤 \[(\d+)\] 失败: (.+)")
+_TOOL_CALL_RE = re.compile(r"Phase3 工具调用: ([a-zA-Z_][\w]*) args=(.+)")
+_TOOL_RESULT_RE = re.compile(r"Phase3 工具结果: ([a-zA-Z_][\w]*) -> (.+)")
+_TOOL_START_REALTIME_RE = re.compile(
+    r"Phase3 工具开始: ([a-zA-Z_][\w]*) run_id=(\S+)"
+)
+_TOOL_DONE_REALTIME_RE = re.compile(
+    r"Phase3 工具完成: ([a-zA-Z_][\w]*) run_id=(\S+) duration=([\d.]+)s"
+)
+_TOOL_FAILED_REALTIME_RE = re.compile(
+    r"Phase3 工具失败: ([a-zA-Z_][\w]*) run_id=(\S+) duration=([\d.]+)s error=(.+)"
+)
+
+from graph import AgentState, build_graph
+from orchestration import create_processing_budget
+from tools import (
+    MEMORY_EXPERIENCE_DIR,
+    USER_WORKSPACE,
+    WORKSPACE,
+    analyze_video,
+    reset_analysis_failure_circuit,
+)
+
+MEMORY_EXPERIENCE_DIR.mkdir(parents=True, exist_ok=True)
+USER_WORKSPACE.mkdir(parents=True, exist_ok=True)
+
+# 将 tools / graph 的所有日志同步写入 agent_*.log（工具调用日志可见）
+for _lg_name in ('tools', 'graph'):
+    _lg = logging.getLogger(_lg_name)
+    if _agent_file_handler not in _lg.handlers:
+        _lg.addHandler(_agent_file_handler)
+
+
+def _emit_runtime_event(
+    callback: RuntimeEventCallback | None,
+    event_type: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    if callback is None:
+        return
+    callback(
+        {
+            "type": event_type,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "payload": payload or {},
+        }
+    )
+
+
+def _public_phase_name(value: Any) -> str:
+    phase = str(value or "").strip().lower()
+    if phase in {"phase1", "planning", "preparing"}:
+        return "phase1"
+    if phase in {"phase2", "researching", "editing_research"}:
+        return "phase2"
+    if phase in {"phase3", "react", "react_editing", "done"}:
+        return "phase3"
+    return ""
+
+
+def _build_runtime_settings() -> dict[str, Any]:
+    return {
+        "api_key": API_KEY,
+        "base_url": BASE_URL,
+        "model_name": MODEL_NAME,
+        "enable_phase2_research": ENABLE_PHASE2_RESEARCH,
+        "enable_plan_review": ENABLE_PLAN_REVIEW,
+        "direct_phase3_execution": DIRECT_PHASE3_EXECUTION,
+        "prefer_local_materials": PREFER_LOCAL_MATERIALS,
+        "search_pool_size": SEARCH_POOL_SIZE,
+        "download_pool_size": DOWNLOAD_POOL_SIZE,
+        "video_analysis_pool_size": VIDEO_ANALYSIS_POOL_SIZE,
+        "llm_pool_size": LLM_POOL_SIZE,
+        "ffmpeg_pool_size": FFMPEG_POOL_SIZE,
+        "tts_pool_size": TTS_POOL_SIZE,
+        "export_pool_size": EXPORT_POOL_SIZE,
+        "short_form_optimizations": SHORT_FORM_OPTIMIZATIONS,
+        "short_form_max_sources": SHORT_FORM_MAX_SOURCES,
+        "video_analysis_proxy_max_seconds": VIDEO_ANALYSIS_PROXY_MAX_SECONDS,
+        "download_max_height": DOWNLOAD_MAX_HEIGHT,
+        "standardize_target_fps": STANDARDIZE_TARGET_FPS,
+        "audio_loudnorm_target": AUDIO_LOUDNORM_TARGET,
+        "post_task_review_mode": POST_TASK_REVIEW_MODE,
+        "agent_stall_timeout_seconds": AGENT_STALL_TIMEOUT_SECONDS,
+        "youtube_mode": YOUTUBE_MODE,
+        "default_deadline_seconds": DEFAULT_DEADLINE_SECONDS,
+        "processing_mode": PROCESSING_MODE,
+        "output_profile": OUTPUT_PROFILE,
+        "enabled_material_platforms": ENABLED_MATERIAL_PLATFORMS,
+        "target_duration_seconds": TARGET_DURATION_SECONDS,
+        "resume_execution": RESUME_EXECUTION,
+        "revision": REVISION,
+        "phase1_max_seconds": PHASE1_MAX_SECONDS,
+        "browser_auth_browser": BROWSER_AUTH_BROWSER,
+        "browser_auth_profile": BROWSER_AUTH_PROFILE,
+        "video_api_key": VIDEO_API_KEY,
+        "video_base_url": VIDEO_BASE_URL,
+        "video_model_name": VIDEO_MODEL_NAME,
+        "tts_api_key": TTS_API_KEY,
+        "tts_base_url": TTS_BASE_URL,
+        "tts_model_name": TTS_MODEL_NAME,
+    }
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if not text:
+        return default
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _coerce_runtime_text(value: Any, default: str = "") -> str:
+    text = str(value or "").strip()
+    if not text:
+        return default
+    if text in {"EMPTY", "sk-your-api-key-here", "None", "null"}:
+        return default
+    return text
+
+
+def _coerce_positive_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(str(value or "").strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _coerce_runtime_float(value: Any, default: float) -> float:
+    text = str(value or "").strip().lower()
+    if not text or text in {"off", "false", "no", "none", "null"}:
+        return default
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return default
+
+
+def apply_runtime_config(config: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    global API_KEY, BASE_URL, MODEL_NAME, ENABLE_PHASE2_RESEARCH, ENABLE_PLAN_REVIEW
+    global DIRECT_PHASE3_EXECUTION, PREFER_LOCAL_MATERIALS, AGENT_STALL_TIMEOUT_SECONDS
+    global POST_TASK_REVIEW_MODE
+    global REVISION
+    global RESUME_EXECUTION
+    global SEARCH_POOL_SIZE, DOWNLOAD_POOL_SIZE, VIDEO_ANALYSIS_POOL_SIZE
+    global LLM_POOL_SIZE, FFMPEG_POOL_SIZE, TTS_POOL_SIZE, EXPORT_POOL_SIZE
+    global SHORT_FORM_OPTIMIZATIONS, SHORT_FORM_MAX_SOURCES
+    global VIDEO_ANALYSIS_PROXY_MAX_SECONDS, DOWNLOAD_MAX_HEIGHT, STANDARDIZE_TARGET_FPS, AUDIO_LOUDNORM_TARGET
+    global VIDEO_API_KEY, VIDEO_BASE_URL, VIDEO_MODEL_NAME
+    global TTS_API_KEY, TTS_BASE_URL, TTS_MODEL_NAME
+    global DEFAULT_DEADLINE_SECONDS, PHASE1_MAX_SECONDS, PROCESSING_MODE, YOUTUBE_MODE, OUTPUT_PROFILE
+    global BROWSER_AUTH_BROWSER, BROWSER_AUTH_PROFILE
+    global ENABLED_MATERIAL_PLATFORMS, TARGET_DURATION_SECONDS
+    global RUNTIME_SETTINGS
+
+    config = dict(config or {})
+
+    API_KEY = _coerce_runtime_text(config.get("api_key"), _coerce_runtime_text(API_KEY))
+    BASE_URL = _coerce_runtime_text(config.get("base_url"), _coerce_runtime_text(BASE_URL))
+    MODEL_NAME = _coerce_runtime_text(config.get("model_name"), _coerce_runtime_text(MODEL_NAME))
+    ENABLE_PHASE2_RESEARCH = _coerce_bool(
+        config.get("enable_phase2_research"),
+        ENABLE_PHASE2_RESEARCH,
+    )
+    ENABLE_PLAN_REVIEW = _coerce_bool(
+        config.get("enable_plan_review"),
+        ENABLE_PLAN_REVIEW,
+    )
+    DIRECT_PHASE3_EXECUTION = _coerce_bool(
+        config.get("direct_phase3_execution"),
+        DIRECT_PHASE3_EXECUTION,
+    )
+    PREFER_LOCAL_MATERIALS = _coerce_bool(
+        config.get("prefer_local_materials"),
+        PREFER_LOCAL_MATERIALS,
+    )
+    mode = str(config.get("post_task_review_mode") or POST_TASK_REVIEW_MODE).strip().lower()
+    POST_TASK_REVIEW_MODE = mode if mode in {"async", "sync", "off"} else "async"
+    SEARCH_POOL_SIZE = _coerce_positive_int(config.get("search_pool_size"), SEARCH_POOL_SIZE)
+    DOWNLOAD_POOL_SIZE = _coerce_positive_int(config.get("download_pool_size"), DOWNLOAD_POOL_SIZE)
+    VIDEO_ANALYSIS_POOL_SIZE = _coerce_positive_int(
+        config.get("video_analysis_pool_size"), VIDEO_ANALYSIS_POOL_SIZE
+    )
+    RESUME_EXECUTION = _coerce_bool(
+        config.get("resume_execution"),
+        RESUME_EXECUTION,
+    )
+    REVISION = _coerce_positive_int(config.get("revision"), REVISION)
+    LLM_POOL_SIZE = _coerce_positive_int(config.get("llm_pool_size"), LLM_POOL_SIZE)
+    FFMPEG_POOL_SIZE = _coerce_positive_int(config.get("ffmpeg_pool_size"), FFMPEG_POOL_SIZE)
+    TTS_POOL_SIZE = _coerce_positive_int(config.get("tts_pool_size"), TTS_POOL_SIZE)
+    EXPORT_POOL_SIZE = _coerce_positive_int(config.get("export_pool_size"), EXPORT_POOL_SIZE)
+    SHORT_FORM_OPTIMIZATIONS = _coerce_bool(
+        config.get("short_form_optimizations"),
+        SHORT_FORM_OPTIMIZATIONS,
+    )
+    SHORT_FORM_MAX_SOURCES = min(
+        4,
+        max(
+            1,
+            _coerce_positive_int(
+                config.get("short_form_max_sources"),
+                SHORT_FORM_MAX_SOURCES,
+            ),
+        ),
+    )
+    VIDEO_ANALYSIS_PROXY_MAX_SECONDS = _coerce_positive_int(
+        config.get("video_analysis_proxy_max_seconds"),
+        VIDEO_ANALYSIS_PROXY_MAX_SECONDS,
+    )
+    DOWNLOAD_MAX_HEIGHT = _coerce_positive_int(
+        config.get("download_max_height"),
+        DOWNLOAD_MAX_HEIGHT,
+    )
+    STANDARDIZE_TARGET_FPS = _coerce_positive_int(
+        config.get("standardize_target_fps"),
+        STANDARDIZE_TARGET_FPS,
+    )
+    AUDIO_LOUDNORM_TARGET = _coerce_runtime_float(
+        config.get("audio_loudnorm_target"),
+        AUDIO_LOUDNORM_TARGET,
+    )
+    DEFAULT_DEADLINE_SECONDS = max(
+        60,
+        _coerce_positive_int(
+            config.get("default_deadline_seconds"),
+            DEFAULT_DEADLINE_SECONDS,
+        ),
+    )
+    PHASE1_MAX_SECONDS = max(
+        30,
+        _coerce_positive_int(config.get("phase1_max_seconds"), PHASE1_MAX_SECONDS),
+    )
+    PROCESSING_MODE = str(config.get("processing_mode") or PROCESSING_MODE).strip().lower()
+    if PROCESSING_MODE not in {"auto", "speed", "quality"}:
+        PROCESSING_MODE = "auto"
+    YOUTUBE_MODE = str(config.get("youtube_mode") or YOUTUBE_MODE).strip().lower()
+    if YOUTUBE_MODE not in {"auto", "on", "off"}:
+        YOUTUBE_MODE = "auto"
+    OUTPUT_PROFILE = str(config.get("output_profile") or OUTPUT_PROFILE or "auto").strip()
+    raw_platforms = config.get("enabled_material_platforms", ENABLED_MATERIAL_PLATFORMS)
+    if isinstance(raw_platforms, str):
+        raw_platforms = raw_platforms.split(",")
+    ENABLED_MATERIAL_PLATFORMS = [
+        str(item).strip().lower() for item in (raw_platforms or []) if str(item).strip()
+    ] or ["bilibili", "douyin", "xiaohongshu", "youtube"]
+    BROWSER_AUTH_BROWSER = str(
+        config.get("browser_auth_browser") or BROWSER_AUTH_BROWSER or ""
+    ).strip()
+    BROWSER_AUTH_PROFILE = str(
+        config.get("browser_auth_profile") or BROWSER_AUTH_PROFILE or ""
+    ).strip()
+    TARGET_DURATION_SECONDS = max(
+        0.0,
+        _coerce_runtime_float(config.get("target_duration_seconds"), 0.0),
+    )
+    os.environ["CRAYOTTER_SEARCH_POOL_SIZE"] = str(SEARCH_POOL_SIZE)
+    os.environ["CRAYOTTER_DOWNLOAD_POOL_SIZE"] = str(DOWNLOAD_POOL_SIZE)
+    os.environ["CRAYOTTER_VIDEO_ANALYSIS_POOL_SIZE"] = str(VIDEO_ANALYSIS_POOL_SIZE)
+    os.environ["CRAYOTTER_LLM_POOL_SIZE"] = str(LLM_POOL_SIZE)
+    os.environ["CRAYOTTER_FFMPEG_POOL_SIZE"] = str(FFMPEG_POOL_SIZE)
+    os.environ["CRAYOTTER_TTS_POOL_SIZE"] = str(TTS_POOL_SIZE)
+    os.environ["CRAYOTTER_EXPORT_POOL_SIZE"] = str(EXPORT_POOL_SIZE)
+    os.environ["CRAYOTTER_ENABLE_PLAN_REVIEW"] = (
+        "true" if ENABLE_PLAN_REVIEW else "false"
+    )
+    os.environ["CRAYOTTER_SHORT_FORM_OPTIMIZATIONS"] = (
+        "true" if SHORT_FORM_OPTIMIZATIONS else "false"
+    )
+    os.environ["CRAYOTTER_SHORT_FORM_MAX_SOURCES"] = str(SHORT_FORM_MAX_SOURCES)
+    os.environ["CRAYOTTER_VIDEO_ANALYSIS_PROXY_MAX_SECONDS"] = str(
+        VIDEO_ANALYSIS_PROXY_MAX_SECONDS
+    )
+    os.environ["CRAYOTTER_DOWNLOAD_MAX_HEIGHT"] = str(DOWNLOAD_MAX_HEIGHT)
+    os.environ["CRAYOTTER_STANDARDIZE_TARGET_FPS"] = str(STANDARDIZE_TARGET_FPS)
+    os.environ["CRAYOTTER_AUDIO_LOUDNORM_TARGET"] = str(AUDIO_LOUDNORM_TARGET)
+    os.environ["CRAYOTTER_POST_TASK_REVIEW_MODE"] = POST_TASK_REVIEW_MODE
+    os.environ["CRAYOTTER_DEFAULT_DEADLINE_SECONDS"] = str(DEFAULT_DEADLINE_SECONDS)
+    os.environ["CRAYOTTER_PHASE1_MAX_SECONDS"] = str(PHASE1_MAX_SECONDS)
+    os.environ["CRAYOTTER_PROCESSING_MODE"] = PROCESSING_MODE
+    os.environ["CRAYOTTER_YOUTUBE_MODE"] = YOUTUBE_MODE
+    os.environ["CRAYOTTER_OUTPUT_PROFILE"] = OUTPUT_PROFILE
+    os.environ["CRAYOTTER_ENABLED_MATERIAL_PLATFORMS"] = ",".join(ENABLED_MATERIAL_PLATFORMS)
+    os.environ["CRAYOTTER_BROWSER_AUTH_BROWSER"] = BROWSER_AUTH_BROWSER
+    os.environ["CRAYOTTER_BROWSER_AUTH_PROFILE"] = BROWSER_AUTH_PROFILE
+    AGENT_STALL_TIMEOUT_SECONDS = _coerce_positive_int(
+        config.get("agent_stall_timeout_seconds"),
+        AGENT_STALL_TIMEOUT_SECONDS,
+    )
+
+    VIDEO_API_KEY = _coerce_runtime_text(config.get("video_api_key"), API_KEY)
+    VIDEO_BASE_URL = _coerce_runtime_text(config.get("video_base_url"), BASE_URL)
+    VIDEO_MODEL_NAME = _coerce_runtime_text(
+        config.get("video_model_name"),
+        _coerce_runtime_text(VIDEO_MODEL_NAME, MODEL_NAME),
+    )
+
+    TTS_API_KEY = _coerce_runtime_text(config.get("tts_api_key"), API_KEY)
+    TTS_BASE_URL = _coerce_runtime_text(config.get("tts_base_url"), BASE_URL)
+    TTS_MODEL_NAME = _coerce_runtime_text(
+        config.get("tts_model_name"),
+        _coerce_runtime_text(TTS_MODEL_NAME),
+    )
+
+    import graph as graph_module
+    import tools as tools_module
+
+    graph_module.API_KEY = API_KEY
+    graph_module.BASE_URL = BASE_URL
+    graph_module.MODEL_NAME = MODEL_NAME
+    graph_module.ENABLE_PHASE2_RESEARCH = ENABLE_PHASE2_RESEARCH
+    graph_module.ENABLE_PLAN_REVIEW = ENABLE_PLAN_REVIEW
+    graph_module.DIRECT_PHASE3_EXECUTION = DIRECT_PHASE3_EXECUTION
+    graph_module.REVISION = REVISION
+    graph_module.PREFER_LOCAL_MATERIALS = PREFER_LOCAL_MATERIALS
+    graph_module.SEARCH_POOL_SIZE = SEARCH_POOL_SIZE
+    graph_module.DOWNLOAD_POOL_SIZE = DOWNLOAD_POOL_SIZE
+    graph_module.VIDEO_ANALYSIS_POOL_SIZE = VIDEO_ANALYSIS_POOL_SIZE
+    graph_module.LLM_POOL_SIZE = LLM_POOL_SIZE
+    graph_module.FFMPEG_POOL_SIZE = FFMPEG_POOL_SIZE
+    graph_module.TTS_POOL_SIZE = TTS_POOL_SIZE
+    graph_module.EXPORT_POOL_SIZE = EXPORT_POOL_SIZE
+    graph_module.SHORT_FORM_OPTIMIZATIONS = SHORT_FORM_OPTIMIZATIONS
+    graph_module.SHORT_FORM_MAX_SOURCES = SHORT_FORM_MAX_SOURCES
+    graph_module.DEFAULT_DEADLINE_SECONDS = float(DEFAULT_DEADLINE_SECONDS)
+    graph_module.PHASE1_MAX_SECONDS = float(PHASE1_MAX_SECONDS)
+    graph_module.PROCESSING_MODE = PROCESSING_MODE
+    tools_module.configure(
+        api_key=API_KEY,
+        base_url=BASE_URL,
+        model_name=MODEL_NAME,
+        video_api_key=VIDEO_API_KEY,
+        video_base_url=VIDEO_BASE_URL,
+        video_model_name=VIDEO_MODEL_NAME,
+        tts_api_key=TTS_API_KEY,
+        tts_base_url=TTS_BASE_URL,
+        tts_model_name=TTS_MODEL_NAME,
+    )
+    RUNTIME_SETTINGS = RuntimeSettings.from_mapping(_build_runtime_settings())
+    graph_module.set_workflow_context(
+        WorkflowContext(
+            settings=RUNTIME_SETTINGS,
+            tools=graph_module.TOOL_CATALOG,
+            workspace=WORKSPACE,
+            user_workspace=USER_WORKSPACE,
+            memory_experience_dir=MEMORY_EXPERIENCE_DIR,
+            skills=SkillRegistry.defaults(),
+            event_sink=graph_module.RUNTIME_EVENT_SINK,
+        )
+    )
+    return RUNTIME_SETTINGS.model_dump()
+
+
+def _ensure_runtime_ready() -> None:
+    apply_runtime_config()
+    if API_KEY in {"EMPTY", "sk-your-api-key-here"} or not API_KEY:
+        raise RuntimeError("Missing runtime API key configuration.")
+
+
+def _serialize_plan(plan: Any) -> dict[str, Any]:
+    if hasattr(plan, "model_dump"):
+        return plan.model_dump()
+    if isinstance(plan, dict):
+        return plan
+    return {"raw": str(plan)}
+
+
+def _list_workspace_mp4_files() -> list[str]:
+    manifest_path = WORKSPACE / ".crayotter" / "artifact_manifest.json"
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            final_paths = [
+                Path(str(item.get("path") or ""))
+                for item in manifest.get("artifacts", [])
+                if item.get("kind") == "final_video" and item.get("valid", True)
+            ]
+            existing = [path for path in final_paths if path.exists() and path.is_file()]
+            if existing:
+                return [str(path.resolve()) for path in existing]
+        except Exception:
+            pass
+
+    files = [path for path in WORKSPACE.glob("*.mp4") if path.is_file()]
+    final_named = [
+        path
+        for path in files
+        if "final" in path.stem.lower() or "output" in path.stem.lower()
+    ]
+    if final_named:
+        return [str(path.resolve()) for path in sorted(final_named)]
+    if files:
+        return [str(max(files, key=lambda path: path.stat().st_mtime).resolve())]
+    return []
+
+
+def _emit_state_update(
+    callback: RuntimeEventCallback | None,
+    node_name: str,
+    update: dict[str, Any],
+) -> None:
+    if callback is None or not isinstance(update, dict):
+        return
+
+    _emit_runtime_event(
+        callback,
+        "node_update",
+        {"node": node_name, "keys": list(update.keys())},
+    )
+
+    if "phase" in update:
+        public_phase = _public_phase_name(update.get("phase"))
+        if public_phase:
+            _emit_runtime_event(
+                callback,
+                "phase_state",
+                {"node": node_name, "phase": public_phase},
+            )
+
+    if "plan" in update and update["plan"] is not None:
+        _emit_runtime_event(
+            callback,
+            "plan_created",
+            {
+                "node": node_name,
+                "plan": _serialize_plan(update["plan"]),
+                "target_duration_seconds": update.get("target_duration_seconds", 0),
+            },
+        )
+
+    if "step_results" in update and update["step_results"]:
+        raw_result = update["step_results"][-1]
+        if hasattr(raw_result, "model_dump"):
+            serialized_result = raw_result.model_dump()
+        elif isinstance(raw_result, dict):
+            serialized_result = raw_result
+        else:
+            serialized_result = {"result": str(raw_result)}
+        _emit_runtime_event(
+            callback,
+            "step_result",
+            {
+                "node": node_name,
+                "current_step_index": update.get("current_step_index"),
+                **serialized_result,
+            },
+        )
+
+    if update.get("editing_blueprint"):
+        blueprint = str(update["editing_blueprint"])
+        _emit_runtime_event(
+            callback,
+            "blueprint_created",
+            {"node": node_name, "length": len(blueprint), "excerpt": blueprint[:500]},
+        )
+
+    if update.get("final_output"):
+        _emit_runtime_event(
+            callback,
+            "final_output",
+            {"node": node_name, "text": str(update["final_output"])},
+        )
+
+
+class _RuntimeEventLogHandler(logging.Handler):
+    def __init__(self, callback: RuntimeEventCallback | None) -> None:
+        super().__init__(level=logging.INFO)
+        self.callback = callback
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self.callback is None:
+            return
+        if not (
+            record.name == "agent"
+            or record.name == "graph"
+            or record.name.startswith("tools")
+        ):
+            return
+
+        message = record.getMessage()
+        _emit_runtime_event(
+            self.callback,
+            "log",
+            {
+                "logger": record.name,
+                "level": record.levelname,
+                "message": message,
+            },
+        )
+
+        if record.name != "graph":
+            return
+
+        if "Phase 1" in message and "Planner" in message:
+            _emit_runtime_event(self.callback, "phase_started", {"phase": "phase1"})
+        elif "Phase 2 开始" in message:
+            _emit_runtime_event(self.callback, "phase_started", {"phase": "phase2"})
+        elif "Phase 3 开始" in message:
+            _emit_runtime_event(self.callback, "phase_started", {"phase": "phase3"})
+
+        plan_match = _PLAN_SUMMARY_RE.search(message)
+        if plan_match:
+            _emit_runtime_event(
+                self.callback,
+                "plan_summary",
+                {
+                    "step_count": int(plan_match.group(1)),
+                    "goal": plan_match.group(2),
+                },
+            )
+
+        scheduled_match = _STEP_SCHEDULED_RE.search(message)
+        if scheduled_match:
+            _emit_runtime_event(
+                self.callback,
+                "step_scheduled",
+                {
+                    "step_id": int(scheduled_match.group(1)),
+                    "tool_name": scheduled_match.group(2).strip(),
+                    "depends_on": scheduled_match.group(3).strip(),
+                },
+            )
+
+        waiting_match = _DEPENDENCY_WAITING_RE.search(message)
+        if waiting_match:
+            _emit_runtime_event(
+                self.callback,
+                "dependency_waiting",
+                {
+                    "step_id": int(waiting_match.group(1)),
+                    "depends_on": waiting_match.group(2).strip(),
+                },
+            )
+
+        step_match = _STEP_START_RE.search(message)
+        if step_match:
+            _emit_runtime_event(
+                self.callback,
+                "step_started",
+                {
+                    "step_id": int(step_match.group(1)),
+                    "description": step_match.group(2),
+                },
+            )
+
+        step_done_match = _STEP_COMPLETE_RE.search(message)
+        if step_done_match:
+            _emit_runtime_event(
+                self.callback,
+                "step_completed",
+                {
+                    "step_id": int(step_done_match.group(1)),
+                    "result": step_done_match.group(2),
+                },
+            )
+
+        step_failed_match = _STEP_FAILED_RE.search(message)
+        if step_failed_match:
+            _emit_runtime_event(
+                self.callback,
+                "step_failed",
+                {
+                    "step_id": int(step_failed_match.group(1)),
+                    "error": step_failed_match.group(2),
+                },
+            )
+
+        tool_call_match = _TOOL_CALL_RE.search(message)
+        if tool_call_match:
+            _emit_runtime_event(
+                self.callback,
+                "tool_called",
+                {
+                    "phase": "phase3",
+                    "tool_name": tool_call_match.group(1),
+                    "args_preview": tool_call_match.group(2),
+                },
+            )
+
+        tool_result_match = _TOOL_RESULT_RE.search(message)
+        if tool_result_match:
+            _emit_runtime_event(
+                self.callback,
+                "tool_result",
+                {
+                    "phase": "phase3",
+                    "tool_name": tool_result_match.group(1),
+                    "summary": tool_result_match.group(2),
+                },
+            )
+
+        realtime_start = _TOOL_START_REALTIME_RE.search(message)
+        if realtime_start:
+            _emit_runtime_event(
+                self.callback,
+                "tool_started",
+                {
+                    "phase": "phase3",
+                    "tool_name": realtime_start.group(1),
+                    "run_id": realtime_start.group(2),
+                },
+            )
+
+        realtime_done = _TOOL_DONE_REALTIME_RE.search(message)
+        if realtime_done:
+            _emit_runtime_event(
+                self.callback,
+                "tool_completed",
+                {
+                    "phase": "phase3",
+                    "tool_name": realtime_done.group(1),
+                    "run_id": realtime_done.group(2),
+                    "duration_seconds": float(realtime_done.group(3)),
+                },
+            )
+
+        realtime_failed = _TOOL_FAILED_REALTIME_RE.search(message)
+        if realtime_failed:
+            _emit_runtime_event(
+                self.callback,
+                "tool_failed",
+                {
+                    "phase": "phase3",
+                    "tool_name": realtime_failed.group(1),
+                    "run_id": realtime_failed.group(2),
+                    "duration_seconds": float(realtime_failed.group(3)),
+                    "error": realtime_failed.group(4)[:500],
+                },
+            )
+
+
+def _cleanup_workspace_before_task() -> int:
+    """任务开始前清理 temp，避免历史脏文件干扰。"""
+    deleted = 0
+    if not WORKSPACE.exists():
+        return deleted
+
+    targets = sorted(WORKSPACE.glob("**/*"), reverse=True)
+    for path in targets:
+        try:
+            if path.is_file() or path.is_symlink():
+                path.unlink(missing_ok=True)
+                deleted += 1
+            elif path.is_dir():
+                path.rmdir()
+        except Exception:
+            continue
+    return deleted
+
+
+def _cleanup_workspace_after_task() -> tuple[int, list[str]]:
+    """任务结束后清理中间文件，仅保留最终成片候选。"""
+    if not WORKSPACE.exists():
+        return 0, []
+
+    all_files = [p for p in WORKSPACE.glob("**/*") if p.is_file()]
+    if not all_files:
+        return 0, []
+
+    mp4_files = [p for p in all_files if p.suffix.lower() == ".mp4"]
+    keep: set[Path] = set()
+
+    final_named = [p for p in mp4_files if "final" in p.stem.lower() or "output" in p.stem.lower()]
+    keep.update(final_named)
+    if mp4_files:
+        newest_mp4 = max(mp4_files, key=lambda p: p.stat().st_mtime)
+        keep.add(newest_mp4)
+
+    deleted = 0
+    for path in sorted(all_files, reverse=True):
+        if path in keep:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+            deleted += 1
+        except Exception:
+            continue
+
+    # 清理空目录
+    for d in sorted([p for p in WORKSPACE.glob("**/*") if p.is_dir()], reverse=True):
+        try:
+            d.rmdir()
+        except Exception:
+            continue
+
+    kept_names = [p.name for p in sorted(keep)]
+    return deleted, kept_names
+
+
+def _print_banner() -> None:
+    print("""
+╔══════════════════════════════════════════════════════════════╗
+║          🎬 多模态视频自动编辑 Agent                          ║
+║                                                              ║
+║  架构: Planner + ReAct 混合架构                               ║
+║  模型: Qwen3.5 (视觉 + 语言)                                  ║
+║                                                              ║
+║  Phase 1: 规划 → 搜索 → 筛选 → 下载 → 多模态分析               ║
+║  Phase 2: ReAct 自主创作 → 剪辑 → 转场 → 旁白 → 导出           ║
+╚══════════════════════════════════════════════════════════════╝
+""")
+
+
+def _load_file_text(path: Path, max_chars: int = 100000) -> str:
+    try:
+        return path.read_text(encoding="utf-8")[:max_chars]
+    except Exception:
+        return ""
+
+
+def _extract_tool_trace_from_log(log_path: Path, max_lines: int = 600) -> str:
+    """抽取 graph/tools 的工具调用轨迹，供经验总结使用。"""
+    if not log_path.exists():
+        return "(无日志)"
+    lines = _load_file_text(log_path, max_chars=800000).splitlines()
+    if not lines:
+        return "(无日志内容)"
+    keys = ("Phase3 工具调用", "Phase3 工具结果", "Executor 步骤", "工具白名单")
+    picked = [ln for ln in lines if any(k in ln for k in keys)]
+    if not picked:
+        picked = lines[-max_lines:]
+    return "\n".join(picked[-max_lines:])
+
+
+def _find_latest_output_video() -> Path | None:
+    mp4_files = [p for p in WORKSPACE.glob("*.mp4") if p.is_file()]
+    if not mp4_files:
+        return None
+    final_named = [p for p in mp4_files if "final" in p.stem.lower() or "output" in p.stem.lower()]
+    if final_named:
+        return max(final_named, key=lambda p: p.stat().st_mtime)
+    return max(mp4_files, key=lambda p: p.stat().st_mtime)
+
+
+def _load_latest_skills(max_chars: int = 24000) -> str:
+    return load_memory_reference(MEMORY_EXPERIENCE_DIR, max_chars=max_chars)
+
+
+def _get_experience_client() -> OpenAI:
+    return OpenAI(api_key=API_KEY, base_url=BASE_URL)
+
+
+def _extract_chat_content(response: Any) -> str:
+    try:
+        choices = getattr(response, "choices", None)
+        if not choices:
+            return ""
+        message = getattr(choices[0], "message", None)
+        content = getattr(message, "content", "")
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    parts.append(str(item.get("text") or item.get("content") or ""))
+                else:
+                    parts.append(str(item))
+            return "\n".join([p for p in parts if p]).strip()
+        return str(content or "").strip()
+    except Exception:
+        return ""
+
+
+def _build_experience_prompt(
+    user_request: str,
+    final_output: str,
+    video_analysis: str,
+    tool_trace: str,
+    previous_skills: str,
+) -> str:
+    return f"""你是视频自动剪辑系统的资深复盘专家。请输出一份“历史案例 memory”文件。
+
+目标:
+1) 只提炼“可跨任务复用”的工具与流程经验。
+2) 历史案例 memory 仅供参考，绝不能改写未来任务的目标、题材、风格、素材类型、目标时长或搜索方向。
+3) 删除当前案例中的专属目标描述，不要把它们写成默认偏好或默认策略。
+4) 结合“历史经验”进行去重与升级，但必须输出一份全新的精简版本，不能越积越长。
+
+输出格式（严格）:
+# Historical Case Memory
+## Reference Boundary
+- ...
+## Reusable Tool Patterns
+- ...
+## Reusable Workflow Patterns
+- ...
+## Failure Guards
+- ...
+## Quick Checklist
+- ...
+## Notes
+- ...
+
+硬性限制:
+- 全文必须控制在 {STORAGE_MEMORY_CHAR_LIMIT} 字以内。
+- 每个 section 最多 5 条，`Quick Checklist` 最多 4 条，`Notes` 最多 3 条。
+- 不要包含 `user_request`、`key_result`、具体题材、具体人物/地点、具体搜索词、具体镜头内容、具体素材类型偏好。
+- 不要输出“某类视频默认更适合”“默认搜索某关键词”这类会影响未来任务目标判断的表述。
+- 只保留通用方法、校验规则、失败防护和流程经验。
+
+输入信息如下：
+[本次用户需求]
+{user_request}
+
+[本次最终总结]
+{final_output or "(无)"}
+
+[本次成片复分析]
+{video_analysis or "(无)"}
+
+[本次工具轨迹日志]
+{tool_trace or "(无)"}
+
+[历史经验]
+{previous_skills or "(无)"}
+"""
+
+
+def _synthesize_experience(
+    user_request: str,
+    final_output: str,
+    video_analysis: str,
+    tool_trace: str,
+) -> str:
+    previous = _load_latest_skills()
+    prompt = _build_experience_prompt(
+        user_request=user_request,
+        final_output=final_output,
+        video_analysis=video_analysis,
+        tool_trace=tool_trace,
+        previous_skills=previous,
+    )
+    try:
+        client = _get_experience_client()
+        resp = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "你输出高质量、可执行、精简的历史案例 memory。"
+                        "它只能保留可复用方法，不能携带会污染未来任务目标的案例信息。"
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=4096,
+        )
+        text = _extract_chat_content(resp)
+        normalized = sanitize_memory_reference(text, max_chars=STORAGE_MEMORY_CHAR_LIMIT)
+        return normalized if normalized.strip() else previous
+    except Exception as e:
+        agent_logger.warning("⚠️ 经验合成失败，回退历史经验: %s", e)
+        return previous
+
+
+def _write_experience_files(content: str) -> tuple[Path, Path]:
+    content = sanitize_memory_reference(content, max_chars=STORAGE_MEMORY_CHAR_LIMIT)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    versioned = MEMORY_EXPERIENCE_DIR / f"experience_{ts}.md"
+    latest = MEMORY_EXPERIENCE_DIR / "latest_skills.md"
+    versioned.write_text(content, encoding="utf-8")
+    latest.write_text(content, encoding="utf-8")
+    return versioned, latest
+
+
+def _build_final_video_analysis_prompt() -> str:
+    return (
+        "请对该成片做全方面全维度复盘分析，重点关注："
+        "1) 画面与叙事流畅度；"
+        "2) 音频/配音/字幕与画面同步与一致性；"
+        "3) 转场自然性；"
+        "4) 节奏控制与时长结构；"
+        "5) 可改进建议（按优先级）。"
+    )
+
+
+def _update_memory_experience_after_task(user_request: str, final_output: str) -> tuple[bool, str]:
+    """任务完成后沉淀经验：成片复分析 + 工具轨迹 + 历史经验融合。"""
+    try:
+        target_video = _find_latest_output_video()
+        if target_video is None:
+            return False, "未找到可复分析的成片视频"
+
+        analysis_text = analyze_video.invoke(
+            {
+                "video_path": str(target_video),
+                "analysis_goal": _build_final_video_analysis_prompt(),
+            }
+        )
+        tool_trace = _extract_tool_trace_from_log(_agent_log_file)
+        merged_skills = _synthesize_experience(
+            user_request=user_request,
+            final_output=final_output,
+            video_analysis=str(analysis_text),
+            tool_trace=tool_trace,
+        )
+        versioned, latest = _write_experience_files(merged_skills)
+        msg = f"经验已更新: {versioned.name} + {latest.name}"
+        agent_logger.info("🧠 %s", msg)
+        return True, msg
+    except Exception as e:
+        agent_logger.error("❌ 经验更新失败: %s", e, exc_info=True)
+        return False, str(e)
+
+
+def run_post_task_review(
+    user_request: str,
+    final_output: str,
+    *,
+    event_callback: RuntimeEventCallback | None = None,
+) -> tuple[bool, str]:
+    _emit_runtime_event(
+        event_callback,
+        "post_task_review_started",
+        {"mode": POST_TASK_REVIEW_MODE},
+    )
+    ok, msg = _update_memory_experience_after_task(user_request, final_output)
+    _emit_runtime_event(
+        event_callback,
+        "post_task_review_completed" if ok else "post_task_review_failed",
+        {"message": msg},
+    )
+    return ok, msg
+
+
+def run_task(
+    task: str,
+    *,
+    event_callback: RuntimeEventCallback | None = None,
+    verbose: bool = True,
+) -> str:
+    """执行一个视频编辑任务，返回最终输出。"""
+    _ensure_runtime_ready()
+
+    root_logger = logging.getLogger()
+    event_handler = _RuntimeEventLogHandler(event_callback)
+    if event_callback is not None:
+        root_logger.addHandler(event_handler)
+        _emit_runtime_event(event_callback, "task_started", {"task": task})
+
+    run_started_at = time.time()
+    try:
+        reset_analysis_failure_circuit()
+        reset_model_abort()
+        agent_logger.info(f"{'='*60}")
+        agent_logger.info(f"📋 新任务开始: {task}")
+        agent_logger.info(f"{'='*60}")
+
+        import graph as graph_module
+
+        graph_module.RUNTIME_EVENT_SINK = (
+            (lambda event_type, payload: _emit_runtime_event(event_callback, event_type, payload))
+            if event_callback is not None
+            else None
+        )
+        graph = build_graph()
+
+        deleted_before = 0 if RESUME_EXECUTION else _cleanup_workspace_before_task()
+        if deleted_before > 0:
+            agent_logger.info("🧹 任务前已清理 temp 文件: %s", deleted_before)
+            if verbose:
+                print(f"🧹 任务前已清理 temp 文件: {deleted_before}")
+
+        candidate_pool = WORKSPACE / "candidate_pool.jsonl"
+        if not RESUME_EXECUTION and candidate_pool.exists():
+            try:
+                candidate_pool.unlink()
+                agent_logger.info("🧹 已清理候选池缓存: %s", candidate_pool)
+            except Exception as e:
+                agent_logger.warning("⚠️ 清理候选池缓存失败: %s", e)
+
+        if verbose:
+            print(f"📋 任务: {task}")
+            print(f"📂 工作目录: {WORKSPACE}")
+            print(f"⏳ Agent 开始规划和执行...\n")
+            print("=" * 60)
+
+        start_time = run_started_at
+        initial_state = AgentState(
+            user_request=task,
+            base_user_request=task,
+            revision=REVISION,
+            target_duration_seconds=TARGET_DURATION_SECONDS,
+            processing_budget=create_processing_budget(
+                TARGET_DURATION_SECONDS or 30.0,
+                deadline_seconds=DEFAULT_DEADLINE_SECONDS,
+                mode=PROCESSING_MODE,
+                created_at_epoch=start_time,
+                phase1_seconds=PHASE1_MAX_SECONDS,
+            ),
+        )
+
+        final_state = None
+        for step_output in graph.stream(
+            initial_state.model_dump(),
+            {"recursion_limit": 50},
+            stream_mode="updates",
+        ):
+            for node_name, update in step_output.items():
+                if update is not None:
+                    final_state = update
+                    _emit_state_update(event_callback, node_name, update)
+
+        elapsed = time.time() - start_time
+        agent_logger.info(f"⏱  任务完成，总耗时: {elapsed:.1f}s")
+        agent_logger.info(f"{'='*60}")
+        if verbose:
+            print(f"\n{'=' * 60}")
+            print(f"⏱  总耗时: {elapsed:.1f}s")
+            print(f"📂 输出目录: {WORKSPACE}")
+
+        files = list(WORKSPACE.glob("*.mp4"))
+        if files and verbose:
+            print(f"📹 生成的视频文件:")
+            for f in files:
+                size_mb = f.stat().st_size / (1024 * 1024)
+                print(f"   {f.name} ({size_mb:.1f} MB)")
+
+        output = ""
+        if final_state and "final_output" in final_state:
+            output = final_state["final_output"]
+        failure_markers = (
+            "ReAct 创作阶段异常:",
+            "剪辑研究阶段异常:",
+            "素材准备规划异常:",
+        )
+        if output and any(output.startswith(marker) for marker in failure_markers):
+            raise RuntimeError(output)
+
+        persist_workspace = str(
+            os.environ.get("CRAYOTTER_PERSIST_WORKSPACE", "false")
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        deleted_after, kept = (
+            (0, [path.name for path in WORKSPACE.glob("*.mp4") if path.is_file()])
+            if persist_workspace
+            else _cleanup_workspace_after_task()
+        )
+        if deleted_after > 0:
+            agent_logger.info("🧹 任务后已清理中间文件: %s", deleted_after)
+            if verbose:
+                print(f"🧹 任务后已清理中间文件: {deleted_after}")
+        if kept:
+            agent_logger.info("📌 任务后保留文件: %s", ", ".join(kept))
+            if verbose:
+                print(f"📌 任务后保留文件: {', '.join(kept)}")
+
+        if POST_TASK_REVIEW_MODE == "sync":
+            exp_ok, exp_msg = run_post_task_review(
+                task,
+                output,
+                event_callback=event_callback,
+            )
+            if verbose:
+                if exp_ok:
+                    print(f"🧠 经验沉淀完成: {exp_msg}")
+                else:
+                    print(f"⚠️ 经验沉淀未完成: {exp_msg}")
+        elif POST_TASK_REVIEW_MODE == "off":
+            _emit_runtime_event(
+                event_callback,
+                "post_task_review_skipped",
+                {"mode": POST_TASK_REVIEW_MODE},
+            )
+        else:
+            _emit_runtime_event(
+                event_callback,
+                "post_task_review_queued",
+                {"mode": POST_TASK_REVIEW_MODE},
+            )
+
+        _emit_runtime_event(
+            event_callback,
+            "sla_completed" if elapsed <= DEFAULT_DEADLINE_SECONDS else "sla_missed",
+            {
+                "processing_elapsed_seconds": round(elapsed, 2),
+                "authorization_wait_seconds": 0.0,
+                "total_wall_seconds": round(elapsed, 2),
+                "deadline_seconds": DEFAULT_DEADLINE_SECONDS,
+                "degradation_level": int(
+                    (final_state or {}).get("degradation_level", 0) or 0
+                ),
+            },
+        )
+        _emit_runtime_event(
+            event_callback,
+            "task_completed",
+            {
+                "task": task,
+                "elapsed_seconds": round(elapsed, 2),
+                "final_output": output,
+                "output_files": _list_workspace_mp4_files(),
+            },
+        )
+        return output
+    except ModelCallError as exc:
+        failure_elapsed = max(0.0, time.time() - run_started_at)
+        _emit_runtime_event(
+            event_callback,
+            "sla_missed",
+            {
+                "processing_elapsed_seconds": round(failure_elapsed, 2),
+                "authorization_wait_seconds": 0.0,
+                "total_wall_seconds": round(failure_elapsed, 2),
+                "deadline_seconds": DEFAULT_DEADLINE_SECONDS,
+                "degradation_level": 0,
+                "reason": "model_call_failed",
+            },
+        )
+        emit_benchmark_event("benchmark_aborted", {"status": "aborted_model_failure", **exc.to_payload()})
+        _emit_runtime_event(
+            event_callback,
+            "model_call_failed",
+            {"status": "aborted_model_failure", **exc.to_payload()},
+        )
+        _emit_runtime_event(
+            event_callback,
+            "task_failed",
+            {"task": task, "error": str(exc), "status": "aborted_model_failure"},
+        )
+        raise
+    except Exception as exc:
+        failure_elapsed = max(0.0, time.time() - run_started_at)
+        _emit_runtime_event(
+            event_callback,
+            "sla_missed",
+            {
+                "processing_elapsed_seconds": round(failure_elapsed, 2),
+                "authorization_wait_seconds": 0.0,
+                "total_wall_seconds": round(failure_elapsed, 2),
+                "deadline_seconds": DEFAULT_DEADLINE_SECONDS,
+                "degradation_level": 0,
+                "reason": "task_failed",
+            },
+        )
+        _emit_runtime_event(
+            event_callback,
+            "task_failed",
+            {"task": task, "error": str(exc)},
+        )
+        raise
+    finally:
+        try:
+            from tools.search_material_sources import cleanup_runtime_source_sessions
+
+            cleanup_runtime_source_sessions()
+        except Exception as cleanup_exc:
+            agent_logger.warning("浏览器授权临时态清理失败: %s", cleanup_exc)
+        if event_callback is not None:
+            root_logger.removeHandler(event_handler)
+
+
+def run_interactive() -> None:
+    """交互式运行。"""
+    _print_banner()
+    print(f"📂 工作目录: {WORKSPACE}")
+    print("输入你的视频编辑需求，输入 'quit' 退出\n")
+
+    while True:
+        try:
+            user_input = input("🎯 你的需求> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n👋 再见!")
+            break
+
+        if not user_input:
+            continue
+        if user_input.lower() in ("quit", "exit", "q"):
+            print("👋 再见!")
+            break
+
+        result = run_task(user_input)
+        if result:
+            print(f"\n📝 最终总结:\n{result}\n")
+        print("─" * 60 + "\n")
+
+
+if __name__ == "__main__":
+    try:
+        settings = apply_runtime_config()
+        _ensure_runtime_ready()
+    except RuntimeError:
+        print("❌ 请通过环境变量或服务配置提供 API_KEY")
+        print("   例如设置 CRAYOTTER_API_KEY / CRAYOTTER_BASE_URL / CRAYOTTER_MODEL_NAME")
+        sys.exit(1)
+
+    print(f"🔧 API配置:")
+    print(f"   Base URL: {settings['base_url']}")
+    print(f"   Model: {settings['model_name']}")
+    print(f"   Enable Phase 2 Research: {settings['enable_phase2_research']}")
+    print(f"   Direct Phase 3: {settings['direct_phase3_execution']}")
+    print(f"   Prefer Local Materials: {settings['prefer_local_materials']}")
+    print(f"   Agent Stall Timeout: {settings['agent_stall_timeout_seconds']}s")
+    print(f"   Video Base URL: {settings['video_base_url']}")
+    print(
+        f"   Video Model: {settings['video_model_name']}  "
+        f"({'Omni 音视频' if 'omni' in settings['video_model_name'].lower() else '纯视觉'})"
+    )
+    print(f"   TTS Base URL: {settings['tts_base_url']}")
+    print(f"   TTS Model: {settings['tts_model_name']}")
+    print()
+
+    # 依赖检查
+    missing = []
+    for pkg in ["cv2", "moviepy", "langchain_openai", "langgraph"]:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        print(f"⚠️  缺少依赖: {missing}")
+        print("   pip install langchain-core langchain-openai langgraph opencv-python moviepy openai yt-dlp")
+
+    if len(sys.argv) > 1:
+        run_task(" ".join(sys.argv[1:]))
+    else:
+        run_interactive()

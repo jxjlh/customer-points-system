@@ -10,3 +10,26 @@ database/*.db
 *.log
 .DS_Store
 .streamlit/secrets.toml
+
+# ===== Crayotter 视频剪辑模块（运行态产物，不入库） =====
+crayotter_runtime/
+crayotter/.env
+crayotter/.venv/
+crayotter/temp/
+crayotter/user_temp/
+crayotter/logs/
+crayotter/app_state/
+crayotter/database/
+crayotter/runtime_logs/
+crayotter/.crayotter/
+crayotter/*.log
+
+# Crayotter 示例/演示视频（由 LFS 指针代替，仓库不再保留大文件副本）
+crayotter/demo/showcase.mp4
+crayotter/website/assets/videos/campus_youth_final.mp4
+crayotter/website/assets/videos/travel_healing_final.mp4
+
+# Crayotter 随仓库分发的 Windows 二进制（体积巨大，改为在启动脚本下载；
+# 本地/CI 首次启动时自动安装 FFmpeg/yt-dlp 即可）
+crayotter/script/dep/windows/ffmpeg.exe
+crayotter/script/dep/windows/yt-dlp.exe

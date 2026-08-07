@@ -564,15 +564,20 @@ def format_date_email(date_value):
 
 
 def build_strain_list(group_df):
-    strain_items = []
+    # 按品系号、年龄、性别分组，三者都相同才合并数量
+    grouped = group_df.groupby(["品系号", "年龄", "性别"])
     
-    # 按品系号和年龄分组，合并数量
-    grouped = group_df.groupby(["品系号", "年龄"])
+    # 检查是否所有品系号都一样
+    unique_strains = group_df["品系号"].unique()
+    all_same_strain = len(unique_strains) == 1
+    common_strain_id = str(unique_strains[0]).strip() if all_same_strain else None
     
-    for (strain_id, age), group in grouped:
+    # 构建分组信息列表
+    groups_info = []
+    for (strain_id, age, gender), group in grouped:
         strain_id = str(strain_id).strip()
         age = str(age).strip()
-        gender = str(group.iloc[0]["性别"]).strip().upper()
+        gender = str(gender).strip().upper()
         total_quantity = group["数量"].sum() if "数量" in group.columns else len(group)
         
         gender_text = "雌" if gender in ("雌", "F", "FEMALE") else "雄"
@@ -582,9 +587,31 @@ def build_strain_list(group_df):
         else:
             age_text = f"{age}周"
         
-        strain_items.append(f"您订购的JAX小鼠https://www.jax.org/strain/{strain_id}，性别：{gender_text}，发货周龄：{age_text}，数量：{total_quantity}。")
+        groups_info.append({
+            "strain_id": strain_id,
+            "gender_text": gender_text,
+            "age_text": age_text,
+            "quantity": total_quantity
+        })
     
-    return "\n".join(strain_items)
+    # 生成输出文本
+    if all_same_strain:
+        # 所有品系号相同，只写一遍URL
+        parts = [f"您订购的JAX小鼠https://www.jax.org/strain/{common_strain_id}"]
+        for i, info in enumerate(groups_info):
+            if i == 0:
+                line = f"性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
+            else:
+                line = f"性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
+            parts.append(line)
+        return "\n".join(parts)
+    else:
+        # 品系号不同，每行都写完整
+        lines = []
+        for info in groups_info:
+            line = f"您订购的JAX小鼠https://www.jax.org/strain/{info['strain_id']}，性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
+            lines.append(line)
+        return "\n".join(lines)
 
 
 def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address):

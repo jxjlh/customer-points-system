@@ -564,32 +564,25 @@ def format_date_email(date_value):
 
 
 def build_strain_list(group_df):
-    strain_groups = group_df.groupby("品系号")
-    
     strain_items = []
-    for strain_id, strain_df in strain_groups:
-        strain_parts = []
-        
-        for _, row in strain_df.iterrows():
-            gender = str(row["性别"]).strip().upper()
-            quantity = int(row["数量"]) if pd.notna(row["数量"]) else 0
-            age = str(row["年龄"]).strip()
-            
-            gender_text = "雌" if gender in ("雌", "F", "FEMALE") else "雄"
-            
-            if age.isdigit():
-                ship_age = int(age)
-                arrive_min = ship_age + 3
-                arrive_max = ship_age + 4
-                age_text = f"{ship_age}周（到货周龄约{arrive_min}-{arrive_max}周）"
-            else:
-                age_text = f"{age}周"
-            
-            strain_parts.append(f"{quantity}{gender_text}-发货周龄{age_text}")
-        
-        strain_items.append(f"https://www.jax.org/strain/{strain_id}：{'、'.join(strain_parts)}")
     
-    return "、".join(strain_items)
+    for _, row in group_df.iterrows():
+        strain_id = str(row["品系号"]).strip()
+        gender = str(row["性别"]).strip().upper()
+        quantity = int(row["数量"]) if pd.notna(row["数量"]) else 0
+        age = str(row["年龄"]).strip()
+        
+        gender_text = "雌" if gender in ("雌", "F", "FEMALE") else "雄"
+        
+        if age.isdigit():
+            ship_age = int(age)
+            age_text = f"{ship_age}周"
+        else:
+            age_text = f"{age}周"
+        
+        strain_items.append(f"您订购的JAX小鼠https://www.jax.org/strain/{strain_id}，性别：{gender_text}，发货周龄：{age_text}，数量：{quantity}。")
+    
+    return "\n".join(strain_items)
 
 
 def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address):
@@ -599,7 +592,9 @@ def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address
 
 本封邮件为JAX小鼠配送通知。
 
-您订购的JAX小鼠，预计将在{receive_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？
+{strain_list}
+
+预计将在{receive_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？
 
 附件是本批小鼠的相关文件：美国健康证书AHC，JAX鼠房微生物报告， 隔离场微生物报告以及JAX小鼠接收指南。
 

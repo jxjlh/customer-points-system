@@ -672,6 +672,7 @@ def _get_home_cards_css() -> str:
     .card-orange { --card-color-1: #ff6b6b; --card-color-2: #ee5a5a; }
     .card-purple { --card-color-1: #a855f7; --card-color-2: #7c3aed; }
     .card-pink { --card-color-1: #ec4899; --card-color-2: #db2777; }
+    .card-cyan { --card-color-1: #22d3ee; --card-color-2: #0ea5e9; }
     </style>
     """
 

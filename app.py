@@ -592,20 +592,26 @@ def build_strain_list(group_df):
     return "、".join(strain_items)
 
 
-def render_mail(receiver, strain_list, ship_date, receive_date):
-    mail_body = f"""尊敬的{receiver}：
+def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address):
+    mail_body = f"""尊敬的老师：
+
 您好！
+
 本封邮件为JAX小鼠配送通知。
 
-让您久等了。
+您订购的JAX小鼠，预计将在{receive_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？
 
-您的小鼠{strain_list}，预计于{ship_date}从美国发货，并将在{receive_date}左右的工作日送货。
+附件是本批小鼠的相关文件：美国健康证书AHC，JAX鼠房微生物报告， 隔离场微生物报告以及JAX小鼠接收指南。
 
-随附小鼠的鼠房微生物检测报告及隔离场的微生物检测报告，烦请查收。
+为了确保小鼠在接收后可以尽快的服务于您的研究，建议您：
 
-麻烦您确认小鼠发货周龄及送货时间能否接受？
+1.严格遵照随附的《JAX 小鼠接收指南》开展相关操作。小鼠签收时，请即刻检查外包装完整性，并仔细核验小鼠核心信息（品系、数量、性别等）。所有问题须在24 小时内反馈至北京澄天生物科技有限公司，逾期将视为验收合格。请注意，退款及补发政策申请需满足以下条件：相关问题需在小鼠送达贵单位后48 小时内，由贵方提供有效证明材料并提交反馈；后续需经北京澄天生物科技有限公司及JAX 联合核验通过，方可启动对应流程。
 
-感谢您的支持并期待您的回复，祝好！"""
+2. 建议您收到小鼠后尽快按照官网上提供的基因鉴定方案对小鼠进行鉴定核实，以便于您后续合理的制定繁育/使用方案。
+
+若有问题欢迎随时与我们联系。
+
+预祝您实验一切顺利！"""
     
     return mail_body
 
@@ -646,8 +652,9 @@ def process_excel_email(file_bytes):
         receiver = str(first_row["收货人"]).strip() if pd.notna(first_row["收货人"]) else "老师"
         ship_date = format_date_email(first_row["提货时间"])
         receive_date = format_date_email(first_row["拟收货时间"])
+        delivery_address = str(first_row["送货地址"]).strip() if pd.notna(first_row["送货地址"]) else ""
         
-        mail_body = render_mail(receiver, strain_list, ship_date, receive_date)
+        mail_body = render_mail(receiver, strain_list, ship_date, receive_date, delivery_address)
         
         result_rows.append({
             "Individual PO Number": po_number,

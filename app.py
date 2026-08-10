@@ -837,7 +837,7 @@ def process_excel_email(file_bytes):
             # 尝试用Job No关联
             if "Job No" in shipping_df.columns:
                 shipping_df["Individual PO Number"] = shipping_df["Job No"].astype(str).str.strip().map(job_to_po).fillna("")
-                debug_info += f"用Job No关联PO，匹配{（shipping_df['Individual PO Number'] != '').sum()}条\n"
+                debug_info += f"用Job No关联PO，匹配{(shipping_df['Individual PO Number'] != '').sum()}条\n"
             else:
                 shipping_df["Individual PO Number"] = ""
                 debug_info += "发货清单无PO和Job No列，无法关联\n"

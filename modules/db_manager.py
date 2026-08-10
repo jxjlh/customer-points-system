@@ -41,6 +41,7 @@ def get_db_manager():
     """
     获取数据库管理器（通过 st.cache_resource 缓存）
     优先使用 PostgreSQL/MySQL，连接失败时自动降级到 SQLite
+    自动初始化数据库表结构
     """
     import streamlit as st
 
@@ -51,13 +52,16 @@ def get_db_manager():
 
         if db_type == "mysql":
             try:
-                return _MySQLManager.from_secrets()
+                mgr = _MySQLManager.from_secrets()
+                mgr.init_schema()
+                return mgr
             except Exception as e:
                 errors.append(f"MySQL: {e}")
         elif db_type == "postgres":
             try:
                 mgr = _PostgresManager.from_secrets()
                 if mgr.ping():
+                    mgr.init_schema()
                     return mgr
                 else:
                     errors.append("PostgreSQL: ping 失败")
@@ -71,6 +75,7 @@ def get_db_manager():
             "points.db",
         )
         sqlite_mgr = _SQLiteManager(db_path)
+        sqlite_mgr.init_schema()
         sqlite_mgr._fallback_note = "; ".join(errors) if errors else ""
         return sqlite_mgr
 

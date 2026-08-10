@@ -531,134 +531,103 @@ def validate_columns_email(df):
         raise ValueError(f"Excel文件缺少必要的列：{', '.join(missing_columns)}")
 
 
-def read_genotype_from_second_sheet(file_bytes):
-    """从第二个子表读取Genotype信息"""
+def read_shipping_list(file_bytes):
+    """从发货清单子表读取小鼠详细信息（货号、基因型、性别、周龄、数量）"""
     xls = pd.ExcelFile(BytesIO(file_bytes))
     sheet_names = xls.sheet_names
+    debug_info = f"所有子表: {sheet_names}\n"
     
-    if len(sheet_names) < 2:
-        return {}, f"Excel只有{len(sheet_names)}个子表"
+    # 查找发货清单子表 - 按名称匹配
+    target_sheet = None
+    for name in sheet_names:
+        if "发货清单" in name or "shipping" in name.lower() or "Shipping" in name:
+            target_sheet = name
+            break
+    # 没找到则用第二个子表
+    if target_sheet is None and len(sheet_names) > 1:
+        target_sheet = sheet_names[1]
+    if target_sheet is None:
+        return pd.DataFrame(), debug_info + "未找到发货清单子表"
     
-    second_sheet_name = sheet_names[1]
-    debug_info = f"第二个子表：{second_sheet_name}\n"
+    debug_info += f"使用子表: {target_sheet}\n"
+    df_raw = pd.read_excel(xls, sheet_name=target_sheet, header=None)
+    debug_info += f"行数: {len(df_raw)}, 列数: {len(df_raw.columns)}\n"
     
-    df_second = pd.read_excel(xls, sheet_name=second_sheet_name, header=None)
-    debug_info += f"共{len(df_second)}行，{len(df_second.columns)}列\n"
-    
-    # 显示所有行的预览，帮助找到正确的表头位置
-    debug_info += "\n前20行数据预览:\n"
-    for idx in range(min(20, len(df_second))):
-        row_vals = [str(v)[:25] for v in df_second.iloc[idx].tolist()]
+    # 预览前15行
+    debug_info += "\n前15行预览:\n"
+    for idx in range(min(15, len(df_raw))):
+        row_vals = [str(v)[:25] for v in df_raw.iloc[idx].tolist()]
         debug_info += f"  行{idx}: {row_vals}\n"
     
-    # 策略：扫描每一行，查找包含Genotype的表头
-    genotype_aliases = ["Genotype", "genotype", "基因型", "GENOTYPE"]
-    
-    # 找到Genotype所在的行作为表头行
-    header_idx = None
-    for idx, row in df_second.iterrows():
-        row_values = [str(v).strip() for v in row.tolist()]
-        for val in row_values:
-            if val in genotype_aliases:
-                header_idx = idx
-                break
-        if header_idx is not None:
-            break
-    
-    if header_idx is None:
-        # 尝试从所有sheet中搜索
-        debug_info += "\n在第二个子表中未找到Genotype，尝试其他子表...\n"
-        for sheet_name in sheet_names:
-            if sheet_name == second_sheet_name:
-                continue
-            df_temp = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-            for idx, row in df_temp.iterrows():
-                row_values = [str(v).strip() for v in row.tolist()]
-                for val in row_values:
-                    if val in genotype_aliases:
-                        debug_info += f"  在Sheet '{sheet_name}' 行{idx}找到Genotype\n"
-                        # 但我们还是用第二个子表
-                        break
-    
-    if header_idx is None:
-        return {}, debug_info + "未找到Genotype列"
-    
-    debug_info += f"\n在行{header_idx}找到Genotype表头\n"
-    
-    # 用找到的行作为表头
-    new_header = df_second.iloc[header_idx].tolist()
-    debug_info += f"表头: {[str(h)[:20] for h in new_header]}\n"
-    
-    # 读取数据（跳过表头和可能的空行）
-    df_data = df_second.iloc[header_idx + 2:].copy()
-    df_data.columns = new_header
-    df_data = df_data.dropna(how='all')
-    df_data = df_data[df_data.apply(lambda x: any(pd.notna(x)), axis=1)]
-    
-    debug_info += f"数据行数: {len(df_data)}\n"
-    
-    # 找Genotype列名
-    genotype_col_name = None
-    for col in new_header:
-        col_str = str(col).strip()
-        if col_str in genotype_aliases:
-            genotype_col_name = col
-            break
-    
-    if genotype_col_name is None:
-        return {}, debug_info + "无法确定Genotype列"
-    
-    debug_info += f"Genotype列: {genotype_col_name}\n"
-    
-    # 构建基因型映射 - 尝试所有可能的关联键
-    genotype_map = {}
-    
-    # 可能的关联键列
-    possible_keys = {
-        "Job No": None,
-        "Job_No": None, 
-        "品系号": None,
-        "Strain Number": None,
-        "Strain": None
+    # 列别名映射
+    field_aliases = {
+        "货号": ["Stock Number", "Strock Number", "stock number", "货号", "Stock_No", "StockNumber", "stock"],
+        "基因型": ["Genotype", "genotype", "基因型", "GENOTYPE"],
+        "性别": ["SEX", "Sex", "sex", "性别"],
+        "年龄": ["AGE", "Age", "age", "年龄", "周龄"],
+        "数量": ["Qty", "qty", "QTY", "数量", "Quantity", "quantity"],
+        "Individual PO Number": ["Individual PO Number", "PO Number", "Individual_PO_Number", "Individual PO"],
+        "Job No": ["Job No", "Job_No", "JobNo", "job no"],
     }
     
-    for col in new_header:
-        col_str = str(col).strip()
-        if col_str in possible_keys:
-            possible_keys[col_str] = col
+    # 扫描每一行找表头
+    header_idx = None
+    found_cols = {}
     
-    # 尝试用每个可用的关联键构建映射
-    for key_name, key_col_name in possible_keys.items():
-        if key_col_name is None:
-            continue
-        
-        temp_map = {}
-        for _, row in df_data.iterrows():
-            key_val = str(row[key_col_name]).strip() if pd.notna(row[key_col_name]) else ""
-            genotype_val = str(row[genotype_col_name]).strip() if pd.notna(row[genotype_col_name]) else ""
-            if key_val and genotype_val and genotype_val.lower() not in ("nan", "none", ""):
-                temp_map[key_val] = genotype_val
-        
-        if temp_map:
-            debug_info += f"用'{key_name}'关联，找到{len(temp_map)}个映射\n"
-            # 合并到总映射
-            genotype_map.update(temp_map)
+    for idx, row in df_raw.iterrows():
+        row_values = [str(v).strip() for v in row.tolist()]
+        temp_found = {}
+        for field, aliases in field_aliases.items():
+            for col_idx, val in enumerate(row_values):
+                if val in aliases or val.lower() in [a.lower() for a in aliases]:
+                    temp_found[field] = (col_idx, val)
+                    break
+        # 找到货号+数量即认为是表头行
+        if "货号" in temp_found and "数量" in temp_found:
+            header_idx = idx
+            found_cols = temp_found
+            break
     
-    # 如果上面的方法不行，尝试第一列作为键
-    if not genotype_map and len(df_data) > 0:
-        first_col = new_header[0]
-        debug_info += f"\n尝试用第一列'{first_col}'作为关联键...\n"
-        for _, row in df_data.iterrows():
-            key_val = str(row[first_col]).strip() if pd.notna(row[first_col]) else ""
-            genotype_val = str(row[genotype_col_name]).strip() if pd.notna(row[genotype_col_name]) else ""
-            if key_val and genotype_val and genotype_val.lower() not in ("nan", "none", ""):
-                genotype_map[key_val] = genotype_val
-        
-        if genotype_map:
-            debug_info += f"用第一列关联，找到{len(genotype_map)}个映射\n"
+    if header_idx is None:
+        return pd.DataFrame(), debug_info + "\n未找到包含Stock Number和Qty的表头行"
     
-    debug_info += f"\n最终基因型映射: {genotype_map}\n"
-    return genotype_map, debug_info
+    debug_info += f"\n表头行: 行{header_idx}\n"
+    debug_info += f"匹配到的列: "
+    for field, (col_idx, col_name) in found_cols.items():
+        debug_info += f"\n  {field} → 列{col_idx} ({col_name})"
+    debug_info += "\n"
+    
+    # 读取数据
+    df_data = df_raw.iloc[header_idx + 1:].copy().reset_index(drop=True)
+    
+    # 构建结果DataFrame
+    result = pd.DataFrame()
+    for field, (col_idx, _) in found_cols.items():
+        result[field] = df_data.iloc[:, col_idx]
+    
+    # 清理：去掉全空行、表头重复行
+    result = result.dropna(how='all')
+    if "数量" in result.columns:
+        result = result[result["数量"].notna()]
+        result = result[result["数量"].astype(str).str.strip() != ""]
+        result = result[~result["数量"].astype(str).str.contains("Qty|数量|Quantity", na=False, case=False)]
+    if "货号" in result.columns:
+        result = result[result["货号"].notna()]
+        result = result[result["货号"].astype(str).str.strip() != ""]
+        result = result[~result["货号"].astype(str).str.contains("Stock|货号", na=False, case=False)]
+    
+    # 数量转数值
+    if "数量" in result.columns:
+        result["数量"] = pd.to_numeric(result["数量"], errors='coerce')
+        result = result.dropna(subset=["数量"])
+    
+    result = result.reset_index(drop=True)
+    
+    debug_info += f"\n提取数据行数: {len(result)}\n"
+    if len(result) > 0:
+        debug_info += f"\n前5行数据:\n{result.head().to_string()}\n"
+    
+    return result, debug_info
 
 
 def format_date_email(date_value):
@@ -711,93 +680,91 @@ def format_date_email(date_value):
 
 
 def build_strain_list(group_df):
-    # 按品系号、基因型、性别分组，三者都相同才合并数量
-    group_keys = ["品系号"]
-    if "基因型" in group_df.columns:
-        group_keys.append("基因型")
-    else:
-        group_keys.append("_no_genotype_")
-        group_df["_no_genotype_"] = ""
-    group_keys.append("性别")
-    
+    """构建小鼠列表文本
+    新格式：您订购的JAX小鼠# {货号},基因型：{基因型} -性别：{性别} -发货周龄：{周龄} -数量：{数量}
+    返回字符串列表，每个元素代表一组小鼠
+    """
+    # 确保必要列存在
+    if "货号" not in group_df.columns:
+        group_df["货号"] = ""
+    if "基因型" not in group_df.columns:
+        group_df["基因型"] = ""
+    if "性别" not in group_df.columns:
+        group_df["性别"] = ""
+    if "年龄" not in group_df.columns:
+        group_df["年龄"] = ""
+    if "数量" not in group_df.columns:
+        group_df["数量"] = 1
+
+    # 分组：货号+基因型+性别相同则合并数量
+    group_keys = ["货号", "基因型", "性别"]
     grouped = group_df.groupby(group_keys, dropna=False)
-    
-    # 检查是否所有品系号都一样
-    unique_strains = group_df["品系号"].unique()
-    all_same_strain = len(unique_strains) == 1
-    common_strain_id = str(unique_strains[0]).strip() if all_same_strain else None
-    
-    # 检查是否所有基因型都一样（仅当同品系号时有效）
-    all_same_genotype = False
-    common_genotype = ""
-    if all_same_strain and "基因型" in group_df.columns:
-        unique_genotypes = group_df["基因型"].dropna().unique()
-        all_same_genotype = len(unique_genotypes) == 1
-        common_genotype = str(unique_genotypes[0]).strip() if all_same_genotype else ""
-    
-    # 构建分组信息列表
-    groups_info = []
+
+    lines = []
     for key_tuple, group in grouped:
-        strain_id = str(key_tuple[0]).strip()
-        genotype_val = str(key_tuple[1]).strip() if key_tuple[1] else ""
-        gender = str(key_tuple[2]).strip().upper()
-        total_quantity = group["数量"].sum() if "数量" in group.columns else len(group)
-        
-        # 年龄取分组第一条
+        stock = str(key_tuple[0]).strip() if key_tuple[0] is not None else ""
+        if stock.lower() in ("nan", "none", ""):
+            stock = ""
+        genotype = str(key_tuple[1]).strip() if key_tuple[1] is not None else ""
+        if genotype.lower() in ("nan", "none"):
+            genotype = ""
+        sex = str(key_tuple[2]).strip() if key_tuple[2] is not None else ""
+
+        # 数量合并
+        qty_vals = pd.to_numeric(group["数量"], errors='coerce')
+        qty = qty_vals.sum()
+        if pd.isna(qty) or qty == 0:
+            qty = len(group)
+        qty = int(qty) if float(qty).is_integer() else qty
+
+        # 年龄取第一条
         first_row = group.iloc[0]
-        age = str(first_row["年龄"]).strip() if "年龄" in group.columns else ""
-        
-        gender_text = "雌" if gender in ("雌", "F", "FEMALE") else "雄"
-        
-        if age.isdigit():
-            age_text = f"{age}周"
+        age = str(first_row["年龄"]).strip() if pd.notna(first_row["年龄"]) else ""
+        if age.lower() in ("nan", "none"):
+            age = ""
+
+        # 性别转换
+        if sex.upper() in ("F", "FEMALE") or sex == "雌":
+            sex_text = "雌"
+        elif sex.upper() in ("M", "MALE") or sex == "雄":
+            sex_text = "雄"
         else:
-            age_text = f"{age}周"
-        
-        groups_info.append({
-            "strain_id": strain_id,
-            "genotype": genotype_val,
-            "gender_text": gender_text,
-            "age_text": age_text,
-            "quantity": total_quantity
-        })
-    
-    # 生成输出文本
-    if all_same_strain:
-        # 所有品系号相同，只写一遍URL
-        first_line = f"您订购的JAX小鼠https://www.jax.org/strain/{common_strain_id}"
-        if all_same_genotype and common_genotype:
-            first_line += f"，基因型：{common_genotype}"
-        parts = [first_line]
-        for info in groups_info:
-            if all_same_genotype and common_genotype:
-                # 基因型已经写在开头，这里不再重复
-                line = f"性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
-            else:
-                gt = f"基因型：{info['genotype']}，" if info['genotype'] else ""
-                line = f"{gt}性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
-            parts.append(line)
-        return "\n".join(parts)
+            sex_text = sex
+
+        # 周龄
+        age_text = f"{age}周" if age else ""
+
+        line = f"您订购的JAX小鼠# {stock},基因型：{genotype} -性别：{sex_text} -发货周龄：{age_text} -数量：{qty}"
+        lines.append(line)
+
+    return lines
+
+
+def render_mail(surname, strain_lines, receive_date, delivery_address):
+    """生成邮件正文
+    每组小鼠一行，最后一行连接"预计将在..."配送信息
+    """
+    if not strain_lines:
+        strain_lines = ["（未找到小鼠信息）"]
+
+    if len(strain_lines) == 1:
+        strain_text = strain_lines[0] + f" ，预计将在{receive_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？"
     else:
-        # 品系号不同，每行都写完整
-        lines = []
-        for info in groups_info:
-            gt = f"，基因型：{info['genotype']}" if info['genotype'] else ""
-            line = f"您订购的JAX小鼠https://www.jax.org/strain/{info['strain_id']}{gt}，性别：{info['gender_text']}，发货周龄：{info['age_text']}，数量：{info['quantity']}。"
-            lines.append(line)
-        return "\n".join(lines)
+        parts = []
+        for i, line in enumerate(strain_lines):
+            if i < len(strain_lines) - 1:
+                parts.append(line + "。")
+            else:
+                parts.append(line + f" ，预计将在{receive_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？")
+        strain_text = "\n".join(parts)
 
-
-def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address):
-    mail_body = f"""尊敬的老师：
+    mail_body = f"""尊敬的{surname}老师：
 
 您好！
 
 本封邮件为JAX小鼠配送通知。
 
-{strain_list}
-
-预计将在{receive_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？
+{strain_text}
 
 附件是本批小鼠的相关文件：美国健康证书AHC，JAX鼠房微生物报告， 隔离场微生物报告以及JAX小鼠接收指南。
 
@@ -810,13 +777,14 @@ def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address
 若有问题欢迎随时与我们联系。
 
 预祝您实验一切顺利！"""
-    
+
     return mail_body
 
 
 def process_excel_email(file_bytes):
+    # 1. 读取出隔离场 - 获取PO级别的收货地址、提货人、拟收货时间
     df = pd.read_excel(BytesIO(file_bytes), sheet_name='出隔离场', header=None)
-    
+
     header_row_index = None
     for idx, row in df.iterrows():
         first_cell = str(row.iloc[0]).strip()
@@ -827,81 +795,101 @@ def process_excel_email(file_bytes):
                 if third_cell == "JAX销售":
                     header_row_index = idx
                     break
-    
+
     if header_row_index is None:
         raise ValueError("未找到表头行，请确保Excel文件包含正确的表头")
-    
+
     new_header = df.iloc[header_row_index].tolist()
     df = df.iloc[header_row_index + 2:]
     df.columns = new_header
-    
+
     df = df.dropna(how='all')
     df = df[~df["Job No"].astype(str).str.contains("Job No|Quantity", na=False)]
-    
-    validate_columns_email(df)
-    
-    # 从第二个子表读取Genotype信息
-    genotype_map, debug_info = read_genotype_from_second_sheet(file_bytes)
-    
-    # 将基因型合并到主表 - 尝试多种关联方式
-    df["基因型"] = ""
-    
-    if genotype_map:
-        # 方式1：用Job No关联
-        if "Job No" in df.columns:
-            df["基因型"] = df["Job No"].astype(str).str.strip().map(genotype_map).fillna("")
-            match_count_1 = (df["基因型"] != "").sum()
-        else:
-            match_count_1 = 0
-        
-        # 方式2：用品系号关联（补充）
-        unmatched = df["基因型"] == ""
-        if unmatched.any() and "品系号" in df.columns:
-            strain_map = {}
-            for k, v in genotype_map.items():
-                strain_map[k] = v
-            df.loc[unmatched, "基因型"] = df.loc[unmatched, "品系号"].astype(str).str.strip().map(strain_map).fillna("")
-            match_count_2 = (df["基因型"] != "").sum() - match_count_1
-        else:
-            match_count_2 = 0
-        
-        debug_info += f"\n关联结果:\n"
-        debug_info += f"  用Job No匹配: {match_count_1}条\n"
-        debug_info += f"  用品系号匹配: {match_count_2}条\n"
-        debug_info += f"  总匹配数: {(df['基因型'] != '').sum()}条\n"
-    else:
-        debug_info += "\n基因型映射为空，无法关联\n"
-    
-    # 记录调试信息
-    process_excel_email._debug_info = debug_info
-    process_excel_email._genotype_map = genotype_map
-    process_excel_email._genotype_match_count = (df["基因型"] != "").sum()
-    
+
+    # 2. 读取发货清单 - 获取小鼠详细信息
+    shipping_df, ship_debug = read_shipping_list(file_bytes)
+
+    debug_info = "========== 发货清单读取 ==========\n" + ship_debug + "\n"
+
+    # 3. 构建 Job No → PO 映射（用于关联发货清单和出隔离场）
+    job_to_po = {}
+    if "Job No" in df.columns and "Individual PO Number" in df.columns:
+        for _, row in df.iterrows():
+            job = str(row["Job No"]).strip() if pd.notna(row["Job No"]) else ""
+            po = str(row["Individual PO Number"]).strip() if pd.notna(row["Individual PO Number"]) else ""
+            if job and po and job.lower() not in ("nan", ""):
+                job_to_po[job] = po
+
+    debug_info += f"出隔离场 Job No→PO 映射: {len(job_to_po)}条\n"
+
+    # 4. 为发货清单数据补充PO信息
+    if len(shipping_df) > 0:
+        if "Individual PO Number" not in shipping_df.columns:
+            # 尝试用Job No关联
+            if "Job No" in shipping_df.columns:
+                shipping_df["Individual PO Number"] = shipping_df["Job No"].astype(str).str.strip().map(job_to_po).fillna("")
+                debug_info += f"用Job No关联PO，匹配{（shipping_df['Individual PO Number'] != '').sum()}条\n"
+            else:
+                shipping_df["Individual PO Number"] = ""
+                debug_info += "发货清单无PO和Job No列，无法关联\n"
+
+    # 5. 为每个PO生成邮件
     po_order = df["Individual PO Number"].dropna().unique().tolist()
-    
+
     result_rows = []
-    for po_number, group_data in df.groupby("Individual PO Number"):
-        first_row = group_data.iloc[0]
-        strain_list = build_strain_list(group_data.copy())
-        
-        receiver = str(first_row["收货人"]).strip() if pd.notna(first_row["收货人"]) else "老师"
-        ship_date = format_date_email(first_row["提货时间"])
-        receive_date = format_date_email(first_row["拟收货时间"])
-        delivery_address = str(first_row["送货地址"]).strip() if pd.notna(first_row["送货地址"]) else ""
-        
-        mail_body = render_mail(receiver, strain_list, ship_date, receive_date, delivery_address)
-        
+    for po_number in po_order:
+        po_rows = df[df["Individual PO Number"] == po_number]
+        first_row = po_rows.iloc[0]
+
+        # 收货地址（从出隔离场的"送货地址"列）
+        delivery_address = ""
+        if "送货地址" in po_rows.columns:
+            delivery_address = str(first_row["送货地址"]).strip() if pd.notna(first_row["送货地址"]) else ""
+
+        # 提货人 → 姓氏（优先提货人，其次收货人）
+        contact = ""
+        if "提货人" in po_rows.columns:
+            contact = str(first_row["提货人"]).strip() if pd.notna(first_row["提货人"]) else ""
+        if not contact or contact.lower() in ("nan", ""):
+            if "收货人" in po_rows.columns:
+                contact = str(first_row["收货人"]).strip() if pd.notna(first_row["收货人"]) else ""
+        surname = contact[0] if contact and contact.lower() not in ("nan", "") else ""
+
+        # 拟收货时间
+        receive_date = ""
+        if "拟收货时间" in po_rows.columns:
+            receive_date = format_date_email(first_row["拟收货时间"]) if pd.notna(first_row["拟收货时间"]) else ""
+
+        # 从发货清单获取该PO的小鼠信息
+        po_mice = pd.DataFrame()
+        if len(shipping_df) > 0 and "Individual PO Number" in shipping_df.columns:
+            po_mice = shipping_df[
+                shipping_df["Individual PO Number"].astype(str).str.strip() == str(po_number).strip()
+            ].copy()
+
+        debug_info += f"\nPO {po_number}: 发货清单匹配{len(po_mice)}条小鼠记录\n"
+
+        if len(po_mice) == 0:
+            strain_lines = []
+        else:
+            strain_lines = build_strain_list(po_mice)
+
+        mail_body = render_mail(surname, strain_lines, receive_date, delivery_address)
+
         result_rows.append({
             "Individual PO Number": po_number,
-            "单位名称": first_row["单位名称"],
-            "收货人": first_row["收货人"],
+            "单位名称": first_row.get("单位名称", ""),
+            "收货人": contact,
             "邮件内容": mail_body
         })
-    
+
     result_df = pd.DataFrame(result_rows)
     result_df['po_order'] = result_df['Individual PO Number'].map(lambda x: po_order.index(x) if x in po_order else len(po_order))
     result_df = result_df.sort_values('po_order').drop('po_order', axis=1)
-    
+
+    # 保存调试信息
+    process_excel_email._debug_info = debug_info
+
     return result_df
 
 
@@ -911,11 +899,10 @@ def show_email_generator():
     st.markdown(textwrap.dedent(
         """
     **使用说明：**
-    1. 上传Excel文件（需包含【出隔离场】Sheet）
-    2. 系统自动解析数据并生成邮件内容
-    3. 下载生成的邮件结果Excel文件
-
-    **注意：** 基因型信息会从Excel的第二个子表中读取
+    1. 上传Excel文件（需包含【出隔离场】和【发货清单】Sheet）
+    2. 小鼠详细信息（货号、基因型、性别、周龄、数量）从「发货清单」读取
+    3. 收货地址、提货人、拟收货时间从「出隔离场」读取
+    4. 下载生成的邮件结果Excel文件
     """))
     
     uploaded_file = st.file_uploader("选择Excel文件", type=["xlsx", "xls"])
@@ -929,35 +916,12 @@ def show_email_generator():
                 
                 # 显示调试信息
                 debug_info = getattr(process_excel_email, '_debug_info', '')
-                genotype_map = getattr(process_excel_email, '_genotype_map', {})
-                match_count = getattr(process_excel_email, '_genotype_match_count', 0)
                 
-                with st.expander("🔍 调试信息", expanded=False):
+                with st.expander("🔍 调试信息（发货清单解析详情）", expanded=False):
                     if debug_info:
                         st.text(debug_info)
-                    if genotype_map:
-                        st.success(f"✅ 成功提取 {len(genotype_map)} 个基因型映射，匹配 {match_count} 条记录")
                     else:
-                        st.warning("⚠️ 未提取到任何基因型信息")
-                    
-                    # 显示日期列的实际值
-                    st.subheader("📅 日期格式检查")
-                    try:
-                        df_check = pd.read_excel(BytesIO(uploaded_file.getvalue()), sheet_name='出隔离场', header=None)
-                        # 找表头
-                        for idx, row in df_check.iterrows():
-                            vals = [str(v).strip() for v in row.tolist()]
-                            if "Job No" in vals and "Individual PO Number" in vals:
-                                if "拟收货时间" in vals:
-                                    col_idx = vals.index("拟收货时间")
-                                    dates = []
-                                    for r in range(idx + 2, min(idx + 12, len(df_check))):
-                                        val = df_check.iloc[r, col_idx]
-                                        dates.append(f"  行{r}: {repr(val)}")
-                                    st.code("\n".join(dates))
-                                break
-                    except Exception as e:
-                        st.error(f"日期检查错误: {e}")
+                        st.info("无调试信息")
                 
                 st.subheader("生成的邮件列表")
                 st.dataframe(result_df, width="stretch", height=400)

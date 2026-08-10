@@ -40,23 +40,39 @@ def _detect_db_type() -> str:
 def get_db_manager():
     """
     获取数据库管理器（通过 st.cache_resource 缓存）
+    优先使用 PostgreSQL/MySQL，连接失败时自动降级到 SQLite
     """
     import streamlit as st
 
     @st.cache_resource
     def _get_manager():
         db_type = _detect_db_type()
+        errors = []
+
         if db_type == "mysql":
-            return _MySQLManager.from_secrets()
+            try:
+                return _MySQLManager.from_secrets()
+            except Exception as e:
+                errors.append(f"MySQL: {e}")
         elif db_type == "postgres":
-            return _PostgresManager.from_secrets()
-        else:
-            db_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "database",
-                "points.db",
-            )
-            return _SQLiteManager(db_path)
+            try:
+                mgr = _PostgresManager.from_secrets()
+                if mgr.ping():
+                    return mgr
+                else:
+                    errors.append("PostgreSQL: ping 失败")
+            except Exception as e:
+                errors.append(f"PostgreSQL: {e}")
+
+        # 降级到 SQLite（不抛出异常）
+        db_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "database",
+            "points.db",
+        )
+        sqlite_mgr = _SQLiteManager(db_path)
+        sqlite_mgr._fallback_note = "; ".join(errors) if errors else ""
+        return sqlite_mgr
 
     return _get_manager()
 

@@ -975,6 +975,11 @@ def show_inventory():
         st.error(f"数据库连接失败：{e}")
         return
 
+    # 显示降级提示
+    fallback_note = getattr(db, '_fallback_note', '')
+    if fallback_note:
+        st.warning(f"⚠️ 远程数据库连接异常，已自动降级到本地 SQLite：{fallback_note}")
+
     operator = st.session_state.get("username", "")
 
     tab_list, tab_in, tab_out, tab_add, tab_log, tab_fields = st.tabs([

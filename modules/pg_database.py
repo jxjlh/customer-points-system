@@ -181,6 +181,42 @@ CREATE TABLE IF NOT EXISTS raw_data_backup (
     product     TEXT,
     created_at  TEXT
 );
+
+CREATE TABLE IF NOT EXISTS inventory_items (
+    id           SERIAL PRIMARY KEY,
+    item_code    VARCHAR(100)  NOT NULL UNIQUE,
+    title        VARCHAR(200)  NOT NULL,
+    category     VARCHAR(100),
+    location     VARCHAR(200),
+    quantity     INTEGER       DEFAULT 0,
+    extra_fields TEXT,
+    created_at   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_inv_code ON inventory_items(item_code);
+CREATE INDEX IF NOT EXISTS idx_inv_category ON inventory_items(category);
+
+CREATE TABLE IF NOT EXISTS inventory_transactions (
+    id               SERIAL PRIMARY KEY,
+    item_id          INTEGER       NOT NULL,
+    transaction_type VARCHAR(20)   NOT NULL,
+    quantity         INTEGER       NOT NULL,
+    remark           TEXT,
+    operator         VARCHAR(100),
+    created_at       TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_trans_item ON inventory_transactions(item_id);
+CREATE INDEX IF NOT EXISTS idx_trans_type ON inventory_transactions(transaction_type);
+CREATE INDEX IF NOT EXISTS idx_trans_created ON inventory_transactions(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS inventory_fields (
+    id          SERIAL PRIMARY KEY,
+    field_name  VARCHAR(100) NOT NULL UNIQUE,
+    field_label VARCHAR(200),
+    field_type  VARCHAR(20)  DEFAULT 'text',
+    sort_order  INTEGER      DEFAULT 0,
+    created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -865,6 +901,113 @@ class PgDatabaseManager:
                 if success:
                     count += 1
         return count
+
+    # ============================================================
+    # 库存管理
+    # ============================================================
+    def list_inventory_items(self) -> List[Dict]:
+        with self._conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT * FROM inventory_items ORDER BY id DESC")
+                return [dict(r) for r in cur.fetchall()]
+
+    def add_inventory_item(self, item: Dict) -> int:
+        import json as _json
+        extra = _json.dumps(item.get("extra_fields", {}), ensure_ascii=False)
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO inventory_items
+                        (item_code, title, category, location, quantity, extra_fields)
+                       VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
+                    (item.get("item_code", ""), item.get("title", ""),
+                     item.get("category", ""), item.get("location", ""),
+                     int(item.get("quantity", 0)), extra),
+                )
+                return cur.fetchone()[0]
+
+    def update_inventory_item(self, item_id: int, item: Dict) -> bool:
+        import json as _json
+        extra = _json.dumps(item.get("extra_fields", {}), ensure_ascii=False)
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE inventory_items SET
+                        item_code=%s, title=%s, category=%s, location=%s, extra_fields=%s
+                       WHERE id=%s""",
+                    (item.get("item_code", ""), item.get("title", ""),
+                     item.get("category", ""), item.get("location", ""), extra, item_id),
+                )
+                return cur.rowcount > 0
+
+    def delete_inventory_item(self, item_id: int) -> bool:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM inventory_transactions WHERE item_id=%s", (item_id,))
+                cur.execute("DELETE FROM inventory_items WHERE id=%s", (item_id,))
+                return True
+
+    def inventory_transaction(self, item_id: int, txn_type: str, qty: int,
+                              remark: str = "", operator: str = "") -> bool:
+        delta = -abs(qty) if txn_type == "out" else abs(qty)
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO inventory_transactions
+                        (item_id, transaction_type, quantity, remark, operator)
+                       VALUES (%s, %s, %s, %s, %s)""",
+                    (item_id, txn_type, abs(qty), remark, operator),
+                )
+                cur.execute(
+                    "UPDATE inventory_items SET quantity = quantity + %s WHERE id = %s",
+                    (delta, item_id),
+                )
+                return True
+
+    def list_inventory_transactions(self, item_id=None, limit=100) -> List[Dict]:
+        with self._conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                if item_id:
+                    cur.execute(
+                        """SELECT t.*, i.item_code, i.title
+                           FROM inventory_transactions t
+                           LEFT JOIN inventory_items i ON t.item_id = i.id
+                           WHERE t.item_id = %s
+                           ORDER BY t.created_at DESC LIMIT %s""",
+                        (item_id, limit),
+                    )
+                else:
+                    cur.execute(
+                        """SELECT t.*, i.item_code, i.title
+                           FROM inventory_transactions t
+                           LEFT JOIN inventory_items i ON t.item_id = i.id
+                           ORDER BY t.created_at DESC LIMIT %s""",
+                        (limit,),
+                    )
+                return [dict(r) for r in cur.fetchall()]
+
+    def list_inventory_fields(self) -> List[Dict]:
+        with self._conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT * FROM inventory_fields ORDER BY sort_order, id")
+                return [dict(r) for r in cur.fetchall()]
+
+    def add_inventory_field(self, field_name: str, field_label: str,
+                            field_type: str = "text") -> bool:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO inventory_fields (field_name, field_label, field_type)
+                       VALUES (%s, %s, %s)""",
+                    (field_name, field_label, field_type),
+                )
+                return True
+
+    def delete_inventory_field(self, field_id: int) -> bool:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM inventory_fields WHERE id=%s", (field_id,))
+                return True
 
     # ============================================================
     # 迁移工具

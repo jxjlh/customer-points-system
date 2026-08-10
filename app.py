@@ -148,6 +148,15 @@ def show_home(config):
             "key": "btn-video-editor",
             "session_value": "🎬 AI 视频剪辑",
             "help": "点击进入 AI 视频剪辑（Crayotter）模块"
+        },
+        {
+            "icon": "📦",
+            "title": "库存管理",
+            "desc": "物品出入库 · 库存追踪 · 自定义字段",
+            "color_class": "card-blue",
+            "key": "btn-inventory",
+            "session_value": "📦 库存管理",
+            "help": "点击进入库存管理模块"
         }
     ]
     
@@ -949,6 +958,327 @@ def show_email_generator():
                     st.code(traceback.format_exc())
 
 
+def show_inventory():
+    st.title("📦 库存管理")
+
+    st.markdown(textwrap.dedent(
+        """
+    **功能说明：** 管理库存物品的出入库记录，支持自定义字段扩展。
+    """))
+
+    from modules.db_manager import get_db_manager
+    import json
+
+    try:
+        db = get_db_manager()
+    except Exception as e:
+        st.error(f"数据库连接失败：{e}")
+        return
+
+    operator = st.session_state.get("username", "")
+
+    tab_list, tab_in, tab_out, tab_add, tab_log, tab_fields = st.tabs([
+        "📦 库存列表", "📥 入库", "📤 出库", "➕ 新增物品", "📋 出入库记录", "⚙️ 字段管理"
+    ])
+
+    # ---- 获取自定义字段 ----
+    custom_fields = []
+    try:
+        custom_fields = db.list_inventory_fields()
+    except Exception:
+        pass
+
+    # ==================== 库存列表 ====================
+    with tab_list:
+        try:
+            items = db.list_inventory_items()
+        except Exception as e:
+            st.error(f"读取库存失败：{e}")
+            items = []
+
+        if not items:
+            st.info("暂无库存物品，请在「新增物品」标签页中添加。")
+        else:
+            # 解析 extra_fields
+            display_rows = []
+            for item in items:
+                row = {
+                    "ID": item.get("id"),
+                    "编号": item.get("item_code", ""),
+                    "title": item.get("title", ""),
+                    "title类别": item.get("category", ""),
+                    "存放位置": item.get("location", ""),
+                    "数量": item.get("quantity", 0),
+                }
+                # 展开自定义字段
+                extra = item.get("extra_fields")
+                if extra and isinstance(extra, str):
+                    try:
+                        extra_dict = json.loads(extra)
+                    except (json.JSONDecodeError, TypeError):
+                        extra_dict = {}
+                elif extra and isinstance(extra, dict):
+                    extra_dict = extra
+                else:
+                    extra_dict = {}
+                for cf in custom_fields:
+                    fname = cf.get("field_name", "")
+                    if fname:
+                        row[cf.get("field_label", fname)] = extra_dict.get(fname, "")
+                display_rows.append(row)
+
+            df_display = pd.DataFrame(display_rows)
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+            # 删除物品
+            st.subheader("删除物品")
+            del_options = {f"{r['ID']} - {r['编号']} ({r['title']})": r["ID"] for r in display_rows}
+            if del_options:
+                del_sel = st.selectbox("选择要删除的物品", list(del_options.keys()), key="inv_del_sel")
+                if st.button("🗑️ 删除", key="inv_del_btn", type="primary"):
+                    try:
+                        db.delete_inventory_item(del_options[del_sel])
+                        st.success("删除成功！")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"删除失败：{e}")
+
+    # ==================== 入库 ====================
+    with tab_in:
+        try:
+            items = db.list_inventory_items()
+        except Exception:
+            items = []
+
+        if not items:
+            st.warning("暂无库存物品，请先添加。")
+        else:
+            in_options = {f"{it.get('item_code','')} - {it.get('title','')} (当前: {it.get('quantity',0)})": it["id"] for it in items}
+            col1, col2 = st.columns(2)
+            with col1:
+                in_sel = st.selectbox("选择物品", list(in_options.keys()), key="inv_in_sel")
+            with col2:
+                in_qty = st.number_input("入库数量", min_value=1, value=1, step=1, key="inv_in_qty")
+            in_remark = st.text_input("备注", key="inv_in_remark")
+            if st.button("📥 确认入库", key="inv_in_btn", type="primary"):
+                try:
+                    db.inventory_transaction(in_options[in_sel], "in", in_qty, in_remark, operator)
+                    st.success(f"入库成功！+{in_qty}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"入库失败：{e}")
+
+    # ==================== 出库 ====================
+    with tab_out:
+        try:
+            items = db.list_inventory_items()
+        except Exception:
+            items = []
+
+        if not items:
+            st.warning("暂无库存物品，请先添加。")
+        else:
+            out_options = {f"{it.get('item_code','')} - {it.get('title','')} (当前: {it.get('quantity',0)})": it["id"] for it in items}
+            col1, col2 = st.columns(2)
+            with col1:
+                out_sel = st.selectbox("选择物品", list(out_options.keys()), key="inv_out_sel")
+            with col2:
+                out_qty = st.number_input("出库数量", min_value=1, value=1, step=1, key="inv_out_qty")
+            out_remark = st.text_input("备注", key="inv_out_remark")
+            if st.button("📤 确认出库", key="inv_out_btn", type="primary"):
+                try:
+                    db.inventory_transaction(out_options[out_sel], "out", out_qty, out_remark, operator)
+                    st.success(f"出库成功！-{out_qty}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"出库失败：{e}")
+
+    # ==================== 新增物品 ====================
+    with tab_add:
+        st.subheader("添加新物品")
+        with st.form("inv_add_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                new_code = st.text_input("编号 *", key="inv_add_code")
+                new_title = st.text_input("title *", key="inv_add_title")
+                new_category = st.text_input("title类别", key="inv_add_cat")
+            with col2:
+                new_location = st.text_input("存放位置", key="inv_add_loc")
+                new_qty = st.number_input("初始数量", min_value=0, value=0, step=1, key="inv_add_qty")
+
+            # 自定义字段输入
+            extra_values = {}
+            if custom_fields:
+                st.markdown("**自定义字段**")
+                cf_cols = st.columns(2)
+                for i, cf in enumerate(custom_fields):
+                    with cf_cols[i % 2]:
+                        label = cf.get("field_label", cf.get("field_name", ""))
+                        extra_values[cf["field_name"]] = st.text_input(label, key=f"inv_add_cf_{cf['id']}")
+
+            submitted = st.form_submit_button("✅ 添加", type="primary")
+            if submitted:
+                if not new_code or not new_title:
+                    st.error("编号和 title 为必填项")
+                else:
+                    try:
+                        db.add_inventory_item({
+                            "item_code": new_code.strip(),
+                            "title": new_title.strip(),
+                            "category": new_category.strip(),
+                            "location": new_location.strip(),
+                            "quantity": int(new_qty),
+                            "extra_fields": {k: v for k, v in extra_values.items() if v},
+                        })
+                        st.success("添加成功！")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"添加失败：{e}")
+
+        # 编辑物品
+        st.divider()
+        st.subheader("编辑物品")
+        try:
+            items = db.list_inventory_items()
+        except Exception:
+            items = []
+        if items:
+            edit_options = {f"{it.get('item_code','')} - {it.get('title','')}": it for it in items}
+            edit_sel = st.selectbox("选择物品", list(edit_options.keys()), key="inv_edit_sel")
+            selected_item = edit_options[edit_sel]
+            if selected_item:
+                # 解析 extra_fields
+                extra = selected_item.get("extra_fields")
+                if extra and isinstance(extra, str):
+                    try:
+                        extra_dict = json.loads(extra)
+                    except (json.JSONDecodeError, TypeError):
+                        extra_dict = {}
+                elif extra and isinstance(extra, dict):
+                    extra_dict = extra
+                else:
+                    extra_dict = {}
+
+                with st.form("inv_edit_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        edit_code = st.text_input("编号 *", value=selected_item.get("item_code", ""), key="inv_edit_code")
+                        edit_title = st.text_input("title *", value=selected_item.get("title", ""), key="inv_edit_title")
+                        edit_category = st.text_input("title类别", value=selected_item.get("category", ""), key="inv_edit_cat")
+                    with col2:
+                        edit_location = st.text_input("存放位置", value=selected_item.get("location", ""), key="inv_edit_loc")
+                        st.text_input("当前数量", value=selected_item.get("quantity", 0), disabled=True, key="inv_edit_qty_disp")
+
+                    edit_extra = {}
+                    if custom_fields:
+                        st.markdown("**自定义字段**")
+                        cf_cols = st.columns(2)
+                        for i, cf in enumerate(custom_fields):
+                            with cf_cols[i % 2]:
+                                label = cf.get("field_label", cf.get("field_name", ""))
+                                edit_extra[cf["field_name"]] = st.text_input(
+                                    label,
+                                    value=extra_dict.get(cf["field_name"], ""),
+                                    key=f"inv_edit_cf_{cf['id']}",
+                                )
+
+                    edit_submitted = st.form_submit_button("💾 保存修改", type="primary")
+                    if edit_submitted:
+                        if not edit_code or not edit_title:
+                            st.error("编号和 title 为必填项")
+                        else:
+                            try:
+                                db.update_inventory_item(selected_item["id"], {
+                                    "item_code": edit_code.strip(),
+                                    "title": edit_title.strip(),
+                                    "category": edit_category.strip(),
+                                    "location": edit_location.strip(),
+                                    "extra_fields": {k: v for k, v in edit_extra.items() if v},
+                                })
+                                st.success("修改成功！")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"修改失败：{e}")
+
+    # ==================== 出入库记录 ====================
+    with tab_log:
+        try:
+            txns = db.list_inventory_transactions(limit=200)
+        except Exception as e:
+            st.error(f"读取记录失败：{e}")
+            txns = []
+
+        if not txns:
+            st.info("暂无出入库记录。")
+        else:
+            log_rows = []
+            for t in txns:
+                txn_type = t.get("transaction_type", "")
+                qty = t.get("quantity", 0)
+                type_label = "📥 入库" if txn_type == "in" else "📤 出库" if txn_type == "out" else txn_type
+                log_rows.append({
+                    "时间": str(t.get("created_at", "")),
+                    "编号": t.get("item_code", ""),
+                    "title": t.get("title", ""),
+                    "类型": type_label,
+                    "数量": qty,
+                    "操作人": t.get("operator", ""),
+                    "备注": t.get("remark", ""),
+                })
+            st.dataframe(pd.DataFrame(log_rows), use_container_width=True, hide_index=True)
+
+    # ==================== 字段管理 ====================
+    with tab_fields:
+        st.subheader("自定义字段管理")
+        st.caption("在此添加/删除自定义字段，添加后可在「新增物品」和「编辑物品」中填写。")
+
+        # 显示现有字段
+        if custom_fields:
+            field_rows = [{
+                "ID": cf.get("id"),
+                "字段名": cf.get("field_name", ""),
+                "显示标签": cf.get("field_label", ""),
+                "类型": cf.get("field_type", "text"),
+            } for cf in custom_fields]
+            st.dataframe(pd.DataFrame(field_rows), use_container_width=True, hide_index=True)
+
+            # 删除字段
+            del_f_options = {f"{cf.get('field_name','')} ({cf.get('field_label','')})": cf["id"] for cf in custom_fields}
+            del_f_sel = st.selectbox("选择要删除的字段", list(del_f_options.keys()), key="inv_f_del_sel")
+            if st.button("🗑️ 删除字段", key="inv_f_del_btn"):
+                try:
+                    db.delete_inventory_field(del_f_options[del_f_sel])
+                    st.success("删除成功！")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"删除失败：{e}")
+        else:
+            st.info("暂无自定义字段。")
+
+        # 添加字段
+        st.divider()
+        st.subheader("添加新字段")
+        with st.form("inv_field_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                f_name = st.text_input("字段名（英文/拼音）*", key="inv_f_name", help="如 batch_no, supplier 等")
+                f_label = st.text_input("显示标签 *", key="inv_f_label", help="如 批次号, 供应商 等")
+            with col2:
+                f_type = st.selectbox("字段类型", ["text", "number"], key="inv_f_type")
+
+            f_submitted = st.form_submit_button("✅ 添加字段", type="primary")
+            if f_submitted:
+                if not f_name or not f_label:
+                    st.error("字段名和显示标签为必填项")
+                else:
+                    try:
+                        db.add_inventory_field(f_name.strip(), f_label.strip(), f_type)
+                        st.success("添加成功！")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"添加失败：{e}")
+
+
 def show_user_management(config):
     st.title("👑 用户管理")
     
@@ -1264,7 +1594,10 @@ def main():
         
         elif selected_main == '🎬 AI 视频剪辑':
             show_video_editor()
-        
+
+        elif selected_main == '📦 库存管理':
+            show_inventory()
+
         elif selected_main == '👑 用户管理':
             show_user_management(config)
 

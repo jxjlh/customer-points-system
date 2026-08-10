@@ -141,6 +141,37 @@ class _BaseManager:
     def sync_exchange_from_excel(self, df_exchange: pd.DataFrame) -> int:
         raise NotImplementedError
 
+    # ---------- 库存管理 ----------
+    def list_inventory_items(self) -> List[Dict]:
+        raise NotImplementedError
+
+    def add_inventory_item(self, item: Dict) -> int:
+        raise NotImplementedError
+
+    def update_inventory_item(self, item_id: int, item: Dict) -> bool:
+        raise NotImplementedError
+
+    def delete_inventory_item(self, item_id: int) -> bool:
+        raise NotImplementedError
+
+    def inventory_transaction(self, item_id: int, txn_type: str, qty: int,
+                              remark: str = "", operator: str = "") -> bool:
+        raise NotImplementedError
+
+    def list_inventory_transactions(self, item_id: Optional[int] = None,
+                                    limit: int = 100) -> List[Dict]:
+        raise NotImplementedError
+
+    def list_inventory_fields(self) -> List[Dict]:
+        raise NotImplementedError
+
+    def add_inventory_field(self, field_name: str, field_label: str,
+                            field_type: str = "text") -> bool:
+        raise NotImplementedError
+
+    def delete_inventory_field(self, field_id: int) -> bool:
+        raise NotImplementedError
+
 
 # ============================================================
 # MySQL 实现
@@ -348,6 +379,42 @@ class _MySQLManager(_BaseManager):
             amount_cny  REAL,
             product     TEXT,
             created_at  TEXT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS inventory_items (
+            id           INT AUTO_INCREMENT PRIMARY KEY,
+            item_code    VARCHAR(100)  NOT NULL UNIQUE,
+            title        VARCHAR(200)  NOT NULL,
+            category     VARCHAR(100),
+            location     VARCHAR(200),
+            quantity     INT            DEFAULT 0,
+            extra_fields TEXT,
+            created_at   TIMESTAMP      DEFAULT CURRENT_TIMESTAMP,
+            updated_at   TIMESTAMP      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_inv_code (item_code),
+            INDEX idx_inv_category (category)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS inventory_transactions (
+            id               INT AUTO_INCREMENT PRIMARY KEY,
+            item_id          INT            NOT NULL,
+            transaction_type VARCHAR(20)    NOT NULL,
+            quantity         INT            NOT NULL,
+            remark           TEXT,
+            operator         VARCHAR(100),
+            created_at       TIMESTAMP      DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_trans_item (item_id),
+            INDEX idx_trans_type (transaction_type),
+            INDEX idx_trans_created (created_at DESC)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS inventory_fields (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            field_name  VARCHAR(100) NOT NULL UNIQUE,
+            field_label VARCHAR(200),
+            field_type  VARCHAR(20)  DEFAULT 'text',
+            sort_order  INT          DEFAULT 0,
+            created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """
         for stmt in ddl.split(";"):
@@ -718,6 +785,91 @@ class _MySQLManager(_BaseManager):
                     count += 1
         return count
 
+    # ---------- 库存管理 ----------
+    def list_inventory_items(self) -> List[Dict]:
+        return self._execute(
+            "SELECT * FROM inventory_items ORDER BY id DESC", fetch=True
+        )
+
+    def add_inventory_item(self, item: Dict) -> int:
+        extra = json.dumps(item.get("extra_fields", {}), ensure_ascii=False)
+        return self._execute(
+            """INSERT INTO inventory_items
+                (item_code, title, category, location, quantity, extra_fields)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (item.get("item_code", ""), item.get("title", ""),
+             item.get("category", ""), item.get("location", ""),
+             int(item.get("quantity", 0)), extra),
+        )
+
+    def update_inventory_item(self, item_id: int, item: Dict) -> bool:
+        extra = json.dumps(item.get("extra_fields", {}), ensure_ascii=False)
+        self._execute(
+            """UPDATE inventory_items SET
+                item_code=%s, title=%s, category=%s, location=%s, extra_fields=%s
+               WHERE id=%s""",
+            (item.get("item_code", ""), item.get("title", ""),
+             item.get("category", ""), item.get("location", ""), extra, item_id),
+        )
+        return True
+
+    def delete_inventory_item(self, item_id: int) -> bool:
+        self._execute("DELETE FROM inventory_transactions WHERE item_id=%s", (item_id,))
+        self._execute("DELETE FROM inventory_items WHERE id=%s", (item_id,))
+        return True
+
+    def inventory_transaction(self, item_id: int, txn_type: str, qty: int,
+                              remark: str = "", operator: str = "") -> bool:
+        if txn_type == "out":
+            qty = -abs(qty)
+        else:
+            qty = abs(qty)
+        self._execute(
+            """INSERT INTO inventory_transactions
+                (item_id, transaction_type, quantity, remark, operator)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (item_id, txn_type, abs(qty), remark, operator),
+        )
+        self._execute(
+            "UPDATE inventory_items SET quantity = quantity + %s WHERE id = %s",
+            (qty, item_id),
+        )
+        return True
+
+    def list_inventory_transactions(self, item_id: Optional[int] = None,
+                                    limit: int = 100) -> List[Dict]:
+        if item_id:
+            sql = """SELECT t.*, i.item_code, i.title
+                     FROM inventory_transactions t
+                     LEFT JOIN inventory_items i ON t.item_id = i.id
+                     WHERE t.item_id = %s
+                     ORDER BY t.created_at DESC LIMIT %s"""
+            return self._execute(sql, (item_id, limit), fetch=True)
+        else:
+            sql = """SELECT t.*, i.item_code, i.title
+                     FROM inventory_transactions t
+                     LEFT JOIN inventory_items i ON t.item_id = i.id
+                     ORDER BY t.created_at DESC LIMIT %s"""
+            return self._execute(sql, (limit,), fetch=True)
+
+    def list_inventory_fields(self) -> List[Dict]:
+        return self._execute(
+            "SELECT * FROM inventory_fields ORDER BY sort_order, id", fetch=True
+        )
+
+    def add_inventory_field(self, field_name: str, field_label: str,
+                            field_type: str = "text") -> bool:
+        self._execute(
+            """INSERT INTO inventory_fields (field_name, field_label, field_type)
+               VALUES (%s, %s, %s)""",
+            (field_name, field_label, field_type),
+        )
+        return True
+
+    def delete_inventory_field(self, field_id: int) -> bool:
+        self._execute("DELETE FROM inventory_fields WHERE id=%s", (field_id,))
+        return True
+
 
 # ============================================================
 # PostgreSQL 实现（保留兼容性）
@@ -904,6 +1056,46 @@ class _PostgresManager(_BaseManager):
         mgr = PgDatabaseManager(self.dsn)
         return mgr.sync_exchange_from_excel(df_exchange)
 
+    # ---------- 库存管理 ----------
+    def list_inventory_items(self) -> List[Dict]:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).list_inventory_items()
+
+    def add_inventory_item(self, item: Dict) -> int:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).add_inventory_item(item)
+
+    def update_inventory_item(self, item_id: int, item: Dict) -> bool:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).update_inventory_item(item_id, item)
+
+    def delete_inventory_item(self, item_id: int) -> bool:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).delete_inventory_item(item_id)
+
+    def inventory_transaction(self, item_id: int, txn_type: str, qty: int,
+                              remark: str = "", operator: str = "") -> bool:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).inventory_transaction(item_id, txn_type, qty, remark, operator)
+
+    def list_inventory_transactions(self, item_id: Optional[int] = None,
+                                    limit: int = 100) -> List[Dict]:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).list_inventory_transactions(item_id, limit)
+
+    def list_inventory_fields(self) -> List[Dict]:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).list_inventory_fields()
+
+    def add_inventory_field(self, field_name: str, field_label: str,
+                            field_type: str = "text") -> bool:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).add_inventory_field(field_name, field_label, field_type)
+
+    def delete_inventory_field(self, field_id: int) -> bool:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).delete_inventory_field(field_id)
+
 
 # ============================================================
 # SQLite 降级实现
@@ -1036,3 +1228,152 @@ class _SQLiteManager(_BaseManager):
         from modules.database import DatabaseManager
         mgr = DatabaseManager(self.db_path)
         return mgr.sync_exchange_from_excel(df_exchange)
+
+    # ---------- 库存管理（SQLite降级） ----------
+    def _inv_ensure_tables(self):
+        conn = self._get_conn()
+        conn.execute("""CREATE TABLE IF NOT EXISTS inventory_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_code TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            category TEXT,
+            location TEXT,
+            quantity INTEGER DEFAULT 0,
+            extra_fields TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS inventory_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL,
+            transaction_type TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            remark TEXT,
+            operator TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS inventory_fields (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            field_name TEXT NOT NULL UNIQUE,
+            field_label TEXT,
+            field_type TEXT DEFAULT 'text',
+            sort_order INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+        conn.commit()
+        conn.close()
+
+    def list_inventory_items(self) -> List[Dict]:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM inventory_items ORDER BY id DESC").fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def add_inventory_item(self, item: Dict) -> int:
+        self._inv_ensure_tables()
+        extra = json.dumps(item.get("extra_fields", {}), ensure_ascii=False)
+        conn = self._get_conn()
+        cur = conn.execute(
+            "INSERT INTO inventory_items (item_code, title, category, location, quantity, extra_fields) VALUES (?, ?, ?, ?, ?, ?)",
+            (item.get("item_code", ""), item.get("title", ""),
+             item.get("category", ""), item.get("location", ""),
+             int(item.get("quantity", 0)), extra),
+        )
+        conn.commit()
+        rid = cur.lastrowid
+        conn.close()
+        return rid
+
+    def update_inventory_item(self, item_id: int, item: Dict) -> bool:
+        self._inv_ensure_tables()
+        extra = json.dumps(item.get("extra_fields", {}), ensure_ascii=False)
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE inventory_items SET item_code=?, title=?, category=?, location=?, extra_fields=? WHERE id=?",
+            (item.get("item_code", ""), item.get("title", ""),
+             item.get("category", ""), item.get("location", ""), extra, item_id),
+        )
+        conn.commit()
+        conn.close()
+        return True
+
+    def delete_inventory_item(self, item_id: int) -> bool:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        conn.execute("DELETE FROM inventory_transactions WHERE item_id=?", (item_id,))
+        conn.execute("DELETE FROM inventory_items WHERE id=?", (item_id,))
+        conn.commit()
+        conn.close()
+        return True
+
+    def inventory_transaction(self, item_id: int, txn_type: str, qty: int,
+                              remark: str = "", operator: str = "") -> bool:
+        self._inv_ensure_tables()
+        delta = -abs(qty) if txn_type == "out" else abs(qty)
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO inventory_transactions (item_id, transaction_type, quantity, remark, operator) VALUES (?, ?, ?, ?, ?)",
+            (item_id, txn_type, abs(qty), remark, operator),
+        )
+        conn.execute(
+            "UPDATE inventory_items SET quantity = quantity + ? WHERE id = ?",
+            (delta, item_id),
+        )
+        conn.commit()
+        conn.close()
+        return True
+
+    def list_inventory_transactions(self, item_id: Optional[int] = None,
+                                    limit: int = 100) -> List[Dict]:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        if item_id:
+            rows = conn.execute(
+                """SELECT t.*, i.item_code, i.title
+                   FROM inventory_transactions t
+                   LEFT JOIN inventory_items i ON t.item_id = i.id
+                   WHERE t.item_id = ?
+                   ORDER BY t.created_at DESC LIMIT ?""",
+                (item_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT t.*, i.item_code, i.title
+                   FROM inventory_transactions t
+                   LEFT JOIN inventory_items i ON t.item_id = i.id
+                   ORDER BY t.created_at DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def list_inventory_fields(self) -> List[Dict]:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM inventory_fields ORDER BY sort_order, id").fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def add_inventory_field(self, field_name: str, field_label: str,
+                            field_type: str = "text") -> bool:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO inventory_fields (field_name, field_label, field_type) VALUES (?, ?, ?)",
+            (field_name, field_label, field_type),
+        )
+        conn.commit()
+        conn.close()
+        return True
+
+    def delete_inventory_field(self, field_id: int) -> bool:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        conn.execute("DELETE FROM inventory_fields WHERE id=?", (field_id,))
+        conn.commit()
+        conn.close()
+        return True

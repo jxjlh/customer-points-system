@@ -912,9 +912,10 @@ class _PostgresManager(_BaseManager):
     def from_secrets(cls) -> "_PostgresManager":
         import streamlit as st
         cfg = st.secrets["postgres"]
+        password = cfg.password.replace("'", "\\'")
         dsn = (
             f"host={cfg.host} port={cfg.port} dbname={cfg.dbname} "
-            f"user={cfg.user} password={cfg.password} "
+            f"user={cfg.user} password='{password}' "
             f"sslmode={cfg.get('sslmode', 'prefer')}"
         )
         return cls(dsn)

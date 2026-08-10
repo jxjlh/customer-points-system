@@ -1004,16 +1004,17 @@ def show_inventory():
         # ===== 快捷新增物品 =====
         with st.expander("➕ 快速新增物品", expanded=False):
             with st.form("inv_quick_add_form"):
+                # 字段顺序：title类别 → 编号 → title → 数量 → 存放位置 → 备注
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    new_code = st.text_input("编号 *", key="inv_qadd_code")
-                    new_title = st.text_input("title *", key="inv_qadd_title")
-                with col2:
                     new_category = st.text_input("title类别", key="inv_qadd_cat")
-                    new_location = st.text_input("存放位置", key="inv_qadd_loc")
+                    new_code = st.text_input("编号 *", key="inv_qadd_code")
+                with col2:
+                    new_title = st.text_input("title *", key="inv_qadd_title")
+                    new_qty = st.number_input("数量", min_value=0, value=0, step=1, key="inv_qadd_qty")
                 with col3:
-                    new_qty = st.number_input("初始数量", min_value=0, value=0, step=1, key="inv_qadd_qty")
-                    new_remark = st.text_input("备注（入库记录）", key="inv_qadd_remark")
+                    new_location = st.text_input("存放位置", key="inv_qadd_loc")
+                    new_remark = st.text_input("备注（出入库记录）", key="inv_qadd_remark")
 
                 extra_values = {}
                 if custom_fields:
@@ -1079,6 +1080,86 @@ def show_inventory():
                 stat_col3.metric("⚠️ 低库存", len([it for it in filtered_items if int(it.get("quantity", 0)) <= 5]))
                 stat_col4.metric("❌ 零库存", len([it for it in filtered_items if int(it.get("quantity", 0)) == 0]))
 
+                # ===== 导出库存表格 =====
+                export_col1, export_col2, export_col3 = st.columns([3, 1, 1])
+                with export_col1:
+                    st.caption(f"📊 共 {len(filtered_items)} 条记录，可导出当前筛选结果")
+                with export_col2:
+                    if st.button("📥 导出 Excel", key="inv_export_xlsx", use_container_width=True):
+                        try:
+                            export_rows = []
+                            for it in filtered_items:
+                                extra = it.get("extra_fields")
+                                if extra and isinstance(extra, str):
+                                    try:
+                                        extra_dict = json.loads(extra)
+                                    except:
+                                        extra_dict = {}
+                                elif extra and isinstance(extra, dict):
+                                    extra_dict = extra
+                                else:
+                                    extra_dict = {}
+                                extra_str = "; ".join(f"{k}: {v}" for k, v in extra_dict.items()) if extra_dict else ""
+                                export_rows.append({
+                                    "title类别": it.get("category", "") or "",
+                                    "编号": it.get("item_code", "") or "",
+                                    "title": it.get("title", "") or "",
+                                    "数量": int(it.get("quantity", 0)),
+                                    "存放位置": it.get("location", "") or "",
+                                    "备注": extra_str,
+                                })
+                            df_export = pd.DataFrame(export_rows)
+                            output = BytesIO()
+                            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                                df_export.to_excel(writer, index=False, sheet_name="库存清单")
+                            output.seek(0)
+                            st.download_button(
+                                label="💾 下载 Excel 文件",
+                                data=output,
+                                file_name=f"库存清单_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True,
+                            )
+                            st.success(f"✅ 已生成 Excel，共 {len(export_rows)} 条记录")
+                        except Exception as e:
+                            st.error(f"导出失败：{e}")
+                with export_col3:
+                    if st.button("📄 导出 CSV", key="inv_export_csv", use_container_width=True):
+                        try:
+                            export_rows = []
+                            for it in filtered_items:
+                                extra = it.get("extra_fields")
+                                if extra and isinstance(extra, str):
+                                    try:
+                                        extra_dict = json.loads(extra)
+                                    except:
+                                        extra_dict = {}
+                                elif extra and isinstance(extra, dict):
+                                    extra_dict = extra
+                                else:
+                                    extra_dict = {}
+                                extra_str = "; ".join(f"{k}: {v}" for k, v in extra_dict.items()) if extra_dict else ""
+                                export_rows.append({
+                                    "title类别": it.get("category", "") or "",
+                                    "编号": it.get("item_code", "") or "",
+                                    "title": it.get("title", "") or "",
+                                    "数量": int(it.get("quantity", 0)),
+                                    "存放位置": it.get("location", "") or "",
+                                    "备注": extra_str,
+                                })
+                            df_export = pd.DataFrame(export_rows)
+                            csv_data = df_export.to_csv(index=False).encode("utf-8-sig")
+                            st.download_button(
+                                label="💾 下载 CSV 文件",
+                                data=csv_data,
+                                file_name=f"库存清单_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv",
+                                use_container_width=True,
+                            )
+                            st.success(f"✅ 已生成 CSV，共 {len(export_rows)} 条记录")
+                        except Exception as e:
+                            st.error(f"导出失败：{e}")
+
                 st.divider()
 
                 # ===== 每个物品一行：信息 + 操作 =====
@@ -1088,39 +1169,39 @@ def show_inventory():
                     qty_color = "#ff4d4f" if qty == 0 else "#faad14" if qty <= 5 else "#00ffd5"
 
                     with st.container():
-                        # 行标题：编号 + 名称
+                        # 行标题：类别 + 编号 + 名称
                         title_col, badge_col = st.columns([5, 1])
                         with title_col:
-                            st.markdown(f"### 📌 {item.get('item_code', '')} — **{item.get('title', '')}**")
+                            cat_label = item.get("category", "") or "未分类"
+                            st.markdown(f"### 📌 [{cat_label}] {item.get('item_code', '')} — **{item.get('title', '')}**")
                         with badge_col:
                             if qty == 0:
                                 st.markdown(f"<div style='text-align:right; color:#ff4d4f; font-weight:bold; font-size:1.2em;'>❌ 缺货</div>", unsafe_allow_html=True)
                             elif qty <= 5:
                                 st.markdown(f"<div style='text-align:right; color:#faad14; font-weight:bold; font-size:1.2em;'>⚠️ 低库存</div>", unsafe_allow_html=True)
 
-                        # 基本信息
-                        info_col1, info_col2, info_col3, info_col4 = st.columns(4)
+                        # 解析自定义字段（提前解析，供后续使用）
+                        extra = item.get("extra_fields")
+                        if extra and isinstance(extra, str):
+                            try:
+                                extra_dict = json.loads(extra)
+                            except:
+                                extra_dict = {}
+                        elif extra and isinstance(extra, dict):
+                            extra_dict = extra
+                        else:
+                            extra_dict = {}
+
+                        # 基本信息（顺序：数量 → 存放位置 → 自定义字段）
+                        info_col1, info_col2, info_col3 = st.columns(3)
                         with info_col1:
-                            st.caption("**类别**")
-                            st.write(item.get("category", "-") or "-")
+                            st.caption("**当前数量**")
+                            st.markdown(f"<span style='font-size:1.5em; font-weight:bold; color:{qty_color};'>{qty}</span>", unsafe_allow_html=True)
                         with info_col2:
                             st.caption("**存放位置**")
                             st.write(item.get("location", "-") or "-")
                         with info_col3:
-                            st.caption("**当前数量**")
-                            st.markdown(f"<span style='font-size:1.5em; font-weight:bold; color:{qty_color};'>{qty}</span>", unsafe_allow_html=True)
-                        with info_col4:
                             st.caption("**自定义字段**")
-                            extra = item.get("extra_fields")
-                            if extra and isinstance(extra, str):
-                                try:
-                                    extra_dict = json.loads(extra)
-                                except:
-                                    extra_dict = {}
-                            elif extra and isinstance(extra, dict):
-                                extra_dict = extra
-                            else:
-                                extra_dict = {}
                             if extra_dict:
                                 for k, v in list(extra_dict.items())[:3]:
                                     st.write(f"{k}: {v}")
@@ -1202,23 +1283,24 @@ def show_inventory():
                                 edit_expander = st.expander("✏️ 编辑", expanded=False)
                                 with edit_expander:
                                     with st.form(f"inv_edit_form_{item_id}"):
+                                        # 字段顺序：title类别 → 编号 → title → 存放位置
                                         ec1, ec2 = st.columns(2)
                                         with ec1:
-                                            ed_code = st.text_input("编号 *", value=item.get("item_code", ""))
-                                            ed_title = st.text_input("title *", value=item.get("title", ""))
                                             ed_cat = st.text_input("title类别", value=item.get("category", ""))
+                                            ed_code = st.text_input("编号 *", value=item.get("item_code", ""))
                                         with ec2:
+                                            ed_title = st.text_input("title *", value=item.get("title", ""))
                                             ed_loc = st.text_input("存放位置", value=item.get("location", ""))
-                                            ed_extra = {}
-                                            if custom_fields:
-                                                st.markdown("**自定义字段**")
-                                                for cf in custom_fields:
-                                                    label = cf.get("field_label", cf.get("field_name", ""))
-                                                    ed_extra[cf["field_name"]] = st.text_input(
-                                                        label,
-                                                        value=extra_dict.get(cf["field_name"], ""),
-                                                        key=f"inv_edit_{item_id}_{cf['id']}",
-                                                    )
+                                        ed_extra = {}
+                                        if custom_fields:
+                                            st.markdown("**自定义字段**")
+                                            for cf in custom_fields:
+                                                label = cf.get("field_label", cf.get("field_name", ""))
+                                                ed_extra[cf["field_name"]] = st.text_input(
+                                                    label,
+                                                    value=extra_dict.get(cf["field_name"], ""),
+                                                    key=f"inv_edit_{item_id}_{cf['id']}",
+                                                )
                                         if st.form_submit_button("💾 保存", type="primary"):
                                             if not ed_code or not ed_title:
                                                 st.error("编号和 title 为必填项")

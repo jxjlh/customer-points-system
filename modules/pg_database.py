@@ -1009,6 +1009,22 @@ class PgDatabaseManager:
                 cur.execute("DELETE FROM inventory_fields WHERE id=%s", (field_id,))
                 return True
 
+    def get_distinct_categories(self) -> List[str]:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT DISTINCT category FROM inventory_items WHERE category IS NOT NULL AND category != '' ORDER BY category"
+                )
+                return [r[0] for r in cur.fetchall()]
+
+    def get_distinct_locations(self) -> List[str]:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT DISTINCT location FROM inventory_items WHERE location IS NOT NULL AND location != '' ORDER BY location"
+                )
+                return [r[0] for r in cur.fetchall()]
+
     # ============================================================
     # 迁移工具
     # ============================================================

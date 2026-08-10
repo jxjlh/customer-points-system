@@ -1001,19 +1001,38 @@ def show_inventory():
             st.error(f"读取库存失败：{e}")
             items = []
 
+        # ===== 获取已有类别和位置 =====
+        existing_categories = []
+        existing_locations = []
+        try:
+            existing_categories = db.get_distinct_categories()
+            existing_locations = db.get_distinct_locations()
+        except Exception:
+            pass
+
         # ===== 快捷新增物品 =====
         with st.expander("➕ 快速新增物品", expanded=False):
             with st.form("inv_quick_add_form"):
                 # 字段顺序：title类别 → 编号 → title → 数量 → 存放位置 → 备注
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    new_category = st.text_input("title类别", key="inv_qadd_cat")
+                    cat_options = existing_categories + ["➕ 新增..."] if existing_categories else ["➕ 新增..."]
+                    cat_selection = st.selectbox("title类别", cat_options, key="inv_qadd_cat_sel")
+                    if cat_selection == "➕ 新增...":
+                        new_category = st.text_input("输入新类别", key="inv_qadd_cat_new")
+                    else:
+                        new_category = cat_selection
                     new_code = st.text_input("编号 *", key="inv_qadd_code")
                 with col2:
                     new_title = st.text_input("title *", key="inv_qadd_title")
                     new_qty = st.number_input("数量", min_value=0, value=0, step=1, key="inv_qadd_qty")
                 with col3:
-                    new_location = st.text_input("存放位置", key="inv_qadd_loc")
+                    loc_options = existing_locations + ["➕ 新增..."] if existing_locations else ["➕ 新增..."]
+                    loc_selection = st.selectbox("存放位置", loc_options, key="inv_qadd_loc_sel")
+                    if loc_selection == "➕ 新增...":
+                        new_location = st.text_input("输入新位置", key="inv_qadd_loc_new")
+                    else:
+                        new_location = loc_selection
                     new_remark = st.text_input("备注（出入库记录）", key="inv_qadd_remark")
 
                 extra_values = {}
@@ -1033,8 +1052,8 @@ def show_inventory():
                             item_id = db.add_inventory_item({
                                 "item_code": new_code.strip(),
                                 "title": new_title.strip(),
-                                "category": new_category.strip(),
-                                "location": new_location.strip(),
+                                "category": new_category.strip() if new_category else "",
+                                "location": new_location.strip() if new_location else "",
                                 "quantity": int(new_qty),
                                 "extra_fields": {k: v for k, v in extra_values.items() if v},
                             })
@@ -1284,13 +1303,42 @@ def show_inventory():
                                 with edit_expander:
                                     with st.form(f"inv_edit_form_{item_id}"):
                                         # 字段顺序：title类别 → 编号 → title → 存放位置
+                                        cur_cat = item.get("category", "") or ""
+                                        cur_loc = item.get("location", "") or ""
+
                                         ec1, ec2 = st.columns(2)
                                         with ec1:
-                                            ed_cat = st.text_input("title类别", value=item.get("category", ""))
+                                            cat_opts = existing_categories[:]
+                                            if cur_cat and cur_cat not in cat_opts:
+                                                cat_opts.append(cur_cat)
+                                            cat_opts_display = cat_opts + ["➕ 新增..."]
+                                            ed_cat_sel = st.selectbox(
+                                                "title类别",
+                                                cat_opts_display,
+                                                index=cat_opts_display.index(cur_cat) if cur_cat in cat_opts_display else len(cat_opts_display) - 1,
+                                                key=f"inv_edit_cat_{item_id}",
+                                            )
+                                            if ed_cat_sel == "➕ 新增...":
+                                                ed_cat = st.text_input("输入新类别", value=cur_cat, key=f"inv_edit_cat_new_{item_id}")
+                                            else:
+                                                ed_cat = ed_cat_sel
                                             ed_code = st.text_input("编号 *", value=item.get("item_code", ""))
                                         with ec2:
+                                            loc_opts = existing_locations[:]
+                                            if cur_loc and cur_loc not in loc_opts:
+                                                loc_opts.append(cur_loc)
+                                            loc_opts_display = loc_opts + ["➕ 新增..."]
+                                            ed_loc_sel = st.selectbox(
+                                                "存放位置",
+                                                loc_opts_display,
+                                                index=loc_opts_display.index(cur_loc) if cur_loc in loc_opts_display else len(loc_opts_display) - 1,
+                                                key=f"inv_edit_loc_{item_id}",
+                                            )
+                                            if ed_loc_sel == "➕ 新增...":
+                                                ed_loc = st.text_input("输入新位置", value=cur_loc, key=f"inv_edit_loc_new_{item_id}")
+                                            else:
+                                                ed_loc = ed_loc_sel
                                             ed_title = st.text_input("title *", value=item.get("title", ""))
-                                            ed_loc = st.text_input("存放位置", value=item.get("location", ""))
                                         ed_extra = {}
                                         if custom_fields:
                                             st.markdown("**自定义字段**")
@@ -1309,8 +1357,8 @@ def show_inventory():
                                                     db.update_inventory_item(item_id, {
                                                         "item_code": ed_code.strip(),
                                                         "title": ed_title.strip(),
-                                                        "category": ed_cat.strip(),
-                                                        "location": ed_loc.strip(),
+                                                        "category": ed_cat.strip() if ed_cat else "",
+                                                        "location": ed_loc.strip() if ed_loc else "",
                                                         "extra_fields": {k: v for k, v in ed_extra.items() if v},
                                                     })
                                                     st.success("修改成功！")

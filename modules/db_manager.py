@@ -193,6 +193,14 @@ class _BaseManager:
     def delete_inventory_field(self, field_id: int) -> bool:
         raise NotImplementedError
 
+    def get_distinct_categories(self) -> List[str]:
+        """获取所有不重复的 title类别"""
+        raise NotImplementedError
+
+    def get_distinct_locations(self) -> List[str]:
+        """获取所有不重复的存放位置"""
+        raise NotImplementedError
+
 
 # ============================================================
 # MySQL 实现
@@ -891,6 +899,20 @@ class _MySQLManager(_BaseManager):
         self._execute("DELETE FROM inventory_fields WHERE id=%s", (field_id,))
         return True
 
+    def get_distinct_categories(self) -> List[str]:
+        rows = self._execute(
+            "SELECT DISTINCT category FROM inventory_items WHERE category IS NOT NULL AND category != '' ORDER BY category",
+            fetch=True,
+        )
+        return [r["category"] for r in rows]
+
+    def get_distinct_locations(self) -> List[str]:
+        rows = self._execute(
+            "SELECT DISTINCT location FROM inventory_items WHERE location IS NOT NULL AND location != '' ORDER BY location",
+            fetch=True,
+        )
+        return [r["location"] for r in rows]
+
 
 # ============================================================
 # PostgreSQL 实现（保留兼容性）
@@ -1117,6 +1139,14 @@ class _PostgresManager(_BaseManager):
     def delete_inventory_field(self, field_id: int) -> bool:
         from modules.pg_database import PgDatabaseManager
         return PgDatabaseManager(self.dsn).delete_inventory_field(field_id)
+
+    def get_distinct_categories(self) -> List[str]:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).get_distinct_categories()
+
+    def get_distinct_locations(self) -> List[str]:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).get_distinct_locations()
 
 
 # ============================================================
@@ -1399,3 +1429,23 @@ class _SQLiteManager(_BaseManager):
         conn.commit()
         conn.close()
         return True
+
+    def get_distinct_categories(self) -> List[str]:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        cur = conn.execute(
+            "SELECT DISTINCT category FROM inventory_items WHERE category IS NOT NULL AND category != '' ORDER BY category"
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+
+    def get_distinct_locations(self) -> List[str]:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        cur = conn.execute(
+            "SELECT DISTINCT location FROM inventory_items WHERE location IS NOT NULL AND location != '' ORDER BY location"
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return [r[0] for r in rows]

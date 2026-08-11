@@ -30,7 +30,6 @@ try:
     from modules.invoice_fetcher import InvoiceFetcher
     from modules.quotation_ui import show_quotation
     from modules.db_manager import get_db_manager
-    from modules.video_editor import show_video_editor
     from logo_base64 import get_logo_html, get_avatar_html, get_logo_data_url, get_avatar_data_url
 except Exception as e:
     st.set_page_config(page_title="诊断错误", layout="wide")
@@ -1308,7 +1307,12 @@ def main():
             show_quotation()
         
         elif selected_main == '🎬 AI 视频剪辑':
-            show_video_editor()
+            try:
+                from modules.video_editor import show_video_editor
+                show_video_editor()
+            except Exception as exc:
+                st.error(f"视频剪辑模块加载失败：{exc}")
+                st.info("请确认视频剪辑相关依赖已安装。")
 
         elif selected_main == '📦 库存管理':
             show_inventory()

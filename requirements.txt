@@ -10,4 +10,5 @@ pyyaml>=6.0.1
 reportlab>=4.0.0
 pymysql>=1.1.0
 psycopg2-binary>=2.9.9
--r crayotter/requirements-streamlit.txt
+# crayotter 视频剪辑重型依赖已移除以加速部署，如需视频剪辑功能请取消下面注释
+# -r crayotter/requirements-streamlit.txt

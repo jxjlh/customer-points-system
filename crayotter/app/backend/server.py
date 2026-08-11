@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import cgi
 import json
 import mimetypes
 import re
 import socket
-import shutil
 from datetime import datetime, timezone
+from email.parser import BytesParser
+from email.policy import default as email_policy
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,6 +36,26 @@ RUNTIME_ROOT = get_runtime_root()
 FRONTEND_DIR = resource_path("app", "frontend")
 UPLOADS_DIR = runtime_path("user_temp")
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def parse_multipart_files(content_type: str, body: bytes) -> list[tuple[str, bytes]]:
+    if "multipart/form-data" not in content_type.lower():
+        raise ValueError("Upload requests must use multipart/form-data.")
+    envelope = (
+        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8")
+        + body
+    )
+    message = BytesParser(policy=email_policy).parsebytes(envelope)
+    files: list[tuple[str, bytes]] = []
+    if not message.is_multipart():
+        return files
+    for part in message.iter_parts():
+        field_name = part.get_param("name", header="content-disposition")
+        filename = part.get_filename() or ""
+        if field_name not in {"file", "files"} or not filename:
+            continue
+        files.append((filename, part.get_payload(decode=True) or b""))
+    return files
 
 
 class BackendHandler(BaseHTTPRequestHandler):
@@ -550,37 +570,16 @@ class BackendHandler(BaseHTTPRequestHandler):
 
     def _handle_upload_request(self) -> list[dict[str, Any]]:
         content_type = self.headers.get("Content-Type", "")
-        if "multipart/form-data" not in content_type.lower():
-            raise ValueError("Upload requests must use multipart/form-data.")
-
-        form = cgi.FieldStorage(
-            fp=self.rfile,
-            headers=self.headers,
-            environ={
-                "REQUEST_METHOD": "POST",
-                "CONTENT_TYPE": content_type,
-                "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
-            },
-            keep_blank_values=False,
-        )
-
-        raw_fields = form["files"] if "files" in form else form["file"] if "file" in form else None
-        if raw_fields is None:
+        content_length = int(self.headers.get("Content-Length", "0") or 0)
+        if content_length <= 0:
             raise ValueError("No files were provided.")
-
-        fields = raw_fields if isinstance(raw_fields, list) else [raw_fields]
+        fields = parse_multipart_files(content_type, self.rfile.read(content_length))
         uploaded: list[dict[str, Any]] = []
-        for field in fields:
-            filename = getattr(field, "filename", "") or ""
-            file_obj = getattr(field, "file", None)
-            if not filename or file_obj is None:
-                continue
-
+        for filename, payload in fields:
             target_name = self._sanitize_upload_name(filename)
             target_path = self._allocate_upload_path(target_name)
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            with target_path.open("wb") as handle:
-                shutil.copyfileobj(file_obj, handle)
+            target_path.write_bytes(payload)
             uploaded.append(self._serialize_upload_item(target_path))
 
         if not uploaded:

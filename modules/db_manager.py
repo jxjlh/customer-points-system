@@ -21,6 +21,13 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
+from modules.inventory.errors import (
+    InsufficientStockError,
+    ItemArchivedError,
+    ItemNotFoundError,
+    ValidationError,
+)
+
 # ============================================================
 # 数据库类型检测
 # ============================================================
@@ -199,6 +206,34 @@ class _BaseManager:
 
     def get_distinct_locations(self) -> List[str]:
         """获取所有不重复的存放位置"""
+        raise NotImplementedError
+
+    def get_inventory_item(self, item_id: int) -> Optional[Dict]:
+        raise NotImplementedError
+
+    def inventory_code_exists(self, item_code: str, exclude_item_id: Optional[int] = None) -> bool:
+        raise NotImplementedError
+
+    def get_inventory_history_values(self, column: str) -> List[str]:
+        raise NotImplementedError
+
+    def count_inventory_transactions(self, item_id: int) -> int:
+        raise NotImplementedError
+
+    def set_inventory_item_active(self, item_id: int, is_active: bool) -> bool:
+        raise NotImplementedError
+
+    def delete_inventory_item_without_history(self, item_id: int) -> bool:
+        raise NotImplementedError
+
+    def inventory_transaction_atomic(
+        self,
+        item_id: int,
+        txn_type: str,
+        qty: int,
+        remark: str = "",
+        operator: str = "",
+    ) -> bool:
         raise NotImplementedError
 
 
@@ -418,10 +453,14 @@ class _MySQLManager(_BaseManager):
             location     VARCHAR(200),
             quantity     INT            DEFAULT 0,
             extra_fields TEXT,
+            is_active   TINYINT(1)     NOT NULL DEFAULT 1,
             created_at   TIMESTAMP      DEFAULT CURRENT_TIMESTAMP,
             updated_at   TIMESTAMP      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             INDEX idx_inv_code (item_code),
-            INDEX idx_inv_category (category)
+            INDEX idx_inv_category (category),
+            INDEX idx_inv_location (location),
+            INDEX idx_inv_title (title),
+            INDEX idx_inv_active (is_active)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
         CREATE TABLE IF NOT EXISTS inventory_transactions (
@@ -431,6 +470,8 @@ class _MySQLManager(_BaseManager):
             quantity         INT            NOT NULL,
             remark           TEXT,
             operator         VARCHAR(100),
+            stock_before     INT,
+            stock_after      INT,
             created_at       TIMESTAMP      DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_trans_item (item_id),
             INDEX idx_trans_type (transaction_type),
@@ -450,6 +491,39 @@ class _MySQLManager(_BaseManager):
             stmt = stmt.strip()
             if stmt:
                 self._execute(stmt)
+        self._ensure_inventory_migrations()
+
+    def _ensure_inventory_migrations(self) -> None:
+        migrations = (
+            ("inventory_items", "is_active", "is_active TINYINT(1) NOT NULL DEFAULT 1"),
+            ("inventory_items", "updated_at", "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"),
+            ("inventory_transactions", "stock_before", "stock_before INT"),
+            ("inventory_transactions", "stock_after", "stock_after INT"),
+        )
+        for table_name, column_name, column_ddl in migrations:
+            rows = self._execute(
+                f"SHOW COLUMNS FROM {table_name} LIKE %s",
+                (column_name,),
+                fetch=True,
+            )
+            if not rows:
+                self._execute(f"ALTER TABLE {table_name} ADD COLUMN {column_ddl}")
+
+        indexes = (
+            ("idx_inv_location", "location"),
+            ("idx_inv_title", "title"),
+            ("idx_inv_active", "is_active"),
+        )
+        for index_name, column_name in indexes:
+            rows = self._execute(
+                "SHOW INDEX FROM inventory_items WHERE Key_name=%s",
+                (index_name,),
+                fetch=True,
+            )
+            if not rows:
+                self._execute(
+                    f"CREATE INDEX {index_name} ON inventory_items({column_name})"
+                )
 
     def add_log(self, log_type: str, message: str) -> bool:
         try:
@@ -900,18 +974,143 @@ class _MySQLManager(_BaseManager):
         return True
 
     def get_distinct_categories(self) -> List[str]:
-        rows = self._execute(
-            "SELECT DISTINCT category FROM inventory_items WHERE category IS NOT NULL AND category != '' ORDER BY category",
-            fetch=True,
-        )
-        return [r["category"] for r in rows]
+        return self.get_inventory_history_values("category")
 
     def get_distinct_locations(self) -> List[str]:
+        return self.get_inventory_history_values("location")
+
+    def get_inventory_item(self, item_id: int) -> Optional[Dict]:
         rows = self._execute(
-            "SELECT DISTINCT location FROM inventory_items WHERE location IS NOT NULL AND location != '' ORDER BY location",
+            "SELECT * FROM inventory_items WHERE id=%s",
+            (item_id,),
             fetch=True,
         )
-        return [r["location"] for r in rows]
+        return rows[0] if rows else None
+
+    def inventory_code_exists(self, item_code: str, exclude_item_id: Optional[int] = None) -> bool:
+        if exclude_item_id is None:
+            rows = self._execute(
+                "SELECT 1 FROM inventory_items WHERE item_code=%s LIMIT 1",
+                (item_code,),
+                fetch=True,
+            )
+        else:
+            rows = self._execute(
+                "SELECT 1 FROM inventory_items WHERE item_code=%s AND id<>%s LIMIT 1",
+                (item_code, exclude_item_id),
+                fetch=True,
+            )
+        return bool(rows)
+
+    def get_inventory_history_values(self, column: str) -> List[str]:
+        allowed_columns = {"title", "category", "location"}
+        if column not in allowed_columns:
+            raise ValueError(f"不支持的库存历史字段: {column}")
+        rows = self._execute(
+            f"""SELECT DISTINCT TRIM({column}) AS value
+                FROM inventory_items
+                WHERE {column} IS NOT NULL AND TRIM({column}) != ''
+                ORDER BY value""",
+            fetch=True,
+        )
+        return [row["value"] for row in rows]
+
+    def count_inventory_transactions(self, item_id: int) -> int:
+        rows = self._execute(
+            "SELECT COUNT(*) AS count FROM inventory_transactions WHERE item_id=%s",
+            (item_id,),
+            fetch=True,
+        )
+        return int(rows[0]["count"] if rows else 0)
+
+    def set_inventory_item_active(self, item_id: int, is_active: bool) -> bool:
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "UPDATE inventory_items SET is_active=%s WHERE id=%s",
+                    (1 if is_active else 0, item_id),
+                )
+                conn.commit()
+                return cur.rowcount > 0
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cur.close()
+
+    def delete_inventory_item_without_history(self, item_id: int) -> bool:
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT id FROM inventory_transactions WHERE item_id=%s LIMIT 1 FOR UPDATE",
+                    (item_id,),
+                )
+                if cur.fetchone():
+                    conn.rollback()
+                    return False
+                cur.execute("DELETE FROM inventory_items WHERE id=%s", (item_id,))
+                conn.commit()
+                return cur.rowcount > 0
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cur.close()
+
+    def inventory_transaction_atomic(
+        self,
+        item_id: int,
+        txn_type: str,
+        qty: int,
+        remark: str = "",
+        operator: str = "",
+    ) -> bool:
+        if txn_type not in {"in", "out"}:
+            raise ValidationError("出入库类型无效")
+        quantity = int(qty)
+        if quantity <= 0:
+            raise ValidationError("出入库数量必须大于0")
+
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT id, quantity, is_active FROM inventory_items WHERE id=%s FOR UPDATE",
+                    (item_id,),
+                )
+                item = cur.fetchone()
+                if not item:
+                    raise ItemNotFoundError("库存物品不存在")
+                if not int(item.get("is_active", 1)):
+                    raise ItemArchivedError("该物品已归档，不能继续出入库")
+                stock_before = int(item.get("quantity") or 0)
+                if txn_type == "out" and quantity > stock_before:
+                    raise InsufficientStockError(
+                        f"当前库存为{stock_before}，本次最多可出库{stock_before}"
+                    )
+                stock_after = stock_before + quantity if txn_type == "in" else stock_before - quantity
+                cur.execute(
+                    """INSERT INTO inventory_transactions
+                        (item_id, transaction_type, quantity, remark, operator, stock_before, stock_after)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                    (item_id, txn_type, quantity, remark, operator, stock_before, stock_after),
+                )
+                cur.execute(
+                    "UPDATE inventory_items SET quantity=%s WHERE id=%s",
+                    (stock_after, item_id),
+                )
+                conn.commit()
+                return True
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cur.close()
 
 
 # ============================================================
@@ -1148,6 +1347,47 @@ class _PostgresManager(_BaseManager):
         from modules.pg_database import PgDatabaseManager
         return PgDatabaseManager(self.dsn).get_distinct_locations()
 
+    def get_inventory_item(self, item_id: int) -> Optional[Dict]:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).get_inventory_item(item_id)
+
+    def inventory_code_exists(self, item_code: str, exclude_item_id: Optional[int] = None) -> bool:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).inventory_code_exists(item_code, exclude_item_id)
+
+    def get_inventory_history_values(self, column: str) -> List[str]:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).get_inventory_history_values(column)
+
+    def count_inventory_transactions(self, item_id: int) -> int:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).count_inventory_transactions(item_id)
+
+    def set_inventory_item_active(self, item_id: int, is_active: bool) -> bool:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).set_inventory_item_active(item_id, is_active)
+
+    def delete_inventory_item_without_history(self, item_id: int) -> bool:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).delete_inventory_item_without_history(item_id)
+
+    def inventory_transaction_atomic(
+        self,
+        item_id: int,
+        txn_type: str,
+        qty: int,
+        remark: str = "",
+        operator: str = "",
+    ) -> bool:
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn).inventory_transaction_atomic(
+            item_id,
+            txn_type,
+            qty,
+            remark,
+            operator,
+        )
+
 
 # ============================================================
 # SQLite 降级实现
@@ -1312,6 +1552,43 @@ class _SQLiteManager(_BaseManager):
             sort_order INTEGER DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )""")
+        item_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(inventory_items)").fetchall()
+        }
+        if "is_active" not in item_columns:
+            conn.execute(
+                "ALTER TABLE inventory_items ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+            )
+        if "updated_at" not in item_columns:
+            conn.execute(
+                "ALTER TABLE inventory_items ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP"
+            )
+
+        transaction_columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(inventory_transactions)").fetchall()
+        }
+        if "stock_before" not in transaction_columns:
+            conn.execute(
+                "ALTER TABLE inventory_transactions ADD COLUMN stock_before INTEGER"
+            )
+        if "stock_after" not in transaction_columns:
+            conn.execute(
+                "ALTER TABLE inventory_transactions ADD COLUMN stock_after INTEGER"
+            )
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_inventory_active ON inventory_items(is_active)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_inventory_title ON inventory_items(title)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_inventory_category ON inventory_items(category)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_inventory_location ON inventory_items(location)"
+        )
         conn.commit()
         conn.close()
 
@@ -1343,7 +1620,10 @@ class _SQLiteManager(_BaseManager):
         extra = json.dumps(item.get("extra_fields", {}), ensure_ascii=False)
         conn = self._get_conn()
         conn.execute(
-            "UPDATE inventory_items SET item_code=?, title=?, category=?, location=?, extra_fields=? WHERE id=?",
+            """UPDATE inventory_items SET
+                item_code=?, title=?, category=?, location=?, extra_fields=?,
+                updated_at=CURRENT_TIMESTAMP
+               WHERE id=?""",
             (item.get("item_code", ""), item.get("title", ""),
              item.get("category", ""), item.get("location", ""), extra, item_id),
         )
@@ -1441,11 +1721,154 @@ class _SQLiteManager(_BaseManager):
         return [r[0] for r in rows]
 
     def get_distinct_locations(self) -> List[str]:
+        return self.get_inventory_history_values("location")
+
+    def get_inventory_item(self, item_id: int) -> Optional[Dict]:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM inventory_items WHERE id=?",
+            (item_id,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def inventory_code_exists(self, item_code: str, exclude_item_id: Optional[int] = None) -> bool:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        if exclude_item_id is None:
+            row = conn.execute(
+                "SELECT 1 FROM inventory_items WHERE item_code=? LIMIT 1",
+                (item_code,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT 1 FROM inventory_items WHERE item_code=? AND id<>? LIMIT 1",
+                (item_code, exclude_item_id),
+            ).fetchone()
+        conn.close()
+        return row is not None
+
+    def get_inventory_history_values(self, column: str) -> List[str]:
+        allowed_columns = {"title", "category", "location"}
+        if column not in allowed_columns:
+            raise ValueError(f"不支持的库存历史字段: {column}")
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        rows = conn.execute(
+            f"""SELECT DISTINCT TRIM({column})
+                FROM inventory_items
+                WHERE {column} IS NOT NULL AND TRIM({column}) != ''
+                ORDER BY TRIM({column})"""
+        ).fetchall()
+        conn.close()
+        return [row[0] for row in rows]
+
+    def count_inventory_transactions(self, item_id: int) -> int:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT COUNT(*) FROM inventory_transactions WHERE item_id=?",
+            (item_id,),
+        ).fetchone()
+        conn.close()
+        return int(row[0])
+
+    def set_inventory_item_active(self, item_id: int, is_active: bool) -> bool:
         self._inv_ensure_tables()
         conn = self._get_conn()
         cur = conn.execute(
-            "SELECT DISTINCT location FROM inventory_items WHERE location IS NOT NULL AND location != '' ORDER BY location"
+            """UPDATE inventory_items
+               SET is_active=?, updated_at=CURRENT_TIMESTAMP
+               WHERE id=?""",
+            (1 if is_active else 0, item_id),
         )
-        rows = cur.fetchall()
+        conn.commit()
+        changed = cur.rowcount > 0
         conn.close()
-        return [r[0] for r in rows]
+        return changed
+
+    def delete_inventory_item_without_history(self, item_id: int) -> bool:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            history_count = conn.execute(
+                "SELECT COUNT(*) FROM inventory_transactions WHERE item_id=?",
+                (item_id,),
+            ).fetchone()[0]
+            if history_count:
+                conn.rollback()
+                return False
+            cur = conn.execute("DELETE FROM inventory_items WHERE id=?", (item_id,))
+            conn.commit()
+            return cur.rowcount > 0
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def inventory_transaction_atomic(
+        self,
+        item_id: int,
+        txn_type: str,
+        qty: int,
+        remark: str = "",
+        operator: str = "",
+    ) -> bool:
+        if txn_type not in {"in", "out"}:
+            raise ValidationError("出入库类型无效")
+        quantity = int(qty)
+        if quantity <= 0:
+            raise ValidationError("出入库数量必须大于0")
+
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            item = conn.execute(
+                "SELECT id, quantity, is_active FROM inventory_items WHERE id=?",
+                (item_id,),
+            ).fetchone()
+            if not item:
+                raise ItemNotFoundError("库存物品不存在")
+            if not int(item["is_active"]):
+                raise ItemArchivedError("该物品已归档，不能继续出入库")
+
+            stock_before = int(item["quantity"] or 0)
+            if txn_type == "out" and quantity > stock_before:
+                raise InsufficientStockError(
+                    f"当前库存为{stock_before}，本次最多可出库{stock_before}"
+                )
+            stock_after = stock_before + quantity if txn_type == "in" else stock_before - quantity
+
+            conn.execute(
+                """INSERT INTO inventory_transactions
+                    (item_id, transaction_type, quantity, remark, operator, stock_before, stock_after)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    item_id,
+                    txn_type,
+                    quantity,
+                    remark,
+                    operator,
+                    stock_before,
+                    stock_after,
+                ),
+            )
+            conn.execute(
+                """UPDATE inventory_items
+                   SET quantity=?, updated_at=CURRENT_TIMESTAMP
+                   WHERE id=?""",
+                (stock_after, item_id),
+            )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()

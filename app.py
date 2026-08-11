@@ -1,6 +1,13 @@
-import streamlit as st
 import os
 import sys
+import traceback
+
+# Ensure app directory is on sys.path BEFORE any other imports
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+if _APP_DIR not in sys.path:
+    sys.path.insert(0, _APP_DIR)
+
+import streamlit as st
 import textwrap
 import pandas as pd
 import plotly.express as px
@@ -14,17 +21,35 @@ import streamlit_authenticator as stauth
 import bcrypt
 import base64
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from modules.excel_reader import ExcelReader
-from modules.customer_analysis import CustomerAnalysis
-from modules.point_calculation import PointCalculation
-from modules.database import DatabaseManager
-from modules.invoice_fetcher import InvoiceFetcher
-from modules.quotation_ui import show_quotation
-from modules.db_manager import get_db_manager
-from modules.video_editor import show_video_editor
-from logo_base64 import get_logo_html, get_avatar_html, get_logo_data_url, get_avatar_data_url
+# Import app modules with full error diagnostics
+try:
+    from modules.excel_reader import ExcelReader
+    from modules.customer_analysis import CustomerAnalysis
+    from modules.point_calculation import PointCalculation
+    from modules.database import DatabaseManager
+    from modules.invoice_fetcher import InvoiceFetcher
+    from modules.quotation_ui import show_quotation
+    from modules.db_manager import get_db_manager
+    from modules.video_editor import show_video_editor
+    from logo_base64 import get_logo_html, get_avatar_html, get_logo_data_url, get_avatar_data_url
+except Exception as e:
+    st.set_page_config(page_title="诊断错误", layout="wide")
+    st.error(f"模块导入失败: {type(e).__name__}: {e}")
+    st.subheader("诊断信息")
+    st.text(f"Python 版本: {sys.version}")
+    st.text(f"应用目录: {_APP_DIR}")
+    st.text(f"应用目录存在: {os.path.isdir(_APP_DIR)}")
+    st.text(f"modules 目录存在: {os.path.isdir(os.path.join(_APP_DIR, 'modules'))}")
+    st.text(f"modules/__init__.py 存在: {os.path.isfile(os.path.join(_APP_DIR, 'modules', '__init__.py'))}")
+    _modules_dir = os.path.join(_APP_DIR, 'modules')
+    if os.path.isdir(_modules_dir):
+        st.text(f"modules 目录内容: {os.listdir(_modules_dir)}")
+    st.text(f"\nsys.path:")
+    for p in sys.path:
+        st.text(f"  {p}")
+    st.text(f"\n完整错误堆栈:")
+    st.code(traceback.format_exc())
+    st.stop()
 
 DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database", "points.db")

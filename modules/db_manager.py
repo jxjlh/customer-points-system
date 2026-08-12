@@ -313,6 +313,9 @@ class _BaseManager:
     def get_inventory_history_values(self, column: str) -> List[str]:
         raise NotImplementedError
 
+    def clear_inventory_history_value(self, column: str, value: str) -> None:
+        raise NotImplementedError
+
     def count_inventory_transactions(self, item_id: int) -> int:
         raise NotImplementedError
 
@@ -1126,13 +1129,13 @@ class _MySQLManager(_BaseManager):
     def inventory_code_exists(self, item_code: str, exclude_item_id: Optional[int] = None) -> bool:
         if exclude_item_id is None:
             rows = self._execute(
-                "SELECT 1 FROM inventory_items WHERE item_code=%s LIMIT 1",
+                "SELECT 1 FROM inventory_items WHERE item_code=%s AND COALESCE(is_active, 1)=1 LIMIT 1",
                 (item_code,),
                 fetch=True,
             )
         else:
             rows = self._execute(
-                "SELECT 1 FROM inventory_items WHERE item_code=%s AND id<>%s LIMIT 1",
+                "SELECT 1 FROM inventory_items WHERE item_code=%s AND id<>%s AND COALESCE(is_active, 1)=1 LIMIT 1",
                 (item_code, exclude_item_id),
                 fetch=True,
             )
@@ -1150,6 +1153,15 @@ class _MySQLManager(_BaseManager):
             fetch=True,
         )
         return [row["value"] for row in rows]
+
+    def clear_inventory_history_value(self, column: str, value: str) -> None:
+        allowed_columns = {"title", "category", "location"}
+        if column not in allowed_columns:
+            raise ValueError(f"不支持的库存历史字段: {column}")
+        self._execute(
+            f"UPDATE inventory_items SET {column} = NULL WHERE TRIM({column}) = %s",
+            (value,),
+        )
 
     def count_inventory_transactions(self, item_id: int) -> int:
         rows = self._execute(
@@ -1603,12 +1615,15 @@ class _PostgresManager(_BaseManager):
         return self._get_pg_mgr().get_inventory_item(item_id)
 
     def inventory_code_exists(self, item_code: str, exclude_item_id: Optional[int] = None) -> bool:
-        from modules.pg_database import PgDatabaseManager
         return self._get_pg_mgr().inventory_code_exists(item_code, exclude_item_id)
 
     def get_inventory_history_values(self, column: str) -> List[str]:
         from modules.pg_database import PgDatabaseManager
         return self._get_pg_mgr().get_inventory_history_values(column)
+
+    def clear_inventory_history_value(self, column: str, value: str) -> None:
+        from modules.pg_database import PgDatabaseManager
+        self._get_pg_mgr().clear_inventory_history_value(column, value)
 
     def count_inventory_transactions(self, item_id: int) -> int:
         from modules.pg_database import PgDatabaseManager
@@ -2000,12 +2015,12 @@ class _SQLiteManager(_BaseManager):
         conn = self._get_conn()
         if exclude_item_id is None:
             row = conn.execute(
-                "SELECT 1 FROM inventory_items WHERE item_code=? LIMIT 1",
+                "SELECT 1 FROM inventory_items WHERE item_code=? AND COALESCE(is_active, 1)=1 LIMIT 1",
                 (item_code,),
             ).fetchone()
         else:
             row = conn.execute(
-                "SELECT 1 FROM inventory_items WHERE item_code=? AND id<>? LIMIT 1",
+                "SELECT 1 FROM inventory_items WHERE item_code=? AND id<>? AND COALESCE(is_active, 1)=1 LIMIT 1",
                 (item_code, exclude_item_id),
             ).fetchone()
         conn.close()
@@ -2025,6 +2040,19 @@ class _SQLiteManager(_BaseManager):
         ).fetchall()
         conn.close()
         return [row[0] for row in rows]
+
+    def clear_inventory_history_value(self, column: str, value: str) -> None:
+        allowed_columns = {"title", "category", "location"}
+        if column not in allowed_columns:
+            raise ValueError(f"不支持的库存历史字段: {column}")
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        conn.execute(
+            f"UPDATE inventory_items SET {column} = NULL WHERE TRIM({column}) = ?",
+            (value,),
+        )
+        conn.commit()
+        conn.close()
 
     def count_inventory_transactions(self, item_id: int) -> int:
         self._inv_ensure_tables()

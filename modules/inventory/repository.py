@@ -51,6 +51,9 @@ class InventoryRepositoryAdapter:
     def history_values(self, column: str):
         return self.manager.get_inventory_history_values(column)
 
+    def clear_history_value(self, column: str, value: str):
+        return self.manager.clear_inventory_history_value(column, value)
+
     def list_fields(self):
         return self.manager.list_inventory_fields()
 

@@ -136,7 +136,7 @@ def _render_item_form(
                 "编号 *",
                 value=str(current.get("item_code", "")),
                 key=f"{form_key}_code",
-                help="编号由你手动输入，且不能与已有编号重复",
+                help="编号由你手动输入，归档或删除后可重复使用",
             )
         with top_columns[1]:
             quantity = st.number_input(
@@ -149,19 +149,19 @@ def _render_item_form(
                 help="编辑物品时请使用入库或出库调整数量",
             )
 
-        title_selected, title_new = _reusable_value_inputs(
-            "title",
+        title_value = _combined_value_input(
+            "title *",
             history_options.get("title", []),
             f"{form_key}_title",
             current.get("title", ""),
-            required=True,
         )
-        category_selected, category_new = _direct_value_input(
+        category_value = _combined_value_input(
             "title类别",
+            history_options.get("category", []),
             f"{form_key}_category",
             current.get("category", ""),
         )
-        location_selected, location_new = _reusable_value_inputs(
+        location_value = _combined_value_input(
             "存放位置",
             history_options.get("location", []),
             f"{form_key}_location",
@@ -198,12 +198,9 @@ def _render_item_form(
         if submitted:
             payload = {
                 "item_code": item_code,
-                "title_selected": title_selected,
-                "title_new": title_new,
-                "category_selected": category_selected,
-                "category_new": category_new,
-                "location_selected": location_selected,
-                "location_new": location_new,
+                "title": title_value,
+                "category": category_value,
+                "location": location_value,
                 "quantity": int(quantity),
                 "remark": remark,
                 "extra_fields": submitted_extra,
@@ -223,45 +220,38 @@ def _render_item_form(
                 st.error("保存失败，请稍后重试")
 
 
-def _reusable_value_inputs(
+def _combined_value_input(
     label: str,
     options: list[str],
     key_prefix: str,
     current_value: str = "",
-    required: bool = False,
-) -> tuple[str, str]:
+) -> str:
+    """单字段同时支持手输和从历史选择"""
     normalized = normalize_options(options, current_value=current_value)
-    select_options = [""] + normalized
     current = str(current_value or "").strip()
-    index = select_options.index(current) if current in select_options else 0
-    new_value = st.text_input(
-        f"{label}（新增值）",
-        value=current if not normalized else "",
-        key=f"{key_prefix}_new",
-        placeholder="填写后保存，并自动加入下方历史值",
-    )
+
+    # 下拉选择：包含"手动输入"选项 + 所有历史值
+    select_options = ["✏️ 手动输入"] + normalized
+    default_index = 0
+    if current and current in normalized:
+        default_index = select_options.index(current)
+
     selected = st.selectbox(
-        f"已有{label}（可选，直接选择）",
-        select_options,
-        index=index,
-        key=f"{key_prefix}_selected",
-        format_func=lambda value: value or "不选择历史值",
-    )
-    return selected, new_value
-
-
-def _direct_value_input(
-    label: str,
-    key_prefix: str,
-    current_value: str = "",
-) -> tuple[str, str]:
-    value = st.text_input(
         label,
-        value=str(current_value or ""),
-        key=f"{key_prefix}_new",
-        placeholder="直接输入类别，例如：实验耗材",
+        select_options,
+        index=default_index,
+        key=f"{key_prefix}_select",
+        format_func=lambda v: v if v != "✏️ 手动输入" else "✏️ 手动输入新值",
     )
-    return "", value
+
+    if selected == "✏️ 手动输入":
+        return st.text_input(
+            f"{label}（输入）",
+            value="",
+            key=f"{key_prefix}_input",
+            placeholder="请输入新值",
+        )
+    return selected
 
 
 def _render_item_card(
@@ -500,6 +490,34 @@ def _render_fields_tab(service: InventoryService) -> None:
                 st.rerun()
             except InventoryError as exc:
                 st.error(str(exc))
+
+    st.divider()
+    st.subheader("管理历史值")
+    st.caption("删除历史值后，所有使用该值的物品对应字段将被清空。")
+    history_options = _safe_call(
+        service.history_options,
+        {"title": [], "category": [], "location": []},
+        "读取历史选项失败",
+    )
+    field_labels = {"title": "title", "category": "title类别", "location": "存放位置"}
+    for col_key, col_label in field_labels.items():
+        values = history_options.get(col_key, [])
+        if not values:
+            continue
+        with st.expander(f"{col_label}（{len(values)} 个历史值）"):
+            for val in values:
+                val_cols = st.columns([4, 1])
+                val_cols[0].write(val)
+                if val_cols[1].button(
+                    "删除",
+                    key=f"inventory_history_delete_{col_key}_{val}",
+                ):
+                    try:
+                        service.delete_history_value(col_key, val)
+                        st.success(f"已删除历史值：{val}")
+                        st.rerun()
+                    except InventoryError as exc:
+                        st.error(str(exc))
 
 
 def _parse_extra_fields(raw_value) -> dict:

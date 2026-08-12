@@ -1115,12 +1115,17 @@ class PgDatabaseManager:
             with conn.cursor() as cur:
                 if exclude_item_id is None:
                     cur.execute(
-                        "SELECT 1 FROM inventory_items WHERE item_code=%s LIMIT 1",
+                        """SELECT 1 FROM inventory_items
+                           WHERE item_code=%s AND COALESCE(is_active, TRUE) = TRUE
+                           LIMIT 1""",
                         (item_code,),
                     )
                 else:
                     cur.execute(
-                        "SELECT 1 FROM inventory_items WHERE item_code=%s AND id<>%s LIMIT 1",
+                        """SELECT 1 FROM inventory_items
+                           WHERE item_code=%s AND id<>%s
+                           AND COALESCE(is_active, TRUE) = TRUE
+                           LIMIT 1""",
                         (item_code, exclude_item_id),
                     )
                 return cur.fetchone() is not None
@@ -1138,6 +1143,19 @@ class PgDatabaseManager:
                         ORDER BY value"""
                 )
                 return [row[0] for row in cur.fetchall()]
+
+    def clear_inventory_history_value(self, column: str, value: str) -> None:
+        allowed_columns = {"title", "category", "location"}
+        if column not in allowed_columns:
+            raise ValueError(f"不支持的库存历史字段: {column}")
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""UPDATE inventory_items
+                       SET {column} = NULL
+                       WHERE BTRIM({column}) = %s""",
+                    (value,),
+                )
 
     def count_inventory_transactions(self, item_id: int) -> int:
         with self._conn() as conn:

@@ -133,6 +133,15 @@ class InventoryService:
             for column in ("title", "category", "location")
         }
 
+    def delete_history_value(self, column: str, value: str) -> None:
+        allowed = {"title", "category", "location"}
+        if column not in allowed:
+            raise ValidationError(f"不支持的字段: {column}")
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValidationError("值不能为空")
+        self.repository.clear_history_value(column, normalized)
+
     def list_transactions(self, item_id: int | None = None, limit: int = 500):
         return self.repository.list_transactions(item_id=item_id, limit=limit)
 
@@ -171,20 +180,30 @@ class InventoryService:
 
     @staticmethod
     def _resolve_reusable_fields(data: dict) -> tuple[str, str, str]:
-        title = resolve_reusable_value(
-            data.get("title_selected", data.get("title", "")),
-            data.get("title_new", ""),
-            required=True,
-            field_label="title",
-        )
-        category = resolve_reusable_value(
-            data.get("category_selected", data.get("category", "")),
-            data.get("category_new", ""),
-        )
-        location = resolve_reusable_value(
-            data.get("location_selected", data.get("location", "")),
-            data.get("location_new", ""),
-        )
+        # 新格式：直接传 title/category/location 字符串
+        # 旧格式兼容：title_selected + title_new
+        title = str(data.get("title", "")).strip()
+        if not title:
+            title = resolve_reusable_value(
+                data.get("title_selected", ""),
+                data.get("title_new", ""),
+                required=True,
+                field_label="title",
+            )
+
+        category = str(data.get("category", "")).strip()
+        if not category:
+            category = resolve_reusable_value(
+                data.get("category_selected", ""),
+                data.get("category_new", ""),
+            )
+
+        location = str(data.get("location", "")).strip()
+        if not location:
+            location = resolve_reusable_value(
+                data.get("location_selected", ""),
+                data.get("location_new", ""),
+            )
         return title, category, location
 
     @staticmethod

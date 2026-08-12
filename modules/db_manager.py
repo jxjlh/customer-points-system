@@ -31,16 +31,69 @@ from modules.inventory.errors import (
 # ============================================================
 # 数据库类型检测
 # ============================================================
-def _detect_db_type() -> str:
-    """检测可用的数据库类型"""
+_PLACEHOLDER_DATABASE_VALUES = {
+    "your-mysql-host.com",
+    "your-db-host.supabase.co",
+    "your-password-here",
+}
+
+
+def _secret_section(secrets, name: str):
     try:
-        import streamlit as st
-        if "mysql" in st.secrets:
-            return "mysql"
-        if "postgres" in st.secrets:
-            return "postgres"
+        return secrets[name] if name in secrets else None
     except Exception:
-        pass
+        return None
+
+
+def _secret_value(section, name: str) -> str:
+    if section is None:
+        return ""
+    try:
+        value = section.get(name, "")
+    except AttributeError:
+        try:
+            value = section[name]
+        except Exception:
+            value = ""
+    return str(value or "").strip()
+
+
+def _is_real_database_section(section, required_keys: tuple[str, ...]) -> bool:
+    values = [_secret_value(section, key) for key in required_keys]
+    return bool(values) and all(
+        value and value.casefold() not in _PLACEHOLDER_DATABASE_VALUES
+        for value in values
+    )
+
+
+def _detect_db_type(secrets=None) -> str:
+    """只选择填写完整且不是示例值的远程数据库配置。"""
+    if secrets is None:
+        try:
+            import streamlit as st
+
+            secrets = st.secrets
+        except Exception:
+            return "sqlite"
+
+    requested_backend = _secret_value(secrets, "database_backend").casefold()
+    mysql = _secret_section(secrets, "mysql")
+    postgres = _secret_section(secrets, "postgres")
+    is_mysql_ready = _is_real_database_section(
+        mysql, ("host", "user", "password", "database")
+    )
+    is_postgres_ready = _is_real_database_section(
+        postgres, ("host", "dbname", "user", "password")
+    )
+
+    if requested_backend == "mysql" and is_mysql_ready:
+        return "mysql"
+    if requested_backend in {"postgres", "postgresql"} and is_postgres_ready:
+        return "postgres"
+    if is_postgres_ready:
+        return "postgres"
+    if is_mysql_ready:
+        return "mysql"
     return "sqlite"
 
 
@@ -61,6 +114,7 @@ def get_db_manager():
             try:
                 mgr = _MySQLManager.from_secrets()
                 mgr.init_schema()
+                mgr._backend_name = "MySQL"
                 return mgr
             except Exception as e:
                 errors.append(f"MySQL: {e}")
@@ -69,6 +123,7 @@ def get_db_manager():
                 mgr = _PostgresManager.from_secrets()
                 if mgr.ping():
                     mgr.init_schema()
+                    mgr._backend_name = "PostgreSQL"
                     return mgr
                 else:
                     errors.append("PostgreSQL: ping 失败")
@@ -83,6 +138,7 @@ def get_db_manager():
         )
         sqlite_mgr = _SQLiteManager(db_path)
         sqlite_mgr.init_schema()
+        sqlite_mgr._backend_name = "SQLite（本地临时数据库）"
         sqlite_mgr._fallback_note = "; ".join(errors) if errors else ""
         return sqlite_mgr
 

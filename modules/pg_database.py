@@ -280,11 +280,14 @@ class PgDatabaseManager:
             self._pool.putconn(conn)
 
     def init_schema(self) -> None:
-        """幂等执行全部 DDL（autocommit 模式，防止事务回滚）"""
+        """幂等执行全部 DDL（autocommit 模式 + 预检迁移）"""
         conn = self._pool.getconn()
         try:
             conn.autocommit = True
             with conn.cursor() as cur:
+                # 第零步：预检——先确保关键表的列存在
+                self._preflight_migration(cur)
+
                 for statement in _SCHEMA_STATEMENTS:
                     try:
                         cur.execute(statement)
@@ -292,11 +295,29 @@ class PgDatabaseManager:
                         err_msg = str(e).lower()
                         if "already exists" in err_msg or "already been taken" in err_msg:
                             continue
-                        # 在 autocommit 模式下 ALTER TABLE 已提交，无需回滚
+                        # 如果是列不存在，迁移后重试
+                        if "column" in err_msg and "does not exist" in err_msg:
+                            self._preflight_migration(cur)
+                            cur.execute(statement)
+                            continue
                         raise
                 self._ensure_inventory_columns(cur)
         finally:
             self._pool.putconn(conn)
+
+    def _preflight_migration(self, cur) -> None:
+        """预检迁移：在任何 DDL 之前先补上缺失的列"""
+        column_checks = [
+            "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+            "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_before INTEGER",
+            "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_after INTEGER",
+        ]
+        for sql in column_checks:
+            try:
+                cur.execute(sql)
+            except Exception:
+                pass
 
     def _ensure_inventory_columns(self, cur) -> None:
         """确保库存表有必要的列（兼容旧表结构）"""
@@ -1182,8 +1203,11 @@ class PgDatabaseManager:
         def _do_transaction():
             with self._conn() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    # 使用 COALESCE 兼容 is_active 列不存在的情况
                     cur.execute(
-                        "SELECT id, quantity, is_active FROM inventory_items WHERE id=%s FOR UPDATE",
+                        """SELECT id, quantity,
+                                  COALESCE(is_active, TRUE) AS is_active
+                           FROM inventory_items WHERE id=%s FOR UPDATE""",
                         (item_id,),
                     )
                     item = cur.fetchone()
@@ -1214,7 +1238,6 @@ class PgDatabaseManager:
         try:
             return _do_transaction()
         except Exception as e:
-            # 如果是列不存在的错误，尝试迁移后重试
             err_msg = str(e).lower()
             if "column" in err_msg and "does not exist" in err_msg:
                 self._migrate_missing_columns()

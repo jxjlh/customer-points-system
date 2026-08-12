@@ -137,7 +137,20 @@ def get_db_manager():
                 mgr = _PostgresManager.from_secrets()
                 ping_result = mgr.ping_with_detail()
                 if ping_result["success"]:
-                    mgr.init_schema()
+                    # 尝试初始化 schema（失败不阻塞连接）
+                    try:
+                        mgr.init_schema()
+                    except Exception as schema_err:
+                        err_str = str(schema_err).lower()
+                        if "column" in err_str and "does not exist" in err_str:
+                            # 列不存在：强制迁移后重试
+                            try:
+                                mgr._force_migration()
+                                mgr.init_schema()
+                            except Exception:
+                                pass  # 迁移也失败就跳过，不阻塞
+                        else:
+                            pass  # 其他 schema 错误也不阻塞连接
                     db_info["primary_connection"] = "PostgreSQL 连接成功"
                     mgr._connection_info = db_info
                     mgr._backend_name = "PostgreSQL"
@@ -1275,11 +1288,15 @@ class _PostgresManager(_BaseManager):
             self._pool.putconn(conn)
 
     def init_schema(self) -> None:
-        from modules.pg_database import _SCHEMA_STATEMENTS
+        """幂等执行全部 DDL（autocommit 模式 + 预检迁移）"""
         conn = self._pool.getconn()
         try:
             conn.autocommit = True
             with conn.cursor() as cur:
+                # 第零步：预检——先确保关键表的列存在（防止后续 DDL 引用不存在的列）
+                self._preflight_migration(cur)
+
+                from modules.pg_database import _SCHEMA_STATEMENTS
                 for statement in _SCHEMA_STATEMENTS:
                     try:
                         cur.execute(statement)
@@ -1287,8 +1304,42 @@ class _PostgresManager(_BaseManager):
                         err_msg = str(e).lower()
                         if "already exists" in err_msg or "already been taken" in err_msg:
                             continue
+                        # 如果是列不存在，尝试预检迁移后重试
+                        if "column" in err_msg and "does not exist" in err_msg:
+                            self._preflight_migration(cur)
+                            # 重试当前语句
+                            cur.execute(statement)
+                            continue
                         raise
                 self._ensure_inventory_columns(cur)
+        finally:
+            self._pool.putconn(conn)
+
+    def _preflight_migration(self, cur) -> None:
+        """预检迁移：在任何 DDL 之前先补上缺失的列"""
+        column_checks = [
+            ("inventory_items", "is_active",
+             "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"),
+            ("inventory_items", "updated_at",
+             "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+            ("inventory_transactions", "stock_before",
+             "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_before INTEGER"),
+            ("inventory_transactions", "stock_after",
+             "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_after INTEGER"),
+        ]
+        for table, column, sql in column_checks:
+            try:
+                cur.execute(sql)
+            except Exception:
+                pass
+
+    def _force_migration(self) -> None:
+        """强制迁移：添加缺失的列"""
+        conn = self._pool.getconn()
+        try:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                self._preflight_migration(cur)
         finally:
             self._pool.putconn(conn)
 

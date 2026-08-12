@@ -1275,10 +1275,38 @@ class _PostgresManager(_BaseManager):
             self._pool.putconn(conn)
 
     def init_schema(self) -> None:
-        from modules.pg_database import SCHEMA_DDL
+        from modules.pg_database import _SCHEMA_STATEMENTS
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(SCHEMA_DDL)
+                for statement in _SCHEMA_STATEMENTS:
+                    try:
+                        cur.execute(statement)
+                    except Exception as e:
+                        err_msg = str(e).lower()
+                        if "already exists" in err_msg or "already been taken" in err_msg:
+                            continue
+                        raise
+                # 额外迁移：确保 inventory_items 表有 is_active 列
+                self._ensure_inventory_columns(cur)
+
+    def _ensure_inventory_columns(self, cur) -> None:
+        """确保库存表有必要的列（兼容旧表结构）"""
+        migrations = [
+            "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+            "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_before INTEGER",
+            "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_after INTEGER",
+        ]
+        for sql in migrations:
+            try:
+                cur.execute(sql)
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "already exists" in err_msg or "already been taken" in err_msg:
+                    continue
+                if 'relation' in err_msg and 'does not exist' in err_msg:
+                    continue
+                raise
 
     def ping(self) -> bool:
         try:

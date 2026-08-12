@@ -39,205 +39,211 @@ except ImportError:
 # ============================================================
 # DDL 定义
 # ============================================================
-SCHEMA_DDL = """
--- 报价单主表
-CREATE TABLE IF NOT EXISTS quotations (
-    id              SERIAL PRIMARY KEY,
-    quote_number    VARCHAR(50)  NOT NULL UNIQUE,
-    quote_date      DATE         NOT NULL,
-    customer_name   VARCHAR(200) NOT NULL,
-    contact_person  VARCHAR(100),
-    sales_person    VARCHAR(100),
-    customer_type   VARCHAR(20)  NOT NULL
-                    CHECK (customer_type IN ('commercial','npo','ka')),
-    subtotal        NUMERIC(14,2) DEFAULT 0,
-    shipping        NUMERIC(14,2) DEFAULT 0,
-    service_fee     NUMERIC(14,2) DEFAULT 0,
-    discount        NUMERIC(14,2) DEFAULT 0,
-    tax             NUMERIC(14,2) DEFAULT 0,
-    grand_total     NUMERIC(14,2) DEFAULT 0,
-    total_qty       INTEGER       DEFAULT 0,
-    remark          TEXT,
-    created_at      TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_quotations_quote_date ON quotations(quote_date);
-CREATE INDEX IF NOT EXISTS idx_quotations_customer   ON quotations(customer_name);
-CREATE INDEX IF NOT EXISTS idx_quotations_cust_type  ON quotations(customer_type);
+_SCHEMA_STATEMENTS = [
+    # 报价单主表
+    """CREATE TABLE IF NOT EXISTS quotations (
+        id              SERIAL PRIMARY KEY,
+        quote_number    VARCHAR(50)  NOT NULL UNIQUE,
+        quote_date      DATE         NOT NULL,
+        customer_name   VARCHAR(200) NOT NULL,
+        contact_person  VARCHAR(100),
+        sales_person    VARCHAR(100),
+        customer_type   VARCHAR(20)  NOT NULL
+                        CHECK (customer_type IN ('commercial','npo','ka')),
+        subtotal        NUMERIC(14,2) DEFAULT 0,
+        shipping        NUMERIC(14,2) DEFAULT 0,
+        service_fee     NUMERIC(14,2) DEFAULT 0,
+        discount        NUMERIC(14,2) DEFAULT 0,
+        tax             NUMERIC(14,2) DEFAULT 0,
+        grand_total     NUMERIC(14,2) DEFAULT 0,
+        total_qty       INTEGER       DEFAULT 0,
+        remark          TEXT,
+        created_at      TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+        updated_at      TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_quotations_quote_date ON quotations(quote_date)",
+    "CREATE INDEX IF NOT EXISTS idx_quotations_customer   ON quotations(customer_name)",
+    "CREATE INDEX IF NOT EXISTS idx_quotations_cust_type  ON quotations(customer_type)",
 
--- 报价单流水号序列表
-CREATE TABLE IF NOT EXISTS quotation_seq (
-    quote_day   DATE         NOT NULL UNIQUE,
-    next_seq    INTEGER      NOT NULL DEFAULT 1
-);
+    # 报价单流水号序列表
+    """CREATE TABLE IF NOT EXISTS quotation_seq (
+        quote_day   DATE         NOT NULL UNIQUE,
+        next_seq    INTEGER      NOT NULL DEFAULT 1
+    )""",
 
--- 报价明细子表
-CREATE TABLE IF NOT EXISTS quotation_items (
-    id                           SERIAL PRIMARY KEY,
-    quotation_id                 INTEGER NOT NULL
-                                 REFERENCES quotations(id) ON DELETE CASCADE,
-    seq                          INTEGER NOT NULL,
-    strain                       VARCHAR(50)  NOT NULL,
-    strain_name                  VARCHAR(200),
-    genotype                     VARCHAR(200),
-    age                          VARCHAR(20),
-    sex                          VARCHAR(10),
-    qty                          INTEGER      NOT NULL,
-    unit_price                   NUMERIC(14,2) NOT NULL,
-    amount                       NUMERIC(14,2) NOT NULL,
-    international_commercial     NUMERIC(14,2),
-    china_distributor_commercial NUMERIC(14,2),
-    created_at                   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_qi_quotation_id ON quotation_items(quotation_id);
-CREATE INDEX IF NOT EXISTS idx_qi_strain       ON quotation_items(strain);
+    # 报价明细子表
+    """CREATE TABLE IF NOT EXISTS quotation_items (
+        id                           SERIAL PRIMARY KEY,
+        quotation_id                 INTEGER NOT NULL
+                                     REFERENCES quotations(id) ON DELETE CASCADE,
+        seq                          INTEGER NOT NULL,
+        strain                       VARCHAR(50)  NOT NULL,
+        strain_name                  VARCHAR(200),
+        genotype                     VARCHAR(200),
+        age                          VARCHAR(20),
+        sex                          VARCHAR(10),
+        qty                          INTEGER      NOT NULL,
+        unit_price                   NUMERIC(14,2) NOT NULL,
+        amount                       NUMERIC(14,2) NOT NULL,
+        international_commercial     NUMERIC(14,2),
+        china_distributor_commercial NUMERIC(14,2),
+        created_at                   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_qi_quotation_id ON quotation_items(quotation_id)",
+    "CREATE INDEX IF NOT EXISTS idx_qi_strain       ON quotation_items(strain)",
 
--- 价格库表
-CREATE TABLE IF NOT EXISTS price_library (
-    id                           SERIAL PRIMARY KEY,
-    customer_type                VARCHAR(20) NOT NULL
-                                 CHECK (customer_type IN ('commercial','npo','ka')),
-    strain                       VARCHAR(50)  NOT NULL,
-    strain_name                  VARCHAR(200),
-    long_genotype                VARCHAR(200),
-    age                          VARCHAR(20),
-    sex                          VARCHAR(10),
-    price                        NUMERIC(14,2),
-    international_commercial     NUMERIC(14,2),
-    china_distributor_commercial NUMERIC(14,2),
-    npo_price                    NUMERIC(14,2),
-    ka_price                     NUMERIC(14,2),
-    created_at                   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at                   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (customer_type, strain, long_genotype, age, sex)
-);
-CREATE INDEX IF NOT EXISTS idx_price_lookup ON price_library(customer_type, strain, long_genotype, age, sex);
-CREATE INDEX IF NOT EXISTS idx_price_strain ON price_library(strain);
+    # 价格库表
+    """CREATE TABLE IF NOT EXISTS price_library (
+        id                           SERIAL PRIMARY KEY,
+        customer_type                VARCHAR(20) NOT NULL
+                                     CHECK (customer_type IN ('commercial','npo','ka')),
+        strain                       VARCHAR(50)  NOT NULL,
+        strain_name                  VARCHAR(200),
+        long_genotype                VARCHAR(200),
+        age                          VARCHAR(20),
+        sex                          VARCHAR(10),
+        price                        NUMERIC(14,2),
+        international_commercial     NUMERIC(14,2),
+        china_distributor_commercial NUMERIC(14,2),
+        npo_price                    NUMERIC(14,2),
+        ka_price                     NUMERIC(14,2),
+        created_at                   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at                   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (customer_type, strain, long_genotype, age, sex)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_price_lookup ON price_library(customer_type, strain, long_genotype, age, sex)",
+    "CREATE INDEX IF NOT EXISTS idx_price_strain ON price_library(strain)",
 
--- 发票记录表
-CREATE TABLE IF NOT EXISTS invoice_records (
-    id              SERIAL PRIMARY KEY,
-    invoice_date    DATE,
-    subject         TEXT,
-    buyer           VARCHAR(200),
-    amount          VARCHAR(50),
-    filename        VARCHAR(255),
-    filepath        TEXT,
-    source          VARCHAR(20),
-    folder          VARCHAR(100),
-    status          VARCHAR(20) NOT NULL
-                    CHECK (status IN ('success','failed')),
-    reason          TEXT,
-    email_uid       VARCHAR(100),
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_invoice_date   ON invoice_records(invoice_date);
-CREATE INDEX IF NOT EXISTS idx_invoice_status ON invoice_records(status);
-CREATE INDEX IF NOT EXISTS idx_invoice_buyer  ON invoice_records(buyer);
-CREATE INDEX IF NOT EXISTS idx_invoice_uid    ON invoice_records(email_uid);
+    # 发票记录表
+    """CREATE TABLE IF NOT EXISTS invoice_records (
+        id              SERIAL PRIMARY KEY,
+        invoice_date    DATE,
+        subject         TEXT,
+        buyer           VARCHAR(200),
+        amount          VARCHAR(50),
+        filename        VARCHAR(255),
+        filepath        TEXT,
+        source          VARCHAR(20),
+        folder          VARCHAR(100),
+        status          VARCHAR(20) NOT NULL
+                        CHECK (status IN ('success','failed')),
+        reason          TEXT,
+        email_uid       VARCHAR(100),
+        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_invoice_date   ON invoice_records(invoice_date)",
+    "CREATE INDEX IF NOT EXISTS idx_invoice_status ON invoice_records(status)",
+    "CREATE INDEX IF NOT EXISTS idx_invoice_buyer  ON invoice_records(buyer)",
+    "CREATE INDEX IF NOT EXISTS idx_invoice_uid    ON invoice_records(email_uid)",
 
--- 通用同步状态表
-CREATE TABLE IF NOT EXISTS sync_state (
-    state_key    VARCHAR(100) PRIMARY KEY,
-    state_value  TEXT,
-    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+    # 通用同步状态表
+    """CREATE TABLE IF NOT EXISTS sync_state (
+        state_key    VARCHAR(100) PRIMARY KEY,
+        state_value  TEXT,
+        updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""",
 
--- 系统日志表
-CREATE TABLE IF NOT EXISTS system_logs (
-    id          SERIAL PRIMARY KEY,
-    log_type    VARCHAR(20),
-    message     TEXT,
-    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_logs_created ON system_logs(created_at DESC);
+    # 系统日志表
+    """CREATE TABLE IF NOT EXISTS system_logs (
+        id          SERIAL PRIMARY KEY,
+        log_type    VARCHAR(20),
+        message     TEXT,
+        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_logs_created ON system_logs(created_at DESC)",
 
--- 兼容旧 SQLite 的表
-CREATE TABLE IF NOT EXISTS exchange_records (
-    id                SERIAL PRIMARY KEY,
-    exchange_no       VARCHAR(100) UNIQUE,
-    customer          TEXT,
-    exchange_date     TEXT,
-    points_exchanged  INTEGER,
-    amount_exchanged  REAL,
-    exchange_method   TEXT,
-    exchange_product  TEXT,
-    operator          TEXT,
-    remark            TEXT,
-    created_at        TEXT,
-    updated_at        TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_exrec_date ON exchange_records(exchange_date DESC);
+    # 兼容旧 SQLite 的表
+    """CREATE TABLE IF NOT EXISTS exchange_records (
+        id                SERIAL PRIMARY KEY,
+        exchange_no       VARCHAR(100) UNIQUE,
+        customer          TEXT,
+        exchange_date     TEXT,
+        points_exchanged  INTEGER,
+        amount_exchanged  REAL,
+        exchange_method   TEXT,
+        exchange_product  TEXT,
+        operator          TEXT,
+        remark            TEXT,
+        created_at        TEXT,
+        updated_at        TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_exrec_date ON exchange_records(exchange_date DESC)",
 
-CREATE TABLE IF NOT EXISTS customer_points_history (
-    id                      SERIAL PRIMARY KEY,
-    customer                TEXT,
-    period                  TEXT,
-    total_points_earned     INTEGER,
-    total_points_exchanged  INTEGER,
-    remaining_points        INTEGER,
-    created_at              TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_cph_customer ON customer_points_history(customer);
+    """CREATE TABLE IF NOT EXISTS customer_points_history (
+        id                      SERIAL PRIMARY KEY,
+        customer                TEXT,
+        period                  TEXT,
+        total_points_earned     INTEGER,
+        total_points_exchanged  INTEGER,
+        remaining_points        INTEGER,
+        created_at              TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_cph_customer ON customer_points_history(customer)",
 
-CREATE TABLE IF NOT EXISTS raw_data_backup (
-    id          SERIAL PRIMARY KEY,
-    date        TEXT,
-    order_no    TEXT,
-    customer    TEXT,
-    amount      REAL,
-    amount_cny  REAL,
-    product     TEXT,
-    created_at  TEXT
-);
+    """CREATE TABLE IF NOT EXISTS raw_data_backup (
+        id          SERIAL PRIMARY KEY,
+        date        TEXT,
+        order_no    TEXT,
+        customer    TEXT,
+        amount      REAL,
+        amount_cny  REAL,
+        product     TEXT,
+        created_at  TEXT
+    )""",
 
-CREATE TABLE IF NOT EXISTS inventory_items (
-    id           SERIAL PRIMARY KEY,
-    item_code    VARCHAR(100)  NOT NULL UNIQUE,
-    title        VARCHAR(200)  NOT NULL,
-    category     VARCHAR(100),
-    location     VARCHAR(200),
-    quantity     INTEGER       DEFAULT 0,
-    extra_fields TEXT,
-    is_active    BOOLEAN       NOT NULL DEFAULT TRUE,
-    created_at   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
-    updated_at   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_inv_code ON inventory_items(item_code);
-CREATE INDEX IF NOT EXISTS idx_inv_category ON inventory_items(category);
-CREATE INDEX IF NOT EXISTS idx_inv_location ON inventory_items(location);
-CREATE INDEX IF NOT EXISTS idx_inv_title ON inventory_items(title);
-CREATE INDEX IF NOT EXISTS idx_inv_active ON inventory_items(is_active);
+    # 库存管理表
+    """CREATE TABLE IF NOT EXISTS inventory_items (
+        id           SERIAL PRIMARY KEY,
+        item_code    VARCHAR(100)  NOT NULL UNIQUE,
+        title        VARCHAR(200)  NOT NULL,
+        category     VARCHAR(100),
+        location     VARCHAR(200),
+        quantity     INTEGER       DEFAULT 0,
+        extra_fields TEXT,
+        is_active    BOOLEAN       NOT NULL DEFAULT TRUE,
+        created_at   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+        updated_at   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_inv_code ON inventory_items(item_code)",
+    "CREATE INDEX IF NOT EXISTS idx_inv_category ON inventory_items(category)",
+    "CREATE INDEX IF NOT EXISTS idx_inv_location ON inventory_items(location)",
+    "CREATE INDEX IF NOT EXISTS idx_inv_title ON inventory_items(title)",
+    "CREATE INDEX IF NOT EXISTS idx_inv_active ON inventory_items(is_active)",
 
-CREATE TABLE IF NOT EXISTS inventory_transactions (
-    id               SERIAL PRIMARY KEY,
-    item_id          INTEGER       NOT NULL,
-    transaction_type VARCHAR(20)   NOT NULL,
-    quantity         INTEGER       NOT NULL,
-    remark           TEXT,
-    operator         VARCHAR(100),
-    stock_before     INTEGER,
-    stock_after      INTEGER,
-    created_at       TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_trans_item ON inventory_transactions(item_id);
-CREATE INDEX IF NOT EXISTS idx_trans_type ON inventory_transactions(transaction_type);
-CREATE INDEX IF NOT EXISTS idx_trans_created ON inventory_transactions(created_at DESC);
+    """CREATE TABLE IF NOT EXISTS inventory_transactions (
+        id               SERIAL PRIMARY KEY,
+        item_id          INTEGER       NOT NULL,
+        transaction_type VARCHAR(20)   NOT NULL,
+        quantity         INTEGER       NOT NULL,
+        remark           TEXT,
+        operator         VARCHAR(100),
+        stock_before     INTEGER,
+        stock_after      INTEGER,
+        created_at       TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_trans_item ON inventory_transactions(item_id)",
+    "CREATE INDEX IF NOT EXISTS idx_trans_type ON inventory_transactions(transaction_type)",
+    "CREATE INDEX IF NOT EXISTS idx_trans_created ON inventory_transactions(created_at DESC)",
 
-ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_before INTEGER;
-ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_after INTEGER;
+    # 迁移：为旧表添加缺失的列
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_before INTEGER",
+    "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_after INTEGER",
 
-CREATE TABLE IF NOT EXISTS inventory_fields (
-    id          SERIAL PRIMARY KEY,
-    field_name  VARCHAR(100) NOT NULL UNIQUE,
-    field_label VARCHAR(200),
-    field_type  VARCHAR(20)  DEFAULT 'text',
-    sort_order  INTEGER      DEFAULT 0,
-    created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
-);
-"""
+    # 库存字段配置表
+    """CREATE TABLE IF NOT EXISTS inventory_fields (
+        id          SERIAL PRIMARY KEY,
+        field_name  VARCHAR(100) NOT NULL UNIQUE,
+        field_label VARCHAR(200),
+        field_type  VARCHAR(20)  DEFAULT 'text',
+        sort_order  INTEGER      DEFAULT 0,
+        created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+    )""",
+]
+
+# 保留向后兼容
+SCHEMA_DDL = "\n".join(_SCHEMA_STATEMENTS)
 
 
 class PgDatabaseManager:
@@ -274,10 +280,46 @@ class PgDatabaseManager:
             self._pool.putconn(conn)
 
     def init_schema(self) -> None:
-        """幂等执行全部 DDL"""
+        """幂等执行全部 DDL（逐条执行以支持 ALTER TABLE）"""
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(SCHEMA_DDL)
+                for statement in _SCHEMA_STATEMENTS:
+                    try:
+                        cur.execute(statement)
+                    except Exception as e:
+                        # 忽略可接受的错误：对象已存在等
+                        err_msg = str(e).lower()
+                        if "already exists" in err_msg or "already been taken" in err_msg:
+                            continue
+                        raise
+                # 额外迁移：确保 inventory_items 表有 is_active 列
+                self._ensure_inventory_columns(cur)
+
+    def _ensure_inventory_columns(self, cur) -> None:
+        """确保库存表有必要的列（兼容旧表结构）"""
+        migrations = [
+            ("inventory_items", "is_active", "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"),
+            ("inventory_items", "updated_at", "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+            ("inventory_transactions", "stock_before", "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_before INTEGER"),
+            ("inventory_transactions", "stock_after", "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_after INTEGER"),
+        ]
+        for table, column, sql in migrations:
+            try:
+                cur.execute(sql)
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "already exists" in err_msg or "already been taken" in err_msg:
+                    continue
+                # 检查表是否存在
+                if 'relation' in err_msg and 'does not exist' in err_msg:
+                    continue
+                raise
+
+    def _migrate_missing_columns(self) -> None:
+        """在出错时迁移缺失的列"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                self._ensure_inventory_columns(cur)
 
     def ping(self) -> bool:
         """健康检查"""
@@ -1079,15 +1121,30 @@ class PgDatabaseManager:
                 return int(cur.fetchone()[0])
 
     def set_inventory_item_active(self, item_id: int, is_active: bool) -> bool:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """UPDATE inventory_items
-                       SET is_active=%s, updated_at=CURRENT_TIMESTAMP
-                       WHERE id=%s""",
-                    (is_active, item_id),
-                )
-                return cur.rowcount > 0
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """UPDATE inventory_items
+                           SET is_active=%s, updated_at=CURRENT_TIMESTAMP
+                           WHERE id=%s""",
+                        (is_active, item_id),
+                    )
+                    return cur.rowcount > 0
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "column" in err_msg and "does not exist" in err_msg:
+                self._migrate_missing_columns()
+                with self._conn() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """UPDATE inventory_items
+                               SET is_active=%s, updated_at=CURRENT_TIMESTAMP
+                               WHERE id=%s""",
+                            (is_active, item_id),
+                        )
+                        return cur.rowcount > 0
+            raise
 
     def delete_inventory_item_without_history(self, item_id: int) -> bool:
         with self._conn() as conn:
@@ -1115,36 +1172,47 @@ class PgDatabaseManager:
         if quantity <= 0:
             raise ValidationError("出入库数量必须大于0")
 
-        with self._conn() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(
-                    "SELECT id, quantity, is_active FROM inventory_items WHERE id=%s FOR UPDATE",
-                    (item_id,),
-                )
-                item = cur.fetchone()
-                if not item:
-                    raise ItemNotFoundError("库存物品不存在")
-                if not bool(item.get("is_active", True)):
-                    raise ItemArchivedError("该物品已归档，不能继续出入库")
-                stock_before = int(item.get("quantity") or 0)
-                if txn_type == "out" and quantity > stock_before:
-                    raise InsufficientStockError(
-                        f"当前库存为{stock_before}，本次最多可出库{stock_before}"
+        def _do_transaction():
+            with self._conn() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(
+                        "SELECT id, quantity, is_active FROM inventory_items WHERE id=%s FOR UPDATE",
+                        (item_id,),
                     )
-                stock_after = stock_before + quantity if txn_type == "in" else stock_before - quantity
-                cur.execute(
-                    """INSERT INTO inventory_transactions
-                        (item_id, transaction_type, quantity, remark, operator, stock_before, stock_after)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                    (item_id, txn_type, quantity, remark, operator, stock_before, stock_after),
-                )
-                cur.execute(
-                    """UPDATE inventory_items
-                       SET quantity=%s, updated_at=CURRENT_TIMESTAMP
-                       WHERE id=%s""",
-                    (stock_after, item_id),
-                )
-                return True
+                    item = cur.fetchone()
+                    if not item:
+                        raise ItemNotFoundError("库存物品不存在")
+                    if not bool(item.get("is_active", True)):
+                        raise ItemArchivedError("该物品已归档，不能继续出入库")
+                    stock_before = int(item.get("quantity") or 0)
+                    if txn_type == "out" and quantity > stock_before:
+                        raise InsufficientStockError(
+                            f"当前库存为{stock_before}，本次最多可出库{stock_before}"
+                        )
+                    stock_after = stock_before + quantity if txn_type == "in" else stock_before - quantity
+                    cur.execute(
+                        """INSERT INTO inventory_transactions
+                            (item_id, transaction_type, quantity, remark, operator, stock_before, stock_after)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                        (item_id, txn_type, quantity, remark, operator, stock_before, stock_after),
+                    )
+                    cur.execute(
+                        """UPDATE inventory_items
+                           SET quantity=%s, updated_at=CURRENT_TIMESTAMP
+                           WHERE id=%s""",
+                        (stock_after, item_id),
+                    )
+                    return True
+
+        try:
+            return _do_transaction()
+        except Exception as e:
+            # 如果是列不存在的错误，尝试迁移后重试
+            err_msg = str(e).lower()
+            if "column" in err_msg and "does not exist" in err_msg:
+                self._migrate_missing_columns()
+                return _do_transaction()
+            raise
 
     # ============================================================
     # 迁移工具

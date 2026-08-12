@@ -1276,7 +1276,9 @@ class _PostgresManager(_BaseManager):
 
     def init_schema(self) -> None:
         from modules.pg_database import _SCHEMA_STATEMENTS
-        with self._conn() as conn:
+        conn = self._pool.getconn()
+        try:
+            conn.autocommit = True
             with conn.cursor() as cur:
                 for statement in _SCHEMA_STATEMENTS:
                     try:
@@ -1286,8 +1288,9 @@ class _PostgresManager(_BaseManager):
                         if "already exists" in err_msg or "already been taken" in err_msg:
                             continue
                         raise
-                # 额外迁移：确保 inventory_items 表有 is_active 列
                 self._ensure_inventory_columns(cur)
+        finally:
+            self._pool.putconn(conn)
 
     def _ensure_inventory_columns(self, cur) -> None:
         """确保库存表有必要的列（兼容旧表结构）"""

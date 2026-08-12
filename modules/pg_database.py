@@ -204,6 +204,9 @@ _SCHEMA_STATEMENTS = [
         created_at   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
         updated_at   TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
     )""",
+    # 迁移：为旧表添加缺失的列（必须在 CREATE INDEX 之前）
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
     "CREATE INDEX IF NOT EXISTS idx_inv_code ON inventory_items(item_code)",
     "CREATE INDEX IF NOT EXISTS idx_inv_category ON inventory_items(category)",
     "CREATE INDEX IF NOT EXISTS idx_inv_location ON inventory_items(location)",
@@ -221,15 +224,12 @@ _SCHEMA_STATEMENTS = [
         stock_after      INTEGER,
         created_at       TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
     )""",
+    # 迁移：为旧表添加缺失的列（必须在 CREATE INDEX 之前）
+    "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_before INTEGER",
+    "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_after INTEGER",
     "CREATE INDEX IF NOT EXISTS idx_trans_item ON inventory_transactions(item_id)",
     "CREATE INDEX IF NOT EXISTS idx_trans_type ON inventory_transactions(transaction_type)",
     "CREATE INDEX IF NOT EXISTS idx_trans_created ON inventory_transactions(created_at DESC)",
-
-    # 迁移：为旧表添加缺失的列
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-    "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_before INTEGER",
-    "ALTER TABLE inventory_transactions ADD COLUMN IF NOT EXISTS stock_after INTEGER",
 
     # 库存字段配置表
     """CREATE TABLE IF NOT EXISTS inventory_fields (
@@ -280,20 +280,23 @@ class PgDatabaseManager:
             self._pool.putconn(conn)
 
     def init_schema(self) -> None:
-        """幂等执行全部 DDL（逐条执行以支持 ALTER TABLE）"""
-        with self._conn() as conn:
+        """幂等执行全部 DDL（autocommit 模式，防止事务回滚）"""
+        conn = self._pool.getconn()
+        try:
+            conn.autocommit = True
             with conn.cursor() as cur:
                 for statement in _SCHEMA_STATEMENTS:
                     try:
                         cur.execute(statement)
                     except Exception as e:
-                        # 忽略可接受的错误：对象已存在等
                         err_msg = str(e).lower()
                         if "already exists" in err_msg or "already been taken" in err_msg:
                             continue
+                        # 在 autocommit 模式下 ALTER TABLE 已提交，无需回滚
                         raise
-                # 额外迁移：确保 inventory_items 表有 is_active 列
                 self._ensure_inventory_columns(cur)
+        finally:
+            self._pool.putconn(conn)
 
     def _ensure_inventory_columns(self, cur) -> None:
         """确保库存表有必要的列（兼容旧表结构）"""
@@ -316,10 +319,14 @@ class PgDatabaseManager:
                 raise
 
     def _migrate_missing_columns(self) -> None:
-        """在出错时迁移缺失的列"""
-        with self._conn() as conn:
+        """在出错时迁移缺失的列（autocommit 模式）"""
+        conn = self._pool.getconn()
+        try:
+            conn.autocommit = True
             with conn.cursor() as cur:
                 self._ensure_inventory_columns(cur)
+        finally:
+            self._pool.putconn(conn)
 
     def ping(self) -> bool:
         """健康检查"""

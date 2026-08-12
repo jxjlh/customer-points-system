@@ -27,20 +27,76 @@ from modules.inventory.errors import (
     ItemNotFoundError,
     ValidationError,
 )
+from modules.database_config import postgres_dsn_from_secrets, redact_database_error
 
 # ============================================================
 # 数据库类型检测
 # ============================================================
-def _detect_db_type() -> str:
-    """检测可用的数据库类型"""
+_PLACEHOLDER_DATABASE_VALUES = {
+    "your-mysql-host.com",
+    "your-db-host.supabase.co",
+    "your-password-here",
+}
+
+
+def _secret_section(secrets, name: str):
     try:
-        import streamlit as st
-        if "mysql" in st.secrets:
-            return "mysql"
-        if "postgres" in st.secrets:
-            return "postgres"
+        return secrets[name] if name in secrets else None
     except Exception:
-        pass
+        return None
+
+
+def _secret_value(section, name: str) -> str:
+    if section is None:
+        return ""
+    try:
+        value = section.get(name, "")
+    except AttributeError:
+        try:
+            value = section[name]
+        except Exception:
+            value = ""
+    return str(value or "").strip()
+
+
+def _is_real_database_section(section, required_keys: tuple[str, ...]) -> bool:
+    values = [_secret_value(section, key) for key in required_keys]
+    return bool(values) and all(
+        value and value.casefold() not in _PLACEHOLDER_DATABASE_VALUES
+        for value in values
+    )
+
+
+def _detect_db_type(secrets=None) -> str:
+    """只选择填写完整且不是示例值的远程数据库配置。"""
+    if secrets is None:
+        try:
+            import streamlit as st
+
+            secrets = st.secrets
+        except Exception:
+            return "sqlite"
+
+    requested_backend = _secret_value(secrets, "database_backend").casefold()
+    mysql = _secret_section(secrets, "mysql")
+    postgres = _secret_section(secrets, "postgres")
+    is_mysql_ready = _is_real_database_section(
+        mysql, ("host", "user", "password", "database")
+    )
+    try:
+        postgres_dsn_from_secrets(secrets)
+        is_postgres_ready = True
+    except ValueError:
+        is_postgres_ready = False
+
+    if requested_backend == "mysql" and is_mysql_ready:
+        return "mysql"
+    if requested_backend in {"postgres", "postgresql"} and is_postgres_ready:
+        return "postgres"
+    if is_postgres_ready:
+        return "postgres"
+    if is_mysql_ready:
+        return "mysql"
     return "sqlite"
 
 
@@ -70,6 +126,7 @@ def get_db_manager():
                 mgr.init_schema()
                 db_info["primary_connection"] = "MySQL 连接成功"
                 mgr._connection_info = db_info
+                mgr._backend_name = "MySQL"
                 return mgr
             except Exception as e:
                 error_detail = f"MySQL: {type(e).__name__}: {e}"
@@ -83,13 +140,14 @@ def get_db_manager():
                     mgr.init_schema()
                     db_info["primary_connection"] = "PostgreSQL 连接成功"
                     mgr._connection_info = db_info
+                    mgr._backend_name = "PostgreSQL"
                     return mgr
                 else:
                     error_detail = f"PostgreSQL ping 失败: {ping_result['message']}"
                     errors.append(error_detail)
                     db_info["fallback_reason"] = error_detail
             except Exception as e:
-                error_detail = f"PostgreSQL: {type(e).__name__}: {e}"
+                error_detail = f"PostgreSQL: {redact_database_error(e)}"
                 errors.append(error_detail)
                 db_info["fallback_reason"] = error_detail
 
@@ -101,6 +159,7 @@ def get_db_manager():
         )
         sqlite_mgr = _SQLiteManager(db_path)
         sqlite_mgr.init_schema()
+        sqlite_mgr._backend_name = "SQLite（本地临时数据库）"
         sqlite_mgr._fallback_note = "; ".join(errors) if errors else ""
         sqlite_mgr._connection_info = {
             "db_type": "sqlite",
@@ -1201,14 +1260,7 @@ class _PostgresManager(_BaseManager):
     @classmethod
     def from_secrets(cls) -> "_PostgresManager":
         import streamlit as st
-        cfg = st.secrets["postgres"]
-        password = cfg.password.replace("'", "\\'")
-        dsn = (
-            f"host={cfg.host} port={cfg.port} dbname={cfg.dbname} "
-            f"user={cfg.user} password='{password}' "
-            f"sslmode={cfg.get('sslmode', 'prefer')}"
-        )
-        return cls(dsn)
+        return cls(postgres_dsn_from_secrets(st.secrets))
 
     @contextmanager
     def _conn(self):

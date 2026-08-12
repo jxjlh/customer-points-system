@@ -1009,8 +1009,8 @@ def show_inventory():
 
     try:
         db = get_db_manager()
-    except Exception:
-        st.error("数据库连接失败，请检查配置后重试")
+    except Exception as exc:
+        st.error(f"数据库连接失败：{exc}")
         return
     show_inventory_page(db, operator=st.session_state.get("username", ""))
 

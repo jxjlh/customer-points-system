@@ -20,9 +20,15 @@ def show_inventory_page(db_manager, operator: str = "") -> None:
     st.title("📦 库存管理")
     st.caption("库存物品、出入库记录和自定义字段统一管理")
 
+    backend_name = getattr(db_manager, "_backend_name", "数据库")
+    if backend_name:
+        st.info(f"当前库存数据库：{backend_name}")
     fallback_note = getattr(db_manager, "_fallback_note", "")
     if fallback_note:
-        st.warning(f"远程数据库连接异常，当前使用本地 SQLite：{fallback_note}")
+        st.warning(
+            "远程数据库连接异常，当前使用本地 SQLite；部署重启后数据可能丢失。"
+            f"错误原因：{fallback_note}"
+        )
 
     tab_items, tab_transactions, tab_fields = st.tabs(
         ["📦 库存列表", "📋 出入库记录", "⚙️ 字段管理"]
@@ -150,9 +156,8 @@ def _render_item_form(
             current.get("title", ""),
             required=True,
         )
-        category_selected, category_new = _reusable_value_inputs(
+        category_selected, category_new = _direct_value_input(
             "title类别",
-            history_options.get("category", []),
             f"{form_key}_category",
             current.get("category", ""),
         )
@@ -229,22 +234,34 @@ def _reusable_value_inputs(
     select_options = [""] + normalized
     current = str(current_value or "").strip()
     index = select_options.index(current) if current in select_options else 0
-    columns = st.columns(2)
-    with columns[0]:
-        selected = st.selectbox(
-            f"{label}{' *' if required else ''}（搜索已有值）",
-            select_options,
-            index=index,
-            key=f"{key_prefix}_selected",
-            format_func=lambda value: value or "请选择已有值",
-        )
-    with columns[1]:
-        new_value = st.text_input(
-            f"{label}（新增值，可选）",
-            key=f"{key_prefix}_new",
-            placeholder="填写后优先保存，并加入下次历史选项",
-        )
+    new_value = st.text_input(
+        f"{label}（新增值）",
+        value=current if not normalized else "",
+        key=f"{key_prefix}_new",
+        placeholder="填写后保存，并自动加入下方历史值",
+    )
+    selected = st.selectbox(
+        f"已有{label}（可选，直接选择）",
+        select_options,
+        index=index,
+        key=f"{key_prefix}_selected",
+        format_func=lambda value: value or "不选择历史值",
+    )
     return selected, new_value
+
+
+def _direct_value_input(
+    label: str,
+    key_prefix: str,
+    current_value: str = "",
+) -> tuple[str, str]:
+    value = st.text_input(
+        label,
+        value=str(current_value or ""),
+        key=f"{key_prefix}_new",
+        placeholder="直接输入类别，例如：实验耗材",
+    )
+    return "", value
 
 
 def _render_item_card(

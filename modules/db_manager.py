@@ -49,6 +49,8 @@ def get_db_manager():
     获取数据库管理器（通过 st.cache_resource 缓存）
     优先使用 PostgreSQL/MySQL，连接失败时自动降级到 SQLite
     自动初始化数据库表结构
+    
+    返回值包含数据库管理器实例，可通过 manager.get_connection_status() 获取连接状态
     """
     import streamlit as st
 
@@ -56,24 +58,40 @@ def get_db_manager():
     def _get_manager():
         db_type = _detect_db_type()
         errors = []
+        db_info = {
+            "db_type": db_type,
+            "primary_connection": None,
+            "fallback_reason": None,
+        }
 
         if db_type == "mysql":
             try:
                 mgr = _MySQLManager.from_secrets()
                 mgr.init_schema()
+                db_info["primary_connection"] = "MySQL 连接成功"
+                mgr._connection_info = db_info
                 return mgr
             except Exception as e:
-                errors.append(f"MySQL: {e}")
+                error_detail = f"MySQL: {type(e).__name__}: {e}"
+                errors.append(error_detail)
+                db_info["fallback_reason"] = error_detail
         elif db_type == "postgres":
             try:
                 mgr = _PostgresManager.from_secrets()
-                if mgr.ping():
+                ping_result = mgr.ping_with_detail()
+                if ping_result["success"]:
                     mgr.init_schema()
+                    db_info["primary_connection"] = "PostgreSQL 连接成功"
+                    mgr._connection_info = db_info
                     return mgr
                 else:
-                    errors.append("PostgreSQL: ping 失败")
+                    error_detail = f"PostgreSQL ping 失败: {ping_result['message']}"
+                    errors.append(error_detail)
+                    db_info["fallback_reason"] = error_detail
             except Exception as e:
-                errors.append(f"PostgreSQL: {e}")
+                error_detail = f"PostgreSQL: {type(e).__name__}: {e}"
+                errors.append(error_detail)
+                db_info["fallback_reason"] = error_detail
 
         # 降级到 SQLite（不抛出异常）
         db_path = os.path.join(
@@ -84,6 +102,12 @@ def get_db_manager():
         sqlite_mgr = _SQLiteManager(db_path)
         sqlite_mgr.init_schema()
         sqlite_mgr._fallback_note = "; ".join(errors) if errors else ""
+        sqlite_mgr._connection_info = {
+            "db_type": "sqlite",
+            "primary_connection": None,
+            "fallback_reason": sqlite_mgr._fallback_note or "无主数据库配置",
+            "is_fallback": True,
+        }
         return sqlite_mgr
 
     return _get_manager()
@@ -311,6 +335,46 @@ class _MySQLManager(_BaseManager):
             return True
         except Exception:
             return False
+
+    def ping_with_detail(self) -> Dict:
+        """带详细错误信息的连接测试"""
+        result = {"success": False, "message": "", "details": {}}
+        try:
+            conn = self._get_conn()
+            conn.ping(reconnect=True)
+            result["success"] = True
+            result["message"] = "连接成功"
+            result["details"]["host"] = self.config.get("host", "")
+            result["details"]["port"] = self.config.get("port", "")
+            result["details"]["database"] = self.config.get("database", "")
+            return result
+        except Exception as e:
+            result["message"] = f"{type(e).__name__}: {e}"
+            result["details"]["exception_type"] = type(e).__name__
+            error_str = str(e).lower()
+            if "access denied" in error_str:
+                result["details"]["possible_cause"] = "用户名或密码错误"
+            elif "unknown database" in error_str:
+                result["details"]["possible_cause"] = "数据库不存在"
+            elif "connection refused" in error_str:
+                result["details"]["possible_cause"] = "连接被拒绝，请检查主机和端口"
+            elif "timeout" in error_str:
+                result["details"]["possible_cause"] = "连接超时"
+            elif "host" in error_str:
+                result["details"]["possible_cause"] = "主机名无法解析"
+            return result
+
+    def get_connection_status(self) -> Dict:
+        """获取当前连接状态"""
+        return {
+            "db_type": "MySQL",
+            "config": {
+                "host": self.config.get("host", ""),
+                "port": self.config.get("port", ""),
+                "database": self.config.get("database", ""),
+            },
+            "connection_info": getattr(self, '_connection_info', {}),
+        }
 
     def init_schema(self) -> None:
         """创建表结构（MySQL语法）"""
@@ -1173,6 +1237,54 @@ class _PostgresManager(_BaseManager):
         except Exception:
             return False
 
+    def ping_with_detail(self) -> Dict:
+        """带详细错误信息的连接测试"""
+        result = {"success": False, "message": "", "details": {}}
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1 AS test")
+                    row = cur.fetchone()
+                    result["details"]["query_result"] = str(row)
+            result["success"] = True
+            result["message"] = "连接成功"
+            result["details"]["dsn_preview"] = self.dsn[:100] + "..." if len(self.dsn) > 100 else self.dsn
+            return result
+        except Exception as e:
+            result["message"] = f"{type(e).__name__}: {e}"
+            result["details"]["exception_type"] = type(e).__name__
+            if hasattr(e, 'pgcode'):
+                result["details"]["pgcode"] = e.pgcode
+            if hasattr(e, 'pgerror'):
+                result["details"]["pgerror"] = str(e.pgerror)
+            # 分析常见错误
+            error_str = str(e).lower()
+            if "timeout" in error_str:
+                result["details"]["possible_cause"] = "连接超时，请检查网络或防火墙"
+            elif "password" in error_str:
+                result["details"]["possible_cause"] = "密码错误"
+            elif "role" in error_str or "user" in error_str:
+                result["details"]["possible_cause"] = "用户名或角色不存在"
+            elif "database" in error_str and "does not exist" in error_str:
+                result["details"]["possible_cause"] = "数据库不存在"
+            elif "ssl" in error_str:
+                result["details"]["possible_cause"] = "SSL 连接失败"
+            elif "connection refused" in error_str:
+                result["details"]["possible_cause"] = "连接被拒绝，请检查主机和端口"
+            return result
+
+    def get_connection_status(self) -> Dict:
+        """获取当前连接状态"""
+        status = {
+            "db_type": "PostgreSQL",
+            "pool_closed": self._pool.closed if hasattr(self._pool, 'closed') else False,
+            "connection_info": getattr(self, '_connection_info', {}),
+        }
+        if hasattr(self._pool, '_pool'):
+            pool_size = len(self._pool._pool) if self._pool._pool else 0
+            status["pool_size"] = pool_size
+        return status
+
     def add_log(self, log_type: str, message: str) -> bool:
         try:
             with self._conn() as conn:
@@ -1415,6 +1527,16 @@ class _SQLiteManager(_BaseManager):
             return True
         except Exception:
             return False
+
+    def get_connection_status(self) -> Dict:
+        """获取当前连接状态"""
+        return {
+            "db_type": "SQLite (降级模式)",
+            "db_path": self.db_path,
+            "file_exists": os.path.exists(self.db_path),
+            "file_size_mb": round(os.path.getsize(self.db_path) / 1024 / 1024, 2) if os.path.exists(self.db_path) else 0,
+            "connection_info": getattr(self, '_connection_info', {}),
+        }
 
     def add_log(self, log_type: str, message: str) -> bool:
         try:

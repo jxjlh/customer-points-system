@@ -16,6 +16,8 @@ from contextlib import contextmanager
 from datetime import datetime, date
 from typing import Dict, List, Optional
 
+from modules.database_config import postgres_dsn_from_secrets
+
 import pandas as pd
 
 from modules.inventory.errors import (
@@ -251,14 +253,7 @@ class PgDatabaseManager:
     def from_secrets(cls) -> "PgDatabaseManager":
         """从 st.secrets 读取 PostgreSQL 连接配置"""
         import streamlit as st
-        cfg = st.secrets["postgres"]
-        dsn = (
-            f"host={cfg.host} port={cfg.port} dbname={cfg.dbname} "
-            f"user={cfg.user} password={cfg.password} "
-            f"sslmode={cfg.get('sslmode', 'prefer')} "
-            f"connect_timeout={cfg.get('connect_timeout', 10)}"
-        )
-        return cls(dsn)
+        return cls(postgres_dsn_from_secrets(st.secrets))
 
     @contextmanager
     def _conn(self):

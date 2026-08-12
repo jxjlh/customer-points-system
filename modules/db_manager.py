@@ -27,6 +27,7 @@ from modules.inventory.errors import (
     ItemNotFoundError,
     ValidationError,
 )
+from modules.database_config import postgres_dsn_from_secrets, redact_database_error
 
 # ============================================================
 # 数据库类型检测
@@ -82,9 +83,11 @@ def _detect_db_type(secrets=None) -> str:
     is_mysql_ready = _is_real_database_section(
         mysql, ("host", "user", "password", "database")
     )
-    is_postgres_ready = _is_real_database_section(
-        postgres, ("host", "dbname", "user", "password")
-    )
+    try:
+        postgres_dsn_from_secrets(secrets)
+        is_postgres_ready = True
+    except ValueError:
+        is_postgres_ready = False
 
     if requested_backend == "mysql" and is_mysql_ready:
         return "mysql"
@@ -128,7 +131,7 @@ def get_db_manager():
                 else:
                     errors.append("PostgreSQL: ping 失败")
             except Exception as e:
-                errors.append(f"PostgreSQL: {e}")
+                errors.append(f"PostgreSQL: {redact_database_error(e)}")
 
         # 降级到 SQLite（不抛出异常）
         db_path = os.path.join(
@@ -1193,14 +1196,7 @@ class _PostgresManager(_BaseManager):
     @classmethod
     def from_secrets(cls) -> "_PostgresManager":
         import streamlit as st
-        cfg = st.secrets["postgres"]
-        password = cfg.password.replace("'", "\\'")
-        dsn = (
-            f"host={cfg.host} port={cfg.port} dbname={cfg.dbname} "
-            f"user={cfg.user} password='{password}' "
-            f"sslmode={cfg.get('sslmode', 'prefer')}"
-        )
-        return cls(dsn)
+        return cls(postgres_dsn_from_secrets(st.secrets))
 
     @contextmanager
     def _conn(self):

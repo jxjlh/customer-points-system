@@ -3,13 +3,43 @@
 
 使用方法：
 1. 本地测试：python test_db_connection.py
-2. Streamlit Cloud：将此文件部署后访问 /test_db 路由
+2. 自动从 .streamlit/secrets.toml 读取配置
 """
 import sys
 import os
 
-# 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+
+def load_secrets_from_toml():
+    """从 .streamlit/secrets.toml 读取配置（不依赖 streamlit）"""
+    toml_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        ".streamlit", "secrets.toml"
+    )
+    if not os.path.exists(toml_path):
+        print(f"❌ 找不到配置文件: {toml_path}")
+        return None
+
+    try:
+        import tomllib
+    except ImportError:
+        try:
+            import tomli as tomllib
+        except ImportError:
+            try:
+                toml = __import__('toml')
+            except ImportError:
+                print("❌ 需要安装 tomli: pip install tomli")
+                return None
+
+    try:
+        with open(toml_path, "rb") as f:
+            return tomllib.load(f)
+    except Exception as e:
+        print(f"❌ 解析配置文件失败: {e}")
+        return None
+
 
 def test_with_psycopg2():
     """直接使用 psycopg2 测试连接"""
@@ -20,14 +50,23 @@ def test_with_psycopg2():
         print("❌ psycopg2 未安装，请运行: pip install psycopg2-binary")
         return False
 
-    # Supabase 连接配置
+    secrets = load_secrets_from_toml()
+    if not secrets:
+        return False
+
+    if "postgres" not in secrets:
+        print("❌ secrets.toml 中没有 [postgres] 配置")
+        return False
+
+    pg = secrets["postgres"]
     conn_params = {
-        'host': 'aws-0-ap-northeast-1.pooler.supabase.com',
-        'port': 5432,
-        'dbname': 'postgres',
-        'user': 'postgres.qquxbarjqnkryfutklro',
-        'password': 'LH040828@',
-        'sslmode': 'require'
+        'host': pg.get('host', ''),
+        'port': int(pg.get('port', 6543)),
+        'dbname': pg.get('dbname', 'postgres'),
+        'user': pg.get('user', ''),
+        'password': pg.get('password', ''),
+        'sslmode': pg.get('sslmode', 'require'),
+        'connect_timeout': int(pg.get('connect_timeout', 15)),
     }
 
     print("=" * 50)
@@ -37,6 +76,7 @@ def test_with_psycopg2():
     print(f"  端口: {conn_params['port']}")
     print(f"  数据库: {conn_params['dbname']}")
     print(f"  用户: {conn_params['user']}")
+    print(f"  SSL: {conn_params['sslmode']}")
     print("=" * 50)
 
     try:
@@ -55,27 +95,11 @@ def test_with_psycopg2():
             print(f"  用户: {user}")
             print(f"  服务器时间: {now}")
 
-            # 测试创建表
-            print("\n📊 测试创建表...")
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS connection_test (
-                    id SERIAL PRIMARY KEY,
-                    test_name VARCHAR(100),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cur.execute("INSERT INTO connection_test (test_name) VALUES (%s)", ("数据库连接测试",))
-            conn.commit()
-            print("✅ 表创建成功!")
-
-            cur.execute("SELECT COUNT(*) FROM connection_test")
-            count = cur.fetchone()[0]
-            print(f"  测试记录数: {count}")
-
-            # 清理
-            cur.execute("DROP TABLE connection_test")
-            conn.commit()
-            print("  🧹 测试表已清理")
+            print("\n📊 测试查询...")
+            cur.execute("SELECT 1 AS test_value")
+            result = cur.fetchone()
+            print(f"  查询结果: {result[0]}")
+            print("✅ 查询测试通过!")
 
         conn.close()
         print("\n" + "=" * 50)
@@ -84,70 +108,66 @@ def test_with_psycopg2():
         return True
 
     except Exception as e:
-        print(f"\n❌ 连接失败: {e}")
-        print("\n💡 排查建议:")
-        print("  1. 检查主机地址是否正确")
-        print("  2. 检查用户名和密码")
-        print("  3. 确认数据库已创建")
-        print("  4. 检查网络连接")
+        print(f"\n❌ 连接失败: {type(e).__name__}: {e}")
+
+        error_str = str(e).lower()
+        print("\n💡 错误分析:")
+        if "timeout" in error_str:
+            print("  🔸 连接超时")
+            print("  可能原因：")
+            print("  1. Supabase 项目已暂停（免费版 7 天不活动会暂停）")
+            print("     → 请登录 https://supabase.com/dashboard 恢复项目")
+            print("  2. 网络防火墙阻断了 6543 端口")
+            print("     → 检查本地防火墙设置")
+        elif "password" in error_str or "authentication" in error_str:
+            print("  🔸 认证失败")
+            print("  可能原因：")
+            print("  1. 密码错误")
+            print("     → 登录 Supabase Dashboard → Project Settings → Database 重置密码")
+            print("  2. 用户角色不存在")
+            print("     → 确认用户名是否正确")
+        elif "role" in error_str:
+            print("  🔸 角色不存在")
+            print("  可能原因：")
+            print("  1. 用户角色已被删除")
+            print("     → 登录 Supabase Dashboard 检查用户角色")
+        elif "connection refused" in error_str:
+            print("  🔸 连接被拒绝")
+            print("  可能原因：")
+            print("  1. 主机地址错误")
+            print("     → 确认使用 Supabase Connection Pooler 地址")
+            print("  2. 端口错误")
+            print("     → Supabase Pooler 使用端口 6543")
+        elif "ssl" in error_str:
+            print("  🔸 SSL 错误")
+            print("  可能原因：")
+            print("  1. SSL 模式不兼容")
+            print("     → Supabase 要求 sslmode=require")
+        elif "name or service not known" in error_str or "nodename nor servname" in error_str:
+            print("  🔸 主机名无法解析")
+            print("  可能原因：")
+            print("  1. 主机地址错误")
+            print("     → 确认主机名拼写正确")
+            print("  2. DNS 解析失败")
+            print("     → 检查 DNS 设置")
+        elif "does not exist" in error_str:
+            print("  🔸 数据库不存在")
+            print("  可能原因：")
+            print("  1. 数据库名称错误")
+            print("     → Supabase 默认数据库名为 'postgres'")
+        else:
+            print(f"  未知错误类型: {type(e).__name__}")
+            print(f"  详细信息: {str(e)[:300]}")
+
+        print("\n📋 排查清单:")
+        print("  1. 登录 Supabase Dashboard (https://supabase.com/dashboard)")
+        print("  2. 检查项目是否已暂停（免费版 7 天不活动会暂停）")
+        print("  3. 进入 Project Settings → Database → Reset password 重置密码")
+        print("  4. 复制新的连接字符串更新到 .streamlit/secrets.toml")
+        print("  5. 或在 Streamlit Cloud Secrets 中更新数据库密码")
         return False
 
 
-def test_with_streamlit():
-    """Streamlit 环境测试"""
-    try:
-        import streamlit as st
-        from modules.db_manager import get_db_manager
-
-        st.set_page_config(page_title="数据库连接测试", page_icon="🔍")
-        st.title("🔍 数据库连接测试")
-
-        db_type = "未配置"
-        try:
-            if "postgres" in st.secrets:
-                db_type = "PostgreSQL"
-            elif "mysql" in st.secrets:
-                db_type = "MySQL"
-        except Exception:
-            pass
-
-        st.info(f"检测到数据库类型: **{db_type}**")
-
-        try:
-            st.write("正在连接数据库...")
-            db = get_db_manager()
-            ping_ok = db.ping()
-
-            if ping_ok:
-                st.success("✅ 数据库连接成功!")
-
-                st.write("正在初始化表结构...")
-                db.init_schema()
-                st.success("✅ 表结构初始化成功!")
-
-                # 测试报价单功能
-                st.write("正在测试报价单功能...")
-                quote_num = db.get_next_quote_number()
-                st.write(f"  生成报价单号: {quote_num}")
-
-                # 测试价格库
-                st.write("正在测试价格库功能...")
-                loaded = db.is_price_loaded()
-                st.write(f"  价格库状态: {'已加载' if loaded else '未加载'}")
-
-                st.success("✅ 所有功能测试通过!")
-            else:
-                st.error("❌ 数据库连接失败")
-
-        except Exception as e:
-            st.error(f"❌ 测试出错: {e}")
-            st.code(str(e))
-
-    except ImportError:
-        print("此脚本需要在 Streamlit 环境中运行")
-
-
 if __name__ == "__main__":
-    # 命令行模式
     success = test_with_psycopg2()
     sys.exit(0 if success else 1)

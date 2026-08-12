@@ -1349,25 +1349,30 @@ class _PostgresManager(_BaseManager):
         except Exception:
             return False
 
+    def _get_pg_mgr(self):
+        """获取共享连接池的 PgDatabaseManager"""
+        from modules.pg_database import PgDatabaseManager
+        return PgDatabaseManager(self.dsn, pool=self._pool)
+
     def get_next_quote_number(self) -> str:
         from modules.pg_database import PgDatabaseManager
-        # 委托给 PgDatabaseManager 的实现
-        mgr = PgDatabaseManager(self.dsn)
+        # 委托给 PgDatabaseManager 的实现（共享连接池）
+        mgr = self._get_pg_mgr()
         return mgr.get_next_quote_number()
 
     def save_quotation(self, quotation_data: Dict) -> int:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.save_quotation(quotation_data)
 
     def get_quotation(self, quote_number: str) -> Optional[Dict]:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.get_quotation(quote_number)
 
     def get_quotation_by_id(self, quote_id: int) -> Optional[Dict]:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         with self._conn() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute("SELECT * FROM quotations WHERE id = %s", (quote_id,))
@@ -1385,7 +1390,7 @@ class _PostgresManager(_BaseManager):
     def list_quotations(self, customer_name=None, customer_type=None,
                         date_from=None, date_to=None, limit=100, offset=0) -> List[Dict]:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.list_quotations(
             customer_name=customer_name, customer_type=customer_type,
             date_from=date_from, date_to=date_to, limit=limit, offset=offset,
@@ -1399,141 +1404,141 @@ class _PostgresManager(_BaseManager):
 
     def upsert_price_items(self, customer_type: str, df: pd.DataFrame) -> int:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.upsert_price_items(customer_type, df)
 
     def query_price(self, strain: str, long_genotype: str, age: str, sex: str,
                     customer_type: str = "commercial") -> Dict:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.query_price(strain, long_genotype, age, sex, customer_type)
 
     def is_price_loaded(self, customer_type: Optional[str] = None) -> bool:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.is_price_loaded(customer_type)
 
     def get_price_library_as_dataframe(self, customer_type: Optional[str] = None) -> Dict[str, pd.DataFrame]:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.get_price_library_as_dataframe(customer_type)
 
     def add_invoice_record(self, record: Dict) -> int:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.add_invoice_record(record)
 
     def get_invoice_records(self, **kwargs) -> List[Dict]:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.get_invoice_records(**kwargs)
 
     def is_invoice_processed(self, email_uid: str) -> bool:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.is_invoice_processed(email_uid)
 
     def get_processed_invoice_uids(self) -> set:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.get_processed_invoice_uids()
 
     def add_exchange_record(self, *args, **kwargs) -> bool:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.add_exchange_record(*args, **kwargs)
 
     def get_exchange_records(self) -> List[Dict]:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.get_exchange_records()
 
     def save_customer_points_history(self, *args, **kwargs) -> bool:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.save_customer_points_history(*args, **kwargs)
 
     def get_customer_points_history(self, customer=None) -> List[Dict]:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.get_customer_points_history(customer)
 
     def sync_exchange_from_excel(self, df_exchange: pd.DataFrame) -> int:
         from modules.pg_database import PgDatabaseManager
-        mgr = PgDatabaseManager(self.dsn)
+        mgr = self._get_pg_mgr()
         return mgr.sync_exchange_from_excel(df_exchange)
 
     # ---------- 库存管理 ----------
     def list_inventory_items(self) -> List[Dict]:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).list_inventory_items()
+        return self._get_pg_mgr().list_inventory_items()
 
     def add_inventory_item(self, item: Dict) -> int:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).add_inventory_item(item)
+        return self._get_pg_mgr().add_inventory_item(item)
 
     def update_inventory_item(self, item_id: int, item: Dict) -> bool:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).update_inventory_item(item_id, item)
+        return self._get_pg_mgr().update_inventory_item(item_id, item)
 
     def delete_inventory_item(self, item_id: int) -> bool:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).delete_inventory_item(item_id)
+        return self._get_pg_mgr().delete_inventory_item(item_id)
 
     def inventory_transaction(self, item_id: int, txn_type: str, qty: int,
                               remark: str = "", operator: str = "") -> bool:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).inventory_transaction(item_id, txn_type, qty, remark, operator)
+        return self._get_pg_mgr().inventory_transaction(item_id, txn_type, qty, remark, operator)
 
     def list_inventory_transactions(self, item_id: Optional[int] = None,
                                     limit: int = 100) -> List[Dict]:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).list_inventory_transactions(item_id, limit)
+        return self._get_pg_mgr().list_inventory_transactions(item_id, limit)
 
     def list_inventory_fields(self) -> List[Dict]:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).list_inventory_fields()
+        return self._get_pg_mgr().list_inventory_fields()
 
     def add_inventory_field(self, field_name: str, field_label: str,
                             field_type: str = "text") -> bool:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).add_inventory_field(field_name, field_label, field_type)
+        return self._get_pg_mgr().add_inventory_field(field_name, field_label, field_type)
 
     def delete_inventory_field(self, field_id: int) -> bool:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).delete_inventory_field(field_id)
+        return self._get_pg_mgr().delete_inventory_field(field_id)
 
     def get_distinct_categories(self) -> List[str]:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).get_distinct_categories()
+        return self._get_pg_mgr().get_distinct_categories()
 
     def get_distinct_locations(self) -> List[str]:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).get_distinct_locations()
+        return self._get_pg_mgr().get_distinct_locations()
 
     def get_inventory_item(self, item_id: int) -> Optional[Dict]:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).get_inventory_item(item_id)
+        return self._get_pg_mgr().get_inventory_item(item_id)
 
     def inventory_code_exists(self, item_code: str, exclude_item_id: Optional[int] = None) -> bool:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).inventory_code_exists(item_code, exclude_item_id)
+        return self._get_pg_mgr().inventory_code_exists(item_code, exclude_item_id)
 
     def get_inventory_history_values(self, column: str) -> List[str]:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).get_inventory_history_values(column)
+        return self._get_pg_mgr().get_inventory_history_values(column)
 
     def count_inventory_transactions(self, item_id: int) -> int:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).count_inventory_transactions(item_id)
+        return self._get_pg_mgr().count_inventory_transactions(item_id)
 
     def set_inventory_item_active(self, item_id: int, is_active: bool) -> bool:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).set_inventory_item_active(item_id, is_active)
+        return self._get_pg_mgr().set_inventory_item_active(item_id, is_active)
 
     def delete_inventory_item_without_history(self, item_id: int) -> bool:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).delete_inventory_item_without_history(item_id)
+        return self._get_pg_mgr().delete_inventory_item_without_history(item_id)
 
     def inventory_transaction_atomic(
         self,
@@ -1544,7 +1549,7 @@ class _PostgresManager(_BaseManager):
         operator: str = "",
     ) -> bool:
         from modules.pg_database import PgDatabaseManager
-        return PgDatabaseManager(self.dsn).inventory_transaction_atomic(
+        return self._get_pg_mgr().inventory_transaction_atomic(
             item_id,
             txn_type,
             qty,

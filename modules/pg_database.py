@@ -243,11 +243,16 @@ CREATE TABLE IF NOT EXISTS inventory_fields (
 class PgDatabaseManager:
     """PostgreSQL 数据库管理器"""
 
-    def __init__(self, dsn: str, minconn: int = 1, maxconn: int = 5):
+    def __init__(self, dsn: str, minconn: int = 1, maxconn: int = 5, pool=None):
         if not PSYCOPG2_AVAILABLE:
             raise ImportError("psycopg2 未安装，请运行: pip install psycopg2-binary")
         self.dsn = dsn
-        self._pool = SimpleConnectionPool(minconn, maxconn, dsn)
+        if pool is not None:
+            self._pool = pool
+            self._owns_pool = False
+        else:
+            self._pool = SimpleConnectionPool(minconn, maxconn, dsn)
+            self._owns_pool = True
 
     @classmethod
     def from_secrets(cls) -> "PgDatabaseManager":
@@ -285,7 +290,7 @@ class PgDatabaseManager:
             return False
 
     def close(self) -> None:
-        if self._pool and not self._pool.closed:
+        if self._owns_pool and self._pool and not self._pool.closed:
             self._pool.closeall()
 
     # ============================================================

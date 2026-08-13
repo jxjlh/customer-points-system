@@ -237,32 +237,36 @@ def _combined_value_input(
     key_prefix: str,
     current_value: str = "",
 ) -> str:
-    """单字段同时支持手输和从历史选择"""
+    """一个文本框 + 辅助历史选择，选历史值后自动填入文本框"""
     normalized = normalize_options(options, current_value=current_value)
     current = str(current_value or "").strip()
 
-    # 下拉选择：包含"手动输入"选项 + 所有历史值
-    select_options = ["✏️ 手动输入"] + normalized
-    default_index = 0
-    if current and current in normalized:
-        default_index = select_options.index(current)
+    text_key = f"{key_prefix}_text"
+    select_key = f"{key_prefix}_select"
 
+    # 如果 session 里还没有文本值，用 current_value 初始化
+    if text_key not in st.session_state:
+        st.session_state[text_key] = current
+
+    # 辅助下拉：选择历史值后写入文本框
+    select_options = [""] + normalized
     selected = st.selectbox(
-        label,
+        f"从历史选择{label}",
         select_options,
-        index=default_index,
-        key=f"{key_prefix}_select",
-        format_func=lambda v: v if v != "✏️ 手动输入" else "✏️ 手动输入新值",
+        key=select_key,
+        format_func=lambda v: v or "— 不选 —",
+        help=f"选择后会自动填入{label}输入框",
     )
+    if selected:
+        st.session_state[text_key] = selected
 
-    if selected == "✏️ 手动输入":
-        return st.text_input(
-            f"{label}（输入）",
-            value="",
-            key=f"{key_prefix}_input",
-            placeholder="请输入新值",
-        )
-    return selected
+    # 主输入框
+    return st.text_input(
+        label,
+        value=st.session_state.get(text_key, ""),
+        key=text_key,
+        placeholder="可直接输入，或从上方历史选择",
+    )
 
 
 def _render_item_card(

@@ -1,12 +1,11 @@
 """
 首页模块卡片组件
 
-- 卡片用 HTML 渲染（纯图标）
-- st.button 透明覆盖在卡片上处理点击导航
+- 使用 st.button 直接渲染卡片（图标+标题）
+- 点击按钮触发导航
 """
-import textwrap
 import streamlit as st
-from modules.theme import render_home_card, render_home_cards
+from modules.theme import render_home_cards
 
 
 def show_home_cards(cards_config):
@@ -25,17 +24,9 @@ def show_home_cards(cards_config):
     cols = st.columns(len(cards_config))
     for i, card in enumerate(cards_config):
         with cols[i]:
-            card_html = render_home_card(
-                icon=card["icon"],
-                title=card["title"],
-                desc=card["desc"],
-                color_class=card.get("color_class", "card-blue"),
-                card_key=card["key"],
-            )
-            st.markdown(card_html, unsafe_allow_html=True)
-
+            label = f"{card['icon']}  {card['title']}"
             if st.button(
-                card["title"],
+                label,
                 key=card["key"],
                 use_container_width=True,
                 help=f"点击进入{card['title']}",

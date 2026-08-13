@@ -98,110 +98,89 @@ def _get_global_css() -> str:
 
 def _get_home_cards_css() -> str:
     """
-    首页模块卡片 CSS。
+    首页模块卡片 CSS - 直接美化 st.button 为卡片样式。
     """
     return """
     <style>
-    .home-card-wrapper {
-        position: relative;
-        overflow: visible;
-    }
-
-    .home-card {
-        background: #ffffff;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        padding: 24px 16px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        border-left: 4px solid var(--card-color-1, #9ca3af);
-        text-align: center;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 100px;
-        margin-bottom: 0;
-    }
-
-    .home-card:hover {
-        background: #f0f4ff;
-        border-color: var(--card-color-1, #3b82f6);
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-    }
-
-    .home-card-icon {
-        font-size: 42px;
-        line-height: 1;
-        display: inline-block;
-    }
-
-    /* stButton 容器 - 向上移动覆盖卡片 */
+    /* 首页卡片按钮样式 */
     div[data-testid="stButton"] {
-        margin-top: -100px !important;
-        margin-bottom: 0 !important;
-        position: relative !important;
-        z-index: 10 !important;
+        margin-top: 0 !important;
+        margin-bottom: 8px !important;
     }
 
-    /* 所有按钮完全透明 */
     div[data-testid="stButton"] button,
     div[data-testid="stButton"] button[data-testid="stBaseButton-secondary"] {
-        background: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 10px !important;
+        padding: 20px 16px !important;
         min-height: 100px !important;
-        height: 100px !important;
-        padding: 0 !important;
+        height: auto !important;
         cursor: pointer !important;
         width: 100% !important;
-        color: transparent !important;
+        color: #374151 !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        line-height: 1.4 !important;
+        transition: all 0.2s ease !important;
+        border-left: 4px solid #3b82f6 !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+        text-align: center !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 6px !important;
     }
 
-    /* 彻底隐藏按钮内所有文字内容 */
-    div[data-testid="stButton"] p,
-    div[data-testid="stButton"] span,
-    div[data-testid="stButton"] div,
-    div[data-testid="stButton"] label {
+    div[data-testid="stButton"] button:hover,
+    div[data-testid="stButton"] button:focus {
+        background: #f0f4ff !important;
+        border-color: #3b82f6 !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
+    }
+
+    /* 按钮文字和图标 */
+    div[data-testid="stButton"] p {
+        margin: 0 !important;
+        padding: 0 !important;
+        font-size: 14px !important;
+        color: #374151 !important;
+        line-height: 1.4 !important;
+        text-align: center !important;
+    }
+
+    /* 不同卡片颜色 - 通过 nth-child 模拟 */
+    div[data-testid="stButton"]:nth-child(6n+1) button { border-left-color: #3b82f6 !important; }
+    div[data-testid="stButton"]:nth-child(6n+2) button { border-left-color: #10b981 !important; }
+    div[data-testid="stButton"]:nth-child(6n+3) button { border-left-color: #f97316 !important; }
+    div[data-testid="stButton"]:nth-child(6n+4) button { border-left-color: #8b5cf6 !important; }
+    div[data-testid="stButton"]:nth-child(6n+5) button { border-left-color: #0ea5e9 !important; }
+    div[data-testid="stButton"]:nth-child(6n+6) button { border-left-color: #ec4899 !important; }
+
+    /* Tooltip 隐藏 */
+    div[data-testid="stTooltipIcon"] {
         display: none !important;
-        font-size: 0 !important;
-        line-height: 0 !important;
-        height: 0 !important;
-        width: 0 !important;
-        overflow: hidden !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
     }
-
-    /* Tooltip 图标也隐藏 */
-    div[data-testid="stTooltipIcon"],
-    div[data-testid="stTooltipHoverTarget"] {
-        display: none !important;
-    }
-
-    /* 兼容原有颜色 class */
-    .card-blue   { --card-color-1: #3b82f6; --card-color-2: #3b82f6; }
-    .card-green  { --card-color-1: #10b981; --card-color-2: #10b981; }
-    .card-orange { --card-color-1: #f97316; --card-color-2: #f97316; }
-    .card-purple { --card-color-1: #8b5cf6; --card-color-2: #8b5cf6; }
-    .card-pink   { --card-color-1: #ec4899; --card-color-2: #ec4899; }
-    .card-cyan   { --card-color-1: #0ea5e9; --card-color-2: #0ea5e9; }
     </style>
     """
 
 
 def render_home_card(icon: str, title: str, desc: str, color_class: str = "card-blue", card_key: str = "") -> str:
     """
-    渲染单个首页卡片的 HTML（仅图标）。
+    渲染单个首页卡片的 HTML（图标+标题）。
     """
     import html
     icon_safe = html.escape(str(icon))
+    title_safe = html.escape(str(title))
     color_safe = html.escape(str(color_class), quote=True)
     key_safe = html.escape(str(card_key), quote=True)
     return textwrap.dedent(
         f"""
         <div class="home-card {color_safe}" data-key="{key_safe}">
           <div class="home-card-icon">{icon_safe}</div>
+          <div class="home-card-title">{title_safe}</div>
         </div>
         """
     ).strip() + "\n"

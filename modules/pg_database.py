@@ -194,7 +194,7 @@ _SCHEMA_STATEMENTS = [
     # 库存管理表
     """CREATE TABLE IF NOT EXISTS inventory_items (
         id           SERIAL PRIMARY KEY,
-        item_code    VARCHAR(100)  NOT NULL UNIQUE,
+        item_code    VARCHAR(100)  NOT NULL,
         title        VARCHAR(200)  NOT NULL,
         category     VARCHAR(100),
         location     VARCHAR(200),
@@ -207,6 +207,8 @@ _SCHEMA_STATEMENTS = [
     # 迁移：为旧表添加缺失的列（必须在 CREATE INDEX 之前）
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    # 迁移：移除 item_code 的 UNIQUE 约束（允许编号重复）
+    "ALTER TABLE inventory_items DROP CONSTRAINT IF EXISTS inventory_items_item_code_key",
     "CREATE INDEX IF NOT EXISTS idx_inv_code ON inventory_items(item_code)",
     "CREATE INDEX IF NOT EXISTS idx_inv_category ON inventory_items(category)",
     "CREATE INDEX IF NOT EXISTS idx_inv_location ON inventory_items(location)",

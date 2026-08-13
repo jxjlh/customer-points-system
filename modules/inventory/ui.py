@@ -153,7 +153,7 @@ def _render_item_form(
                 "编号 *",
                 value=str(current.get("item_code", "")),
                 key=f"{form_key}_code",
-                help="编号由你手动输入，归档或删除后可重复使用",
+                help="编号由你手动输入，允许重复",
             )
         with top_columns[1]:
             quantity = st.number_input(

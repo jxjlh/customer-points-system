@@ -28,8 +28,6 @@ class InventoryService:
 
     def create_item(self, data: dict, operator: str = "") -> int:
         item_code = self._required_text(data.get("item_code"), "编号")
-        if self.repository.code_exists(item_code):
-            raise DuplicateItemCodeError("编号已存在，请输入其他编号")
 
         title, category, location = self._resolve_reusable_fields(data)
         initial_quantity = self._non_negative_int(data.get("quantity", 0), "初始数量")
@@ -42,12 +40,7 @@ class InventoryService:
             "extra_fields": self._clean_extra_fields(data.get("extra_fields", {})),
         }
 
-        try:
-            item_id = self.repository.create_item(item)
-        except Exception as exc:
-            if self._looks_like_duplicate(exc):
-                raise DuplicateItemCodeError("编号已存在，请输入其他编号") from exc
-            raise
+        item_id = self.repository.create_item(item)
 
         if initial_quantity > 0:
             try:
@@ -66,26 +59,19 @@ class InventoryService:
     def update_item(self, item_id: int, data: dict) -> None:
         current = self.get_item(item_id)
         item_code = self._required_text(data.get("item_code"), "编号")
-        if self.repository.code_exists(item_code, exclude_item_id=item_id):
-            raise DuplicateItemCodeError("编号已存在，请输入其他编号")
 
         title, category, location = self._resolve_reusable_fields(data)
-        try:
-            self.repository.update_item(
-                item_id,
-                {
-                    "item_code": item_code,
-                    "title": title,
-                    "category": category,
-                    "location": location,
-                    "extra_fields": self._clean_extra_fields(data.get("extra_fields", {})),
-                    "quantity": current.get("quantity", 0),
-                },
-            )
-        except Exception as exc:
-            if self._looks_like_duplicate(exc):
-                raise DuplicateItemCodeError("编号已存在，请输入其他编号") from exc
-            raise
+        self.repository.update_item(
+            item_id,
+            {
+                "item_code": item_code,
+                "title": title,
+                "category": category,
+                "location": location,
+                "extra_fields": self._clean_extra_fields(data.get("extra_fields", {})),
+                "quantity": current.get("quantity", 0),
+            },
+        )
 
     def change_stock(
         self,

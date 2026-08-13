@@ -1149,6 +1149,7 @@ class PgDatabaseManager:
             raise ValueError(f"不支持的库存历史字段: {column}")
         with self._conn() as conn:
             with conn.cursor() as cur:
+                self._ensure_inventory_history_table(cur)
                 cur.execute(
                     f"""SELECT DISTINCT BTRIM(i.{column}) AS value
                         FROM inventory_items i
@@ -1171,6 +1172,7 @@ class PgDatabaseManager:
             return False
         with self._conn() as conn:
             with conn.cursor() as cur:
+                self._ensure_inventory_history_table(cur)
                 cur.execute(
                     """INSERT INTO inventory_hidden_history_values (field_name, value)
                        VALUES (%s, %s)
@@ -1181,7 +1183,19 @@ class PgDatabaseManager:
         return True
 
     @staticmethod
-    def _restore_inventory_history_values(cur, item: Dict) -> None:
+    def _ensure_inventory_history_table(cur) -> None:
+        cur.execute(
+            """CREATE TABLE IF NOT EXISTS inventory_hidden_history_values (
+                field_name VARCHAR(20) NOT NULL,
+                value VARCHAR(200) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (field_name, value)
+            )"""
+        )
+
+    @classmethod
+    def _restore_inventory_history_values(cls, cur, item: Dict) -> None:
+        cls._ensure_inventory_history_table(cur)
         for column in ("category", "location"):
             value = str(item.get(column) or "").strip()
             if value:

@@ -1161,6 +1161,7 @@ class _MySQLManager(_BaseManager):
         allowed_columns = {"title", "category", "location"}
         if column not in allowed_columns:
             raise ValueError(f"不支持的库存历史字段: {column}")
+        self._ensure_inventory_history_table()
         rows = self._execute(
             f"""SELECT DISTINCT TRIM(i.{column}) AS value
                 FROM inventory_items i
@@ -1182,6 +1183,7 @@ class _MySQLManager(_BaseManager):
             raise ValueError(f"不支持的库存历史字段: {column}")
         if not normalized_value:
             return False
+        self._ensure_inventory_history_table()
         self._execute(
             """INSERT INTO inventory_hidden_history_values (field_name, value)
                VALUES (%s, %s)
@@ -1191,6 +1193,7 @@ class _MySQLManager(_BaseManager):
         return True
 
     def _restore_inventory_history_values(self, item: Dict) -> None:
+        self._ensure_inventory_history_table()
         for column in ("category", "location"):
             value = str(item.get(column) or "").strip()
             if value:
@@ -1199,6 +1202,16 @@ class _MySQLManager(_BaseManager):
                        WHERE field_name=%s AND value=%s""",
                     (column, value),
                 )
+
+    def _ensure_inventory_history_table(self) -> None:
+        self._execute(
+            """CREATE TABLE IF NOT EXISTS inventory_hidden_history_values (
+                field_name VARCHAR(20) NOT NULL,
+                value VARCHAR(200) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (field_name, value)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+        )
 
     def get_inventory_titles_by_category(self, category: str) -> List[str]:
         rows = self._execute(

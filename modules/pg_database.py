@@ -242,6 +242,12 @@ _SCHEMA_STATEMENTS = [
         sort_order  INTEGER      DEFAULT 0,
         created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
     )""",
+    """CREATE TABLE IF NOT EXISTS inventory_hidden_history_values (
+        field_name  VARCHAR(20)  NOT NULL,
+        value       VARCHAR(200) NOT NULL,
+        created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (field_name, value)
+    )""",
 ]
 
 # 保留向后兼容
@@ -710,7 +716,9 @@ class PgDatabaseManager:
                     )
                 else:
                     cur.execute("SELECT EXISTS(SELECT 1 FROM price_library LIMIT 1)")
-                return cur.fetchone()[0]
+                item_id = cur.fetchone()[0]
+                self._restore_inventory_history_values(cur, item)
+                return item_id
 
     def get_price_library_as_dataframe(self, customer_type: Optional[str] = None) -> Dict[str, pd.DataFrame]:
         """从数据库加载价格库为 DataFrame（按客户类型分组）"""
@@ -1014,7 +1022,9 @@ class PgDatabaseManager:
                      item.get("category", ""), item.get("location", ""),
                      int(item.get("quantity", 0)), extra),
                 )
-                return cur.fetchone()[0]
+                item_id = cur.fetchone()[0]
+                self._restore_inventory_history_values(cur, item)
+                return item_id
 
     def update_inventory_item(self, item_id: int, item: Dict) -> bool:
         import json as _json
@@ -1028,6 +1038,7 @@ class PgDatabaseManager:
                     (item.get("item_code", ""), item.get("title", ""),
                      item.get("category", ""), item.get("location", ""), extra, item_id),
                 )
+                self._restore_inventory_history_values(cur, item)
                 return cur.rowcount > 0
 
     def delete_inventory_item(self, item_id: int) -> bool:
@@ -1139,12 +1150,46 @@ class PgDatabaseManager:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"""SELECT DISTINCT BTRIM({column}) AS value
-                        FROM inventory_items
-                        WHERE {column} IS NOT NULL AND BTRIM({column}) != ''
-                        ORDER BY value"""
+                    f"""SELECT DISTINCT BTRIM(i.{column}) AS value
+                        FROM inventory_items i
+                        WHERE i.{column} IS NOT NULL AND BTRIM(i.{column}) != ''
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM inventory_hidden_history_values h
+                              WHERE h.field_name=%s AND h.value=BTRIM(i.{column})
+                          )
+                        ORDER BY value""",
+                    (column,),
                 )
                 return [row[0] for row in cur.fetchall()]
+
+    def delete_inventory_history_value(self, column: str, value: str) -> bool:
+        normalized_value = str(value or "").strip()
+        if column not in {"category", "location"}:
+            raise ValueError(f"不支持的库存历史字段: {column}")
+        if not normalized_value:
+            return False
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO inventory_hidden_history_values (field_name, value)
+                       VALUES (%s, %s)
+                       ON CONFLICT (field_name, value)
+                       DO UPDATE SET created_at=CURRENT_TIMESTAMP""",
+                    (column, normalized_value),
+                )
+        return True
+
+    @staticmethod
+    def _restore_inventory_history_values(cur, item: Dict) -> None:
+        for column in ("category", "location"):
+            value = str(item.get(column) or "").strip()
+            if value:
+                cur.execute(
+                    """DELETE FROM inventory_hidden_history_values
+                       WHERE field_name=%s AND value=%s""",
+                    (column, value),
+                )
 
     def get_inventory_titles_by_category(self, category: str) -> List[str]:
         with self._conn() as conn:

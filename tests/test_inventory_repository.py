@@ -74,6 +74,32 @@ class InventoryRepositoryTests(unittest.TestCase):
         self.assertEqual(self.manager.get_inventory_history_values("category"), ["实验鼠"])
         self.assertEqual(self.manager.get_inventory_history_values("location"), ["B2"])
 
+    def test_history_value_can_be_hidden_without_changing_inventory_item(self):
+        item_id = self.manager.add_inventory_item(
+            {
+                "item_code": "M-002-H",
+                "title": "模型历史值",
+                "category": "实验鼠",
+                "location": "B2",
+                "quantity": 0,
+            }
+        )
+
+        self.assertTrue(self.manager.delete_inventory_history_value("location", "B2"))
+        self.assertEqual(self.manager.get_inventory_history_values("location"), [])
+        self.assertEqual(self.manager.get_inventory_item(item_id)["location"], "B2")
+
+        self.manager.add_inventory_item(
+            {
+                "item_code": "M-002-H2",
+                "title": "模型历史值2",
+                "category": "实验鼠",
+                "location": "B2",
+                "quantity": 0,
+            }
+        )
+        self.assertEqual(self.manager.get_inventory_history_values("location"), ["B2"])
+
     def test_inventory_transaction_is_atomic_and_records_stock_snapshots(self):
         item_id = self.manager.add_inventory_item(
             {

@@ -319,6 +319,9 @@ class _BaseManager:
     def clear_inventory_history_value(self, column: str, value: str) -> None:
         raise NotImplementedError
 
+    def delete_inventory_history_value(self, column: str, value: str) -> bool:
+        raise NotImplementedError
+
     def count_inventory_transactions(self, item_id: int) -> int:
         raise NotImplementedError
 
@@ -627,6 +630,13 @@ class _MySQLManager(_BaseManager):
             field_type  VARCHAR(20)  DEFAULT 'text',
             sort_order  INT          DEFAULT 0,
             created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+        CREATE TABLE IF NOT EXISTS inventory_hidden_history_values (
+            field_name  VARCHAR(20)  NOT NULL,
+            value       VARCHAR(200) NOT NULL,
+            created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (field_name, value)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """
         for stmt in ddl.split(";"):
@@ -1038,7 +1048,7 @@ class _MySQLManager(_BaseManager):
 
     def add_inventory_item(self, item: Dict) -> int:
         extra = json.dumps(item.get("extra_fields", {}), ensure_ascii=False)
-        return self._execute(
+        item_id = self._execute(
             """INSERT INTO inventory_items
                 (item_code, title, category, location, quantity, extra_fields)
                VALUES (%s, %s, %s, %s, %s, %s)""",
@@ -1046,6 +1056,8 @@ class _MySQLManager(_BaseManager):
              item.get("category", ""), item.get("location", ""),
              int(item.get("quantity", 0)), extra),
         )
+        self._restore_inventory_history_values(item)
+        return item_id
 
     def update_inventory_item(self, item_id: int, item: Dict) -> bool:
         extra = json.dumps(item.get("extra_fields", {}), ensure_ascii=False)
@@ -1056,6 +1068,7 @@ class _MySQLManager(_BaseManager):
             (item.get("item_code", ""), item.get("title", ""),
              item.get("category", ""), item.get("location", ""), extra, item_id),
         )
+        self._restore_inventory_history_values(item)
         return True
 
     def delete_inventory_item(self, item_id: int) -> bool:
@@ -1149,13 +1162,43 @@ class _MySQLManager(_BaseManager):
         if column not in allowed_columns:
             raise ValueError(f"不支持的库存历史字段: {column}")
         rows = self._execute(
-            f"""SELECT DISTINCT TRIM({column}) AS value
-                FROM inventory_items
-                WHERE {column} IS NOT NULL AND TRIM({column}) != ''
+            f"""SELECT DISTINCT TRIM(i.{column}) AS value
+                FROM inventory_items i
+                WHERE i.{column} IS NOT NULL AND TRIM(i.{column}) != ''
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM inventory_hidden_history_values h
+                      WHERE h.field_name=%s AND h.value=TRIM(i.{column})
+                  )
                 ORDER BY value""",
+            (column,),
             fetch=True,
         )
         return [row["value"] for row in rows]
+
+    def delete_inventory_history_value(self, column: str, value: str) -> bool:
+        normalized_value = str(value or "").strip()
+        if column not in {"category", "location"}:
+            raise ValueError(f"不支持的库存历史字段: {column}")
+        if not normalized_value:
+            return False
+        self._execute(
+            """INSERT INTO inventory_hidden_history_values (field_name, value)
+               VALUES (%s, %s)
+               ON DUPLICATE KEY UPDATE created_at=CURRENT_TIMESTAMP""",
+            (column, normalized_value),
+        )
+        return True
+
+    def _restore_inventory_history_values(self, item: Dict) -> None:
+        for column in ("category", "location"):
+            value = str(item.get(column) or "").strip()
+            if value:
+                self._execute(
+                    """DELETE FROM inventory_hidden_history_values
+                       WHERE field_name=%s AND value=%s""",
+                    (column, value),
+                )
 
     def get_inventory_titles_by_category(self, category: str) -> List[str]:
         rows = self._execute(
@@ -1644,6 +1687,9 @@ class _PostgresManager(_BaseManager):
         from modules.pg_database import PgDatabaseManager
         self._get_pg_mgr().clear_inventory_history_value(column, value)
 
+    def delete_inventory_history_value(self, column: str, value: str) -> bool:
+        return self._get_pg_mgr().delete_inventory_history_value(column, value)
+
     def count_inventory_transactions(self, item_id: int) -> int:
         from modules.pg_database import PgDatabaseManager
         return self._get_pg_mgr().count_inventory_transactions(item_id)
@@ -1847,6 +1893,12 @@ class _SQLiteManager(_BaseManager):
             sort_order INTEGER DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS inventory_hidden_history_values (
+            field_name TEXT NOT NULL,
+            value TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (field_name, value)
+        )""")
         item_columns = {
             row[1] for row in conn.execute("PRAGMA table_info(inventory_items)").fetchall()
         }
@@ -1905,6 +1957,7 @@ class _SQLiteManager(_BaseManager):
              item.get("category", ""), item.get("location", ""),
              int(item.get("quantity", 0)), extra),
         )
+        self._inv_restore_history_values(conn, item)
         conn.commit()
         rid = cur.lastrowid
         conn.close()
@@ -1922,6 +1975,7 @@ class _SQLiteManager(_BaseManager):
             (item.get("item_code", ""), item.get("title", ""),
              item.get("category", ""), item.get("location", ""), extra, item_id),
         )
+        self._inv_restore_history_values(conn, item)
         conn.commit()
         conn.close()
         return True
@@ -2052,13 +2106,47 @@ class _SQLiteManager(_BaseManager):
         self._inv_ensure_tables()
         conn = self._get_conn()
         rows = conn.execute(
-            f"""SELECT DISTINCT TRIM({column})
-                FROM inventory_items
-                WHERE {column} IS NOT NULL AND TRIM({column}) != ''
-                ORDER BY TRIM({column})"""
+            f"""SELECT DISTINCT TRIM(i.{column})
+                FROM inventory_items i
+                WHERE i.{column} IS NOT NULL AND TRIM(i.{column}) != ''
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM inventory_hidden_history_values h
+                      WHERE h.field_name=? AND h.value=TRIM(i.{column})
+                  )
+                ORDER BY TRIM(i.{column})""",
+            (column,),
         ).fetchall()
         conn.close()
         return [row[0] for row in rows]
+
+    def delete_inventory_history_value(self, column: str, value: str) -> bool:
+        normalized_value = str(value or "").strip()
+        if column not in {"category", "location"}:
+            raise ValueError(f"不支持的库存历史字段: {column}")
+        if not normalized_value:
+            return False
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        conn.execute(
+            """INSERT OR REPLACE INTO inventory_hidden_history_values (field_name, value)
+               VALUES (?, ?)""",
+            (column, normalized_value),
+        )
+        conn.commit()
+        conn.close()
+        return True
+
+    @staticmethod
+    def _inv_restore_history_values(conn, item: Dict) -> None:
+        for column in ("category", "location"):
+            value = str(item.get(column) or "").strip()
+            if value:
+                conn.execute(
+                    """DELETE FROM inventory_hidden_history_values
+                       WHERE field_name=? AND value=?""",
+                    (column, value),
+                )
 
     def get_inventory_titles_by_category(self, category: str) -> List[str]:
         self._inv_ensure_tables()

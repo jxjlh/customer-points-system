@@ -13,6 +13,7 @@ class FakeInventoryRepository:
         self.items = {}
         self.transactions = []
         self.deleted = []
+        self.deleted_history_values = []
         self.next_id = 1
 
     def list_items(self):
@@ -74,13 +75,17 @@ class FakeInventoryRepository:
     def history_values(self, column):
         return [item.get(column, "") for item in self.items.values()]
 
+    def delete_history_value(self, column, value):
+        self.deleted_history_values.append((column, value))
+        return bool(value)
+
 
 class InventoryServiceTests(unittest.TestCase):
     def setUp(self):
         self.repository = FakeInventoryRepository()
         self.service = InventoryService(self.repository)
 
-    def test_create_rejects_duplicate_manual_code(self):
+    def test_create_allows_duplicate_manual_code(self):
         self.repository.create_item(
             {
                 "item_code": "M-001",
@@ -91,13 +96,14 @@ class InventoryServiceTests(unittest.TestCase):
             }
         )
 
-        with self.assertRaisesRegex(DuplicateItemCodeError, "编号已存在"):
-            self.service.create_item(
-                {
-                    "item_code": "M-001",
-                    "title_new": "模型B",
-                }
-            )
+        item_id = self.service.create_item(
+            {
+                "item_code": "M-001",
+                "title_new": "模型B",
+            }
+        )
+
+        self.assertEqual(self.repository.get_item(item_id)["item_code"], "M-001")
 
     def test_create_uses_new_reusable_values_and_records_initial_stock(self):
         item_id = self.service.create_item(
@@ -185,6 +191,31 @@ class InventoryServiceTests(unittest.TestCase):
                     "quantity": -1,
                 }
             )
+
+    def test_history_value_can_be_deleted(self):
+        self.service.delete_history_value("location", " A1 ")
+
+        self.assertEqual(self.repository.deleted_history_values, [("location", "A1")])
+
+    def test_history_options_only_include_category_and_location(self):
+        self.repository.create_item(
+            {
+                "item_code": "M-007",
+                "title": "模型G",
+                "category": "实验鼠",
+                "location": "A1",
+                "extra_fields": {},
+            }
+        )
+
+        self.assertEqual(
+            self.service.history_options(),
+            {"category": ["实验鼠"], "location": ["A1"]},
+        )
+
+    def test_title_history_value_cannot_be_deleted(self):
+        with self.assertRaisesRegex(ValidationError, "不支持"):
+            self.service.delete_history_value("title", "模型G")
 
 
 if __name__ == "__main__":

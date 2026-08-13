@@ -51,11 +51,8 @@ class InventoryRepositoryAdapter:
     def history_values(self, column: str):
         return self.manager.get_inventory_history_values(column)
 
-    def titles_by_category(self, category: str):
-        return self.manager.get_inventory_titles_by_category(category)
-
-    def clear_history_value(self, column: str, value: str):
-        return self.manager.clear_inventory_history_value(column, value)
+    def delete_history_value(self, column: str, value: str) -> bool:
+        return self.manager.delete_inventory_history_value(column, value)
 
     def list_fields(self):
         return self.manager.list_inventory_fields()

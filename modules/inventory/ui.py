@@ -59,6 +59,7 @@ def _render_inventory_tab(service: InventoryService, operator: str) -> None:
             operator,
             form_key="inventory_create",
         )
+        _render_history_value_manager(service, history_options)
 
     filter_columns = st.columns([2, 1, 1, 1, 1])
     with filter_columns[0]:
@@ -129,22 +130,6 @@ def _render_item_form(
     item_id = current.get("id")
     extra_fields = _parse_extra_fields(current.get("extra_fields"))
 
-    # 类别选择放在 form 外面，选择后触发 rerun 以更新 title 选项
-    category_value = _combined_value_input(
-        "title类别（大分类）",
-        history_options.get("category", []),
-        f"{form_key}_category",
-        current.get("category", ""),
-    )
-
-    # 根据选中的类别获取该类别下的历史 title（供参考，不做选择）
-    if category_value:
-        _safe_call(
-            lambda: service.titles_by_category(category_value),
-            [],
-            "读取该类别下的历史title失败",
-        )
-
     with st.form(form_key):
         top_columns = st.columns(2)
         with top_columns[0]:
@@ -170,7 +155,13 @@ def _render_item_form(
             value=str(current.get("title", "")),
             key=f"{form_key}_title",
         )
-        location_value = _combined_value_input(
+        category_value = _reusable_value_input(
+            "title 类别（大分类）",
+            history_options.get("category", []),
+            f"{form_key}_category",
+            current.get("category", ""),
+        )
+        location_value = _reusable_value_input(
             "存放位置",
             history_options.get("location", []),
             f"{form_key}_location",
@@ -229,42 +220,63 @@ def _render_item_form(
                 st.error("保存失败，请稍后重试")
 
 
-def _combined_value_input(
+def _reusable_value_input(
     label: str,
     options: list[str],
     key_prefix: str,
     current_value: str = "",
 ) -> str:
-    """一个文本框 + 辅助历史选择，选历史值后自动填入文本框"""
     normalized = normalize_options(options, current_value=current_value)
     current = str(current_value or "").strip()
-
-    text_key = f"{key_prefix}_text"
-    select_key = f"{key_prefix}_select"
-
-    # 如果 session 里还没有文本值，用 current_value 初始化
-    if text_key not in st.session_state:
-        st.session_state[text_key] = current
-
-    # 辅助下拉：选择历史值后写入文本框
-    select_options = [""] + normalized
+    select_options = normalized
+    if current and current not in select_options:
+        select_options = [current] + select_options
     selected = st.selectbox(
-        f"从历史选择{label}",
-        select_options,
-        key=select_key,
-        format_func=lambda v: v or "— 不选 —",
-        help=f"选择后会自动填入{label}输入框",
-    )
-    if selected:
-        st.session_state[text_key] = selected
-
-    # 主输入框
-    return st.text_input(
         label,
-        value=st.session_state.get(text_key, ""),
-        key=text_key,
-        placeholder="可直接输入，或从上方历史选择",
+        select_options,
+        index=select_options.index(current) if current else None,
+        key=f"{key_prefix}_value",
+        placeholder="输入新值或选择历史值",
+        accept_new_options=True,
     )
+    return str(selected or current).strip()
+
+
+def _render_history_value_manager(
+    service: InventoryService,
+    history_options: dict[str, list[str]],
+) -> None:
+    st.markdown("**管理 title 类别（大分类）和存放位置的历史值**")
+    st.caption("删除仅从下拉历史中隐藏，不会修改已经保存的库存物品。再次使用同一值保存时，会自动恢复。")
+    columns = st.columns(2)
+    for container, (column, label) in zip(
+        columns,
+        (("category", "title 类别（大分类）"), ("location", "存放位置")),
+    ):
+        with container:
+            values = history_options.get(column, [])
+            selected = st.selectbox(
+                f"删除{label}历史值",
+                [""] + values,
+                key=f"inventory_history_delete_{column}",
+                format_func=lambda value: value or "请选择历史值",
+                disabled=not values,
+            )
+            if st.button(
+                "删除",
+                key=f"inventory_history_delete_button_{column}",
+                disabled=not selected,
+                use_container_width=True,
+            ):
+                try:
+                    service.delete_history_value(column, selected)
+                    st.success(f"已删除{label}历史值")
+                    st.rerun()
+                except InventoryError as exc:
+                    st.error(str(exc))
+                except Exception:
+                    logger.exception("删除库存历史值失败")
+                    st.error("删除失败，请稍后重试")
 
 
 def _render_item_card(

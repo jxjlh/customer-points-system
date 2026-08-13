@@ -116,23 +116,16 @@ class InventoryService:
     def history_options(self) -> dict[str, list[str]]:
         return {
             column: normalize_options(self.repository.history_values(column))
-            for column in ("title", "category", "location")
+            for column in ("category", "location")
         }
 
-    def titles_by_category(self, category: str) -> list[str]:
-        normalized = str(category or "").strip()
-        if not normalized:
-            return []
-        return normalize_options(self.repository.titles_by_category(normalized))
-
     def delete_history_value(self, column: str, value: str) -> None:
-        allowed = {"title", "category", "location"}
-        if column not in allowed:
-            raise ValidationError(f"不支持的字段: {column}")
-        normalized = str(value or "").strip()
-        if not normalized:
-            raise ValidationError("值不能为空")
-        self.repository.clear_history_value(column, normalized)
+        labels = {"category": "title 类别（大分类）", "location": "存放位置"}
+        if column not in labels:
+            raise ValidationError("不支持的库存历史字段")
+        normalized = self._required_text(value, labels[column])
+        if not self.repository.delete_history_value(column, normalized):
+            raise ValidationError("请选择要删除的历史值")
 
     def list_transactions(self, item_id: int | None = None, limit: int = 500):
         return self.repository.list_transactions(item_id=item_id, limit=limit)

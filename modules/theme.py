@@ -82,11 +82,15 @@ def _get_global_css() -> str:
     }
 
     /* 首页卡片下方由 home_cards.py 生成了同名隐藏 button，
-       用来驱动卡片点击后的 rerun 路由。默认情况下 Streamlit 会把这些
-       button 显示在卡片下面，视觉上是多余的——display:none 隐藏它们，
-       同时保留 button 在 DOM 里，保证 home-card 的 onclick 能触发。 */
-    .hidden-home-card-button button {
+       用来驱动卡片点击后的 rerun 路由。
+       彻底隐藏整个容器及其内部所有元素。 */
+    .hidden-home-card-button {
         display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        overflow: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
     }
     </style>
     """
@@ -94,75 +98,88 @@ def _get_global_css() -> str:
 
 def _get_home_cards_css() -> str:
     """
-    首页模块卡片 CSS（极简）。
-
-    功能上只保留：
-    - grid auto-fit 自适应宽度；
-    - 普通浅灰卡片背景、圆角、hover 时淡一点背景色；
-    - 图标/标题/描述的基础排版、颜色（用系统默认文字色即可，不加霓虹/渐变）；
-    - 卡片「点击进入 →」hover 时向右挪一点点；
-    - 原有的 card-blue / card-green 等 class 保留兼容，但只给一个很浅的左色条，
-      不再使用发光/渐变/浮动动画。
+    首页模块卡片 CSS。
     """
     return """
     <style>
-    .home-card-container {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 16px;
-        margin: 16px 0 24px;
+    .home-card-wrapper {
+        position: relative;
+        overflow: visible;
     }
 
     .home-card {
         background: #ffffff;
         border: 1px solid #e5e7eb;
         border-radius: 10px;
-        padding: 20px 18px;
+        padding: 24px 16px;
         cursor: pointer;
-        transition: background 0.15s ease, border-color 0.15s ease;
-        /* 左侧浅颜色条：取当前卡片 class 设置的 --card-color-1，没有就用浅灰 */
+        transition: all 0.2s ease;
         border-left: 4px solid var(--card-color-1, #9ca3af);
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100px;
+        margin-bottom: 0;
     }
 
     .home-card:hover {
-        background: #f9fafb;
-        border-color: #d1d5db;
+        background: #f0f4ff;
+        border-color: var(--card-color-1, #3b82f6);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
     }
 
     .home-card-icon {
-        font-size: 34px;
+        font-size: 42px;
         line-height: 1;
-        margin-bottom: 10px;
         display: inline-block;
     }
 
-    .home-card-title {
-        font-size: 17px;
-        font-weight: 600;
-        color: #111827;
-        margin: 0 0 6px;
+    /* stButton 容器 - 向上移动覆盖卡片 */
+    div[data-testid="stButton"] {
+        margin-top: -100px !important;
+        margin-bottom: 0 !important;
+        position: relative !important;
+        z-index: 10 !important;
     }
 
-    .home-card-desc {
-        font-size: 13px;
-        color: #4b5563;
-        line-height: 1.5;
-        margin-bottom: 12px;
+    /* 所有按钮完全透明 */
+    div[data-testid="stButton"] button,
+    div[data-testid="stButton"] button[data-testid="stBaseButton-secondary"] {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        min-height: 100px !important;
+        height: 100px !important;
+        padding: 0 !important;
+        cursor: pointer !important;
+        width: 100% !important;
+        color: transparent !important;
     }
 
-    .home-card-arrow {
-        display: inline-block;
-        color: #2563eb;
-        font-size: 13px;
-        font-weight: 500;
-        transition: transform 0.15s ease;
+    /* 彻底隐藏按钮内所有文字内容 */
+    div[data-testid="stButton"] p,
+    div[data-testid="stButton"] span,
+    div[data-testid="stButton"] div,
+    div[data-testid="stButton"] label {
+        display: none !important;
+        font-size: 0 !important;
+        line-height: 0 !important;
+        height: 0 !important;
+        width: 0 !important;
+        overflow: hidden !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
     }
 
-    .home-card:hover .home-card-arrow {
-        transform: translateX(4px);
+    /* Tooltip 图标也隐藏 */
+    div[data-testid="stTooltipIcon"],
+    div[data-testid="stTooltipHoverTarget"] {
+        display: none !important;
     }
 
-    /* 兼容原有颜色 class：不再用发光/渐变，只给一个浅色左侧色条 */
+    /* 兼容原有颜色 class */
     .card-blue   { --card-color-1: #3b82f6; --card-color-2: #3b82f6; }
     .card-green  { --card-color-1: #10b981; --card-color-2: #10b981; }
     .card-orange { --card-color-1: #f97316; --card-color-2: #f97316; }
@@ -173,26 +190,18 @@ def _get_home_cards_css() -> str:
     """
 
 
-def render_home_card(icon: str, title: str, desc: str, color_class: str = "card-blue") -> str:
+def render_home_card(icon: str, title: str, desc: str, color_class: str = "card-blue", card_key: str = "") -> str:
     """
-    渲染单个首页卡片的 HTML。
-
-    注意：返回的 HTML 必须行首无缩进/无多余空行——调用方会把字符串塞进
-    st.markdown(unsafe_allow_html=True)，Markdown 解析器对『行首 ≥4 空格』
-    会当成缩进代码块渲染成 <pre><code>，导致卡片旁边多一个灰色代码块。
+    渲染单个首页卡片的 HTML（仅图标）。
     """
     import html
     icon_safe = html.escape(str(icon))
-    title_safe = html.escape(str(title))
-    desc_safe = html.escape(str(desc))
     color_safe = html.escape(str(color_class), quote=True)
+    key_safe = html.escape(str(card_key), quote=True)
     return textwrap.dedent(
         f"""
-        <div class="home-card {color_safe}" onclick="this.querySelector('button').click()">
+        <div class="home-card {color_safe}" data-key="{key_safe}">
           <div class="home-card-icon">{icon_safe}</div>
-          <div class="home-card-title">{title_safe}</div>
-          <div class="home-card-desc">{desc_safe}</div>
-          <span class="home-card-arrow">点击进入 →</span>
         </div>
         """
     ).strip() + "\n"

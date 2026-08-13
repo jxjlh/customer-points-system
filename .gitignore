@@ -33,3 +33,4 @@ crayotter/website/assets/videos/travel_healing_final.mp4
 # 本地/CI 首次启动时自动安装 FFmpeg/yt-dlp 即可）
 crayotter/script/dep/windows/ffmpeg.exe
 crayotter/script/dep/windows/yt-dlp.exe
+.originkit/

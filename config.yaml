@@ -5,6 +5,11 @@ credentials:
       name: JAX.iBio
       password: "$2b$12$PpP0l2pIi5zzAA2GGrLUqeEiSA48mGhfdCc6oMPl34n8sBKezKHhC"
       role: admin
+    testuser:
+      email: test@test.com
+      name: TestUser
+      password: "$2b$12$EFB6FOsdmGmoXQIqfEVROuJBdr/03EQu7qJt4pPxGpfiAr3QO/3c2"
+      role: admin
 cookie:
   expiry_days: 30
   key: "your_secret_key_here_for_encryption"

@@ -137,10 +137,9 @@ def _render_item_form(
         current.get("category", ""),
     )
 
-    # 根据选中的类别获取该类别下的历史 title
-    title_options = []
+    # 根据选中的类别获取该类别下的历史 title（供参考，不做选择）
     if category_value:
-        title_options = _safe_call(
+        _safe_call(
             lambda: service.titles_by_category(category_value),
             [],
             "读取该类别下的历史title失败",
@@ -166,11 +165,10 @@ def _render_item_form(
                 help="编辑物品时请使用入库或出库调整数量",
             )
 
-        title_value = _combined_value_input(
+        title_value = st.text_input(
             "title *",
-            title_options,
-            f"{form_key}_title",
-            current.get("title", ""),
+            value=str(current.get("title", "")),
+            key=f"{form_key}_title",
         )
         location_value = _combined_value_input(
             "存放位置",

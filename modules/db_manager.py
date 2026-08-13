@@ -313,6 +313,9 @@ class _BaseManager:
     def get_inventory_history_values(self, column: str) -> List[str]:
         raise NotImplementedError
 
+    def get_inventory_titles_by_category(self, category: str) -> List[str]:
+        raise NotImplementedError
+
     def clear_inventory_history_value(self, column: str, value: str) -> None:
         raise NotImplementedError
 
@@ -1154,6 +1157,18 @@ class _MySQLManager(_BaseManager):
         )
         return [row["value"] for row in rows]
 
+    def get_inventory_titles_by_category(self, category: str) -> List[str]:
+        rows = self._execute(
+            """SELECT DISTINCT TRIM(title) AS value
+               FROM inventory_items
+               WHERE title IS NOT NULL AND TRIM(title) != ''
+                 AND TRIM(category) = %s
+               ORDER BY value""",
+            (category,),
+            fetch=True,
+        )
+        return [row["value"] for row in rows]
+
     def clear_inventory_history_value(self, column: str, value: str) -> None:
         allowed_columns = {"title", "category", "location"}
         if column not in allowed_columns:
@@ -1621,6 +1636,10 @@ class _PostgresManager(_BaseManager):
         from modules.pg_database import PgDatabaseManager
         return self._get_pg_mgr().get_inventory_history_values(column)
 
+    def get_inventory_titles_by_category(self, category: str) -> List[str]:
+        from modules.pg_database import PgDatabaseManager
+        return self._get_pg_mgr().get_inventory_titles_by_category(category)
+
     def clear_inventory_history_value(self, column: str, value: str) -> None:
         from modules.pg_database import PgDatabaseManager
         self._get_pg_mgr().clear_inventory_history_value(column, value)
@@ -2037,6 +2056,20 @@ class _SQLiteManager(_BaseManager):
                 FROM inventory_items
                 WHERE {column} IS NOT NULL AND TRIM({column}) != ''
                 ORDER BY TRIM({column})"""
+        ).fetchall()
+        conn.close()
+        return [row[0] for row in rows]
+
+    def get_inventory_titles_by_category(self, category: str) -> List[str]:
+        self._inv_ensure_tables()
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT DISTINCT TRIM(title)
+               FROM inventory_items
+               WHERE title IS NOT NULL AND TRIM(title) != ''
+                 AND TRIM(category) = ?
+               ORDER BY TRIM(title)""",
+            (category,),
         ).fetchall()
         conn.close()
         return [row[0] for row in rows]

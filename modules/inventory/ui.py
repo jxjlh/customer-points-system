@@ -129,6 +129,23 @@ def _render_item_form(
     item_id = current.get("id")
     extra_fields = _parse_extra_fields(current.get("extra_fields"))
 
+    # 类别选择放在 form 外面，选择后触发 rerun 以更新 title 选项
+    category_value = _combined_value_input(
+        "title类别（大分类）",
+        history_options.get("category", []),
+        f"{form_key}_category",
+        current.get("category", ""),
+    )
+
+    # 根据选中的类别获取该类别下的历史 title
+    title_options = []
+    if category_value:
+        title_options = _safe_call(
+            lambda: service.titles_by_category(category_value),
+            [],
+            "读取该类别下的历史title失败",
+        )
+
     with st.form(form_key):
         top_columns = st.columns(2)
         with top_columns[0]:
@@ -151,15 +168,9 @@ def _render_item_form(
 
         title_value = _combined_value_input(
             "title *",
-            history_options.get("title", []),
+            title_options,
             f"{form_key}_title",
             current.get("title", ""),
-        )
-        category_value = _combined_value_input(
-            "title类别",
-            history_options.get("category", []),
-            f"{form_key}_category",
-            current.get("category", ""),
         )
         location_value = _combined_value_input(
             "存放位置",

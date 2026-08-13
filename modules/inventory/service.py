@@ -133,6 +133,12 @@ class InventoryService:
             for column in ("title", "category", "location")
         }
 
+    def titles_by_category(self, category: str) -> list[str]:
+        normalized = str(category or "").strip()
+        if not normalized:
+            return []
+        return normalize_options(self.repository.titles_by_category(normalized))
+
     def delete_history_value(self, column: str, value: str) -> None:
         allowed = {"title", "category", "location"}
         if column not in allowed:

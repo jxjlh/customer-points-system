@@ -1144,6 +1144,19 @@ class PgDatabaseManager:
                 )
                 return [row[0] for row in cur.fetchall()]
 
+    def get_inventory_titles_by_category(self, category: str) -> List[str]:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT DISTINCT BTRIM(title) AS value
+                       FROM inventory_items
+                       WHERE title IS NOT NULL AND BTRIM(title) != ''
+                         AND BTRIM(category) = %s
+                       ORDER BY value""",
+                    (category,),
+                )
+                return [row[0] for row in cur.fetchall()]
+
     def clear_inventory_history_value(self, column: str, value: str) -> None:
         allowed_columns = {"title", "category", "location"}
         if column not in allowed_columns:

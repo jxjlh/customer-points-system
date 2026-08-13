@@ -105,14 +105,29 @@ def _render_inventory_tab(service: InventoryService, operator: str) -> None:
     metric_columns[2].metric("低库存", metrics["low_stock"])
     metric_columns[3].metric("零库存", metrics["zero_stock"])
 
-    _render_inventory_exports(filtered_items)
+    # 预取备注（表格和导出共用，避免重复查询）
+    remarks_by_item: dict[int, str] = {}
+    if filtered_items:
+        filtered_ids = [int(it["id"]) for it in filtered_items]
+        all_tx = _safe_call(
+            lambda: service.list_transactions(), [], "读取出入库记录失败"
+        )
+        seen = set()
+        for tx in all_tx:
+            iid = tx.get("item_id")
+            if iid is None or iid in seen or iid not in filtered_ids:
+                continue
+            remarks_by_item[int(iid)] = str(tx.get("remark", "") or "").strip()
+            seen.add(iid)
+
+    _render_inventory_exports(filtered_items, remarks_by_item)
 
     if not filtered_items:
         st.info("暂无符合条件的库存物品。")
         return
 
     _render_inventory_table(
-        service, filtered_items, history_options, custom_fields, operator
+        service, filtered_items, history_options, custom_fields, operator, remarks_by_item
     )
 
 
@@ -254,19 +269,20 @@ def _render_inventory_table(
     history_options: dict[str, list[str]],
     custom_fields: list[dict],
     operator: str,
+    remarks_by_item: dict[int, str],
 ) -> None:
     """以单一表格展示所有库存物品，下方选择物品进行操作。"""
-    # 构建表格数据
+    # 构建表格数据（顺序：编号、类别、title、库存、存放位置、备注）
     table_rows = []
     for item in items:
-        is_active = bool(item.get("is_active", 1))
+        remark = remarks_by_item.get(int(item["id"]), "") or "—"
         table_rows.append({
             "编号": item.get("item_code", ""),
-            "title": item.get("title", ""),
             "类别": item.get("category", "") or "—",
+            "title": item.get("title", ""),
             "库存": int(item.get("quantity", 0) or 0),
             "存放位置": item.get("location", "") or "—",
-            "状态": "启用" if is_active else "已归档",
+            "备注": remark,
         })
 
     frame = pd.DataFrame(table_rows)
@@ -276,11 +292,11 @@ def _render_inventory_table(
         hide_index=True,
         column_config={
             "编号": st.column_config.TextColumn("编号", width="small"),
-            "title": st.column_config.TextColumn("title", width="medium"),
             "类别": st.column_config.TextColumn("类别", width="small"),
+            "title": st.column_config.TextColumn("title", width="medium"),
             "库存": st.column_config.NumberColumn("库存", width="small"),
             "存放位置": st.column_config.TextColumn("存放位置", width="medium"),
-            "状态": st.column_config.TextColumn("状态", width="small"),
+            "备注": st.column_config.TextColumn("备注", width="medium"),
         },
     )
 
@@ -392,17 +408,20 @@ def _render_archive_delete_actions(service: InventoryService, item: dict) -> Non
             st.rerun()
 
 
-def _render_inventory_exports(items: list[dict]) -> None:
+def _render_inventory_exports(items: list[dict], remarks_by_item: dict[int, str] | None = None) -> None:
     rows = []
     for item in items:
+        remark = "—"
+        if remarks_by_item is not None:
+            remark = remarks_by_item.get(int(item["id"]), "") or "—"
         rows.append(
             {
                 "编号": item.get("item_code", ""),
+                "类别": item.get("category", ""),
                 "title": item.get("title", ""),
-                "title类别": item.get("category", ""),
                 "存放位置": item.get("location", ""),
                 "数量": int(item.get("quantity", 0) or 0),
-                "状态": "启用" if bool(item.get("is_active", 1)) else "已归档",
+                "备注": remark,
             }
         )
     frame = pd.DataFrame(rows)

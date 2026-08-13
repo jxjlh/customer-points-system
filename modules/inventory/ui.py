@@ -5,6 +5,7 @@ from io import BytesIO
 import pandas as pd
 import streamlit as st
 
+from modules.database_config import redact_database_error
 from modules.inventory.errors import InventoryError
 from modules.inventory.field_values import normalize_options
 from modules.inventory.presentation import filter_items, inventory_metrics, transaction_rows
@@ -43,6 +44,7 @@ def show_inventory_page(db_manager, operator: str = "") -> None:
 
 
 def _render_inventory_tab(service: InventoryService, operator: str) -> None:
+    _safe_call(service.ensure_schema, None, "初始化库存数据库失败")
     history_options = _safe_call(
         service.history_options,
         {"title": [], "category": [], "location": []},
@@ -567,7 +569,7 @@ def _excel_bytes(frame: pd.DataFrame, sheet_name: str) -> bytes:
 def _safe_call(callable_obj, default, error_message: str):
     try:
         return callable_obj()
-    except Exception:
+    except Exception as exc:
         logger.exception(error_message)
-        st.error(error_message)
+        st.error(f"{error_message}：{redact_database_error(exc)}")
         return default

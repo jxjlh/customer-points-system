@@ -5,6 +5,11 @@ class InventoryRepositoryAdapter:
     def __init__(self, manager: Any):
         self.manager = manager
 
+    def ensure_schema(self) -> None:
+        ensure_schema = getattr(self.manager, "ensure_inventory_schema", None)
+        if callable(ensure_schema):
+            ensure_schema()
+
     def list_items(self):
         return self.manager.list_inventory_items()
 

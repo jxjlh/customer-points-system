@@ -17,6 +17,9 @@ class InventoryService:
     def __init__(self, repository: Any):
         self.repository = repository
 
+    def ensure_schema(self) -> None:
+        self.repository.ensure_schema()
+
     def list_items(self):
         return self.repository.list_items()
 

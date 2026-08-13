@@ -250,6 +250,10 @@ _SCHEMA_STATEMENTS = [
     )""",
 ]
 
+_INVENTORY_SCHEMA_STATEMENTS = tuple(
+    statement for statement in _SCHEMA_STATEMENTS if "inventory_" in statement
+)
+
 # 保留向后兼容
 SCHEMA_DDL = "\n".join(_SCHEMA_STATEMENTS)
 
@@ -312,6 +316,13 @@ class PgDatabaseManager:
                 self._ensure_inventory_columns(cur)
         finally:
             self._pool.putconn(conn)
+
+    def ensure_inventory_schema(self) -> None:
+        """Ensure inventory tables exist even when unrelated schema setup failed."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                for statement in _INVENTORY_SCHEMA_STATEMENTS:
+                    cur.execute(statement)
 
     def _preflight_migration(self, cur) -> None:
         """预检迁移：在任何 DDL 之前先补上缺失的列"""

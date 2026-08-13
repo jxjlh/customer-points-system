@@ -1651,6 +1651,9 @@ class _PostgresManager(_BaseManager):
         from modules.pg_database import PgDatabaseManager
         return self._get_pg_mgr().list_inventory_items()
 
+    def ensure_inventory_schema(self) -> None:
+        self._get_pg_mgr().ensure_inventory_schema()
+
     def add_inventory_item(self, item: Dict) -> int:
         from modules.pg_database import PgDatabaseManager
         return self._get_pg_mgr().add_inventory_item(item)

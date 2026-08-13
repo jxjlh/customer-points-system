@@ -110,14 +110,9 @@ def _render_inventory_tab(service: InventoryService, operator: str) -> None:
         st.info("暂无符合条件的库存物品。")
         return
 
-    for item in filtered_items:
-        _render_item_card(
-            service,
-            item,
-            history_options,
-            custom_fields,
-            operator,
-        )
+    _render_grouped_inventory_list(
+        service, filtered_items, history_options, custom_fields, operator
+    )
 
 
 def _render_item_form(
@@ -281,13 +276,67 @@ def _render_history_value_manager(
                     st.error("删除失败，请稍后重试")
 
 
-def _render_item_card(
+def _render_grouped_inventory_list(
+    service: InventoryService,
+    items: list[dict],
+    history_options: dict[str, list[str]],
+    custom_fields: list[dict],
+    operator: str,
+) -> None:
+    """按 title 类别分组，以表格列表形式展示库存物品。"""
+    # 按 category 分组
+    groups: dict[str, list[dict]] = {}
+    for item in items:
+        cat = str(item.get("category", "")).strip() or "未分类"
+        groups.setdefault(cat, []).append(item)
+
+    for cat_name, cat_items in groups.items():
+        st.subheader(f"📂 {cat_name}（{len(cat_items)} 件）")
+
+        # 构建表格数据
+        table_rows = []
+        for item in cat_items:
+            is_active = bool(item.get("is_active", 1))
+            table_rows.append({
+                "编号": item.get("item_code", ""),
+                "title": item.get("title", ""),
+                "库存": int(item.get("quantity", 0) or 0),
+                "存放位置": item.get("location", "") or "—",
+                "状态": "启用" if is_active else "已归档",
+                "_item": item,
+            })
+
+        frame = pd.DataFrame(
+            [{k: v for k, v in row.items() if k != "_item"} for row in table_rows]
+        )
+        st.dataframe(
+            frame,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "编号": st.column_config.TextColumn("编号", width="small"),
+                "title": st.column_config.TextColumn("title", width="medium"),
+                "库存": st.column_config.NumberColumn("库存", width="small"),
+                "存放位置": st.column_config.TextColumn("存放位置", width="medium"),
+                "状态": st.column_config.TextColumn("状态", width="small"),
+            },
+        )
+
+        # 每个物品的操作区域
+        for item in cat_items:
+            _render_item_operations(
+                service, item, history_options, custom_fields, operator
+            )
+
+
+def _render_item_operations(
     service: InventoryService,
     item: dict,
     history_options: dict[str, list[str]],
     custom_fields: list[dict],
     operator: str,
 ) -> None:
+    """渲染单个物品的展开操作区域（出入库、编辑、归档）。"""
     item_id = int(item["id"])
     is_active = bool(item.get("is_active", 1))
     quantity = int(item.get("quantity", 0) or 0)
@@ -296,12 +345,6 @@ def _render_item_card(
     code = item.get("item_code", "")
 
     with st.expander(f"{code} · {title} · 库存 {quantity} · {status_text}"):
-        info_columns = st.columns(4)
-        info_columns[0].metric("当前库存", quantity)
-        info_columns[1].write(f"**类别**\n\n{item.get('category') or '未填写'}")
-        info_columns[2].write(f"**存放位置**\n\n{item.get('location') or '未填写'}")
-        info_columns[3].write(f"**状态**\n\n{status_text}")
-
         if is_active:
             _render_stock_form(service, item, operator)
             with st.expander("✏️ 编辑物品"):

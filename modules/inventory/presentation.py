@@ -33,6 +33,13 @@ def filter_items(
             if not any(normalized_keyword in str(value).casefold() for value in searchable):
                 continue
         filtered.append(item)
+    # 按编号排序（自然排序，数字部分按数值比较）
+    import re
+    def _natural_key(item):
+        code = str(item.get("item_code", ""))
+        return [int(s) if s.isdigit() else s.casefold()
+                for s in re.split(r'(\d+)', code) if s]
+    filtered.sort(key=_natural_key)
     return filtered
 
 

@@ -209,6 +209,23 @@ _SCHEMA_STATEMENTS = [
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
     # 迁移：移除 item_code 的 UNIQUE 约束（允许编号重复）
     "ALTER TABLE inventory_items DROP CONSTRAINT IF EXISTS inventory_items_item_code_key",
+    # 兜底：移除任何可能存在的 item_code 唯一约束
+    """DO $$
+    DECLARE
+        r RECORD;
+    BEGIN
+        FOR r IN
+            SELECT conname
+            FROM pg_constraint c
+            JOIN pg_class t ON c.conrelid = t.oid
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+            WHERE t.relname = 'inventory_items'
+              AND c.contype = 'u'
+              AND a.attname = 'item_code'
+        LOOP
+            EXECUTE 'ALTER TABLE inventory_items DROP CONSTRAINT IF EXISTS ' || r.conname;
+        END LOOP;
+    END $$;""",
     "CREATE INDEX IF NOT EXISTS idx_inv_code ON inventory_items(item_code)",
     "CREATE INDEX IF NOT EXISTS idx_inv_category ON inventory_items(category)",
     "CREATE INDEX IF NOT EXISTS idx_inv_location ON inventory_items(location)",
@@ -365,6 +382,31 @@ class PgDatabaseManager:
             conn.autocommit = True
             with conn.cursor() as cur:
                 self._ensure_inventory_columns(cur)
+        finally:
+            self._pool.putconn(conn)
+
+    def _drop_item_code_unique_constraint(self) -> None:
+        """移除 inventory_items.item_code 上的任何唯一约束"""
+        conn = self._pool.getconn()
+        try:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT conname
+                       FROM pg_constraint c
+                       JOIN pg_class t ON c.conrelid = t.oid
+                       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+                       WHERE t.relname = 'inventory_items'
+                         AND c.contype = 'u'
+                         AND a.attname = 'item_code'"""
+                )
+                for row in cur.fetchall():
+                    try:
+                        cur.execute(
+                            f"ALTER TABLE inventory_items DROP CONSTRAINT IF EXISTS {row[0]}"
+                        )
+                    except Exception:
+                        pass
         finally:
             self._pool.putconn(conn)
 
@@ -1021,19 +1063,32 @@ class PgDatabaseManager:
     def add_inventory_item(self, item: Dict) -> int:
         import json as _json
         extra = _json.dumps(item.get("extra_fields", {}), ensure_ascii=False)
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """INSERT INTO inventory_items
-                        (item_code, title, category, location, quantity, extra_fields)
-                       VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
-                    (item.get("item_code", ""), item.get("title", ""),
-                     item.get("category", ""), item.get("location", ""),
-                     int(item.get("quantity", 0)), extra),
-                )
-                item_id = cur.fetchone()[0]
-                self._restore_inventory_history_values(cur, item)
-                return item_id
+        sql = """INSERT INTO inventory_items
+                    (item_code, title, category, location, quantity, extra_fields)
+               VALUES (%s, %s, %s, %s, %s, %s) RETURNING id"""
+        params = (
+            item.get("item_code", ""), item.get("title", ""),
+            item.get("category", ""), item.get("location", ""),
+            int(item.get("quantity", 0)), extra,
+        )
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    item_id = cur.fetchone()[0]
+                    self._restore_inventory_history_values(cur, item)
+                    return item_id
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "unique" in err_msg or "duplicate" in err_msg:
+                self._drop_item_code_unique_constraint()
+                with self._conn() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(sql, params)
+                        item_id = cur.fetchone()[0]
+                        self._restore_inventory_history_values(cur, item)
+                        return item_id
+            raise
 
     def update_inventory_item(self, item_id: int, item: Dict) -> bool:
         import json as _json

@@ -217,9 +217,9 @@ def _render_item_form(
                 st.rerun()
             except InventoryError as exc:
                 st.error(str(exc))
-            except Exception:
+            except Exception as exc:
                 logger.exception("保存库存物品失败")
-                st.error("保存失败，请稍后重试")
+                st.error(f"保存失败：{type(exc).__name__}: {exc}")
 
 
 def _reusable_value_input(
@@ -362,9 +362,9 @@ def _render_stock_form(service: InventoryService, item: dict, operator: str) -> 
                 st.rerun()
             except InventoryError as exc:
                 st.error(str(exc))
-            except Exception:
+            except Exception as exc:
                 logger.exception("库存数量调整失败")
-                st.error("操作失败，请稍后重试")
+                st.error(f"操作失败：{type(exc).__name__}: {exc}")
 
 
 def _render_archive_delete_actions(service: InventoryService, item: dict) -> None:

@@ -1941,6 +1941,18 @@ class _SQLiteManager(_BaseManager):
             )
         self._inv_remove_item_code_unique_constraint(conn)
 
+        # 迁移：移除 item_code 上的 UNIQUE 约束（允许编号重复）
+        unique_indexes = conn.execute(
+            "PRAGMA index_list('inventory_items')"
+        ).fetchall()
+        for idx in unique_indexes:
+            idx_name = idx[1]
+            idx_info = conn.execute(
+                f"PRAGMA index_info('{idx_name}')"
+            ).fetchall()
+            if idx_info and idx_info[0][2] == "item_code":
+                conn.execute(f"DROP INDEX IF EXISTS {idx_name}")
+
         transaction_columns = {
             row[1]
             for row in conn.execute("PRAGMA table_info(inventory_transactions)").fetchall()
@@ -2018,17 +2030,46 @@ class _SQLiteManager(_BaseManager):
         self._inv_ensure_tables()
         extra = json.dumps(item.get("extra_fields", {}), ensure_ascii=False)
         conn = self._get_conn()
-        cur = conn.execute(
-            "INSERT INTO inventory_items (item_code, title, category, location, quantity, extra_fields) VALUES (?, ?, ?, ?, ?, ?)",
-            (item.get("item_code", ""), item.get("title", ""),
-             item.get("category", ""), item.get("location", ""),
-             int(item.get("quantity", 0)), extra),
-        )
-        self._inv_restore_history_values(conn, item)
-        conn.commit()
-        rid = cur.lastrowid
-        conn.close()
-        return rid
+        try:
+            cur = conn.execute(
+                "INSERT INTO inventory_items (item_code, title, category, location, quantity, extra_fields) VALUES (?, ?, ?, ?, ?, ?)",
+                (item.get("item_code", ""), item.get("title", ""),
+                 item.get("category", ""), item.get("location", ""),
+                 int(item.get("quantity", 0)), extra),
+            )
+            self._inv_restore_history_values(conn, item)
+            conn.commit()
+            rid = cur.lastrowid
+            conn.close()
+            return rid
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "unique" in err_msg or "constraint" in err_msg:
+                # 移除可能残留的 UNIQUE 索引
+                unique_indexes = conn.execute(
+                    "PRAGMA index_list('inventory_items')"
+                ).fetchall()
+                for idx in unique_indexes:
+                    idx_name = idx[1]
+                    idx_info = conn.execute(
+                        f"PRAGMA index_info('{idx_name}')"
+                    ).fetchall()
+                    if idx_info and idx_info[0][2] == "item_code":
+                        conn.execute(f"DROP INDEX IF EXISTS {idx_name}")
+                conn.commit()
+                cur = conn.execute(
+                    "INSERT INTO inventory_items (item_code, title, category, location, quantity, extra_fields) VALUES (?, ?, ?, ?, ?, ?)",
+                    (item.get("item_code", ""), item.get("title", ""),
+                     item.get("category", ""), item.get("location", ""),
+                     int(item.get("quantity", 0)), extra),
+                )
+                self._inv_restore_history_values(conn, item)
+                conn.commit()
+                rid = cur.lastrowid
+                conn.close()
+                return rid
+            conn.close()
+            raise
 
     def update_inventory_item(self, item_id: int, item: Dict) -> bool:
         self._inv_ensure_tables()

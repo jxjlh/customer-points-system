@@ -18,9 +18,30 @@ def apply_theme():
 
 
 def render_home_cards():
-    """首页卡片 CSS：只保留 grid 排版和普通 hover，去掉发光/浮动动画"""
+    """首页卡片 CSS + Emoji Burst 点击特效"""
     import streamlit as st
+    import streamlit.components.v1 as components
     st.markdown(_get_home_cards_css(), unsafe_allow_html=True)
+    
+    # 检查是否需要触发 Emoji Burst
+    burst_triggered = st.session_state.get("_emoji_burst_triggered")
+    if burst_triggered:
+        # 显示 Emoji Burst 动画
+        html_content = _get_emoji_burst_animation(burst_triggered)
+        # 使用 st.markdown 渲染一个覆盖层
+        st.markdown(f"""
+        <div style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:999999;pointer-events:none;overflow:hidden;">
+            {html_content}
+        </div>
+        """, unsafe_allow_html=True)
+        # 清除触发标记
+        st.session_state.pop("_emoji_burst_triggered", None)
+
+
+def trigger_emoji_burst(emojis: str = "🎉,✨,😄,🔥,💥,⭐,💖,🤩,👍,🥳"):
+    """设置 session state 以触发 Emoji Burst 动画"""
+    import streamlit as st
+    st.session_state["_emoji_burst_triggered"] = emojis
 
 
 def render_metric_cards():
@@ -164,6 +185,124 @@ def _get_home_cards_css() -> str:
         display: none !important;
     }
     </style>
+    """
+
+
+def _get_emoji_burst_animation(emojis_str: str) -> str:
+    """生成 Emoji Burst 动画 HTML（使用 CSS 动画）"""
+    import math
+    emojis_list = [e.strip() for e in emojis_str.split(",") if e.strip()]
+    
+    emojis_html = []
+    for i in range(25):
+        emoji = emojis_list[i % len(emojis_list)]
+        angle = (360 * i) / 25
+        distance = 100 + (i % 5) * 30
+        x = int(distance * math.cos(math.radians(angle)))
+        y = int(distance * math.sin(math.radians(angle)))
+        size = 20 + (i % 4) * 5
+        rot = (i * 30) % 360
+        
+        emojis_html.append(
+            f'<div class="emoji-burst-item" style="--tx:{x}px;--ty:{y}px;--rot:{rot}deg;font-size:{size}px;">{emoji}</div>'
+        )
+    
+    return f"""
+    <style>
+        .emoji-burst-item {{
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            pointer-events: none;
+            animation: emojiBurst 1.2s ease-out forwards;
+        }}
+        @keyframes emojiBurst {{
+            0% {{
+                transform: translate(-50%, -50%) scale(0.3);
+                opacity: 1;
+            }}
+            100% {{
+                transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1.2) rotate(var(--rot));
+                opacity: 0;
+            }}
+        }}
+    </style>
+    {''.join(emojis_html)}
+    """
+
+
+def _get_emoji_burst_js() -> str:
+    """注入 Emoji Burst 点击特效 JavaScript - 在 iframe 中运行但作用于父页面"""
+    return """
+    <script>
+    (function() {
+        const emojis = ['🎉','✨','😄','🔥','💥','⭐','💖','🤩','👍','🥳','🎊','😎','🚀','💫','🌟','💎','📊','📧','🧾','📋','🎬','📦','👑'];
+        
+        // 获取父窗口（Streamlit 主页面）
+        const targetWindow = window.parent || window;
+        const targetDocument = targetWindow.document;
+        
+        function createEmojiBurst(x, y) {
+            const burstCount = 15 + Math.floor(Math.random() * 10);
+            const container = targetDocument.createElement('div');
+            container.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;pointer-events:none;z-index:2147483647;';
+            targetDocument.body.appendChild(container);
+            
+            for (let i = 0; i < burstCount; i++) {
+                const emoji = targetDocument.createElement('div');
+                emoji.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+                const angle = (Math.PI * 2 * i) / burstCount + Math.random() * 0.5;
+                const power = 80 + Math.random() * 100;
+                const vx = Math.cos(angle) * power;
+                const vy = Math.sin(angle) * power - 50;
+                
+                const size = 20 + Math.random() * 16;
+                emoji.style.cssText = 'position:absolute;font-size:' + size + 'px;left:' + x + 'px;top:' + y + 'px;pointer-events:none;will-change:transform,opacity;transition:transform 1s ease-out,opacity 1s ease-out;';
+                
+                container.appendChild(emoji);
+                
+                requestAnimationFrame(function() {
+                    emoji.style.transform = 'translate(' + vx + 'px,' + (vy + 150) + 'px) rotate(' + (Math.random() * 720 - 360) + 'deg)';
+                    emoji.style.opacity = '0';
+                });
+                
+                setTimeout(function() {
+                    emoji.remove();
+                }, 1100);
+            }
+            
+            setTimeout(function() {
+                container.remove();
+            }, 1200);
+        }
+        
+        function initBurst() {
+            const buttons = targetDocument.querySelectorAll('div[data-testid="stButton"] button');
+            buttons.forEach(function(btn) {
+                if (btn.dataset.burstInitialized) return;
+                btn.dataset.burstInitialized = 'true';
+                btn.addEventListener('click', function(e) {
+                    const rect = btn.getBoundingClientRect();
+                    const x = rect.left + rect.width / 2;
+                    const y = rect.top + rect.height / 2;
+                    createEmojiBurst(x, y);
+                });
+            });
+        }
+        
+        // 立即初始化 + 定时检测新按钮
+        setTimeout(initBurst, 100);
+        setInterval(initBurst, 500);
+        
+        // 监听 DOM 变化
+        if (targetDocument.body) {
+            const observer = new MutationObserver(function() {
+                initBurst();
+            });
+            observer.observe(targetDocument.body, { childList: true, subtree: true });
+        }
+    })();
+    </script>
     """
 
 

@@ -157,7 +157,8 @@ def show_home(config):
             "key": "btn-customer",
             "session_value": "📊 客户积分智能分析",
             "session_sub": "📈 数据概览",
-            "help": "点击进入客户积分智能分析模块"
+            "help": "点击进入客户积分智能分析模块",
+            "emojis": "📊,✨,💖,⭐,🎉,📈,🏆"
         },
         {
             "icon": "📧",
@@ -166,7 +167,8 @@ def show_home(config):
             "color_class": "card-green",
             "key": "btn-email",
             "session_value": "📧 JAX邮件生成器",
-            "help": "点击进入JAX邮件生成器模块"
+            "help": "点击进入JAX邮件生成器模块",
+            "emojis": "📧,✨,🚀,💫,🎉,😄"
         },
         {
             "icon": "🧾",
@@ -175,7 +177,8 @@ def show_home(config):
             "color_class": "card-orange",
             "key": "btn-invoice",
             "session_value": "🧾 红冲发票自动登记",
-            "help": "点击进入红冲发票自动登记模块"
+            "help": "点击进入红冲发票自动登记模块",
+            "emojis": "🧾,✨,💥,🎊,🔥,⭐"
         },
         {
             "icon": "📋",
@@ -184,7 +187,8 @@ def show_home(config):
             "color_class": "card-purple",
             "key": "btn-quotation",
             "session_value": "📋 报价助手",
-            "help": "点击进入报价助手模块"
+            "help": "点击进入报价助手模块",
+            "emojis": "💰,✨,💎,⭐,📋,🚀"
         },
         {
             "icon": "🎬",
@@ -193,7 +197,8 @@ def show_home(config):
             "color_class": "card-cyan",
             "key": "btn-video-editor",
             "session_value": "🎬 AI 视频剪辑",
-            "help": "点击进入 AI 视频剪辑（Crayotter）模块"
+            "help": "点击进入 AI 视频剪辑（Crayotter）模块",
+            "emojis": "🎬,✨,🎨,🚀,💫,😄"
         },
         {
             "icon": "📦",
@@ -202,7 +207,8 @@ def show_home(config):
             "color_class": "card-blue",
             "key": "btn-inventory",
             "session_value": "📦 库存管理",
-            "help": "点击进入库存管理模块"
+            "help": "点击进入库存管理模块",
+            "emojis": "📦,✨,📊,🔍,💡,🎉"
         }
     ]
     
@@ -214,7 +220,8 @@ def show_home(config):
             "color_class": "card-pink",
             "key": "btn-admin",
             "session_value": "👑 用户管理",
-            "help": "点击进入用户管理模块"
+            "help": "点击进入用户管理模块",
+            "emojis": "👑,✨,🎉,🔥,⭐,💎"
         })
     
     show_home_cards(cards_config)

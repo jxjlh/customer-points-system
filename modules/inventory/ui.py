@@ -18,12 +18,11 @@ logger = logging.getLogger(__name__)
 
 def show_inventory_page(db_manager, operator: str = "") -> None:
     service = InventoryService(InventoryRepositoryAdapter(db_manager))
-    st.title("📦 库存管理")
-    st.caption("库存物品、出入库记录和自定义字段统一管理")
+    st.title("库存管理")
 
     backend_name = getattr(db_manager, "_backend_name", "数据库")
     if backend_name:
-        st.info(f"当前库存数据库：{backend_name}")
+        st.caption(f"数据库：{backend_name}")
     fallback_note = getattr(db_manager, "_fallback_note", "")
     if fallback_note:
         st.warning(
@@ -32,7 +31,7 @@ def show_inventory_page(db_manager, operator: str = "") -> None:
         )
 
     tab_items, tab_transactions, tab_fields = st.tabs(
-        ["📦 库存列表", "📋 出入库记录", "⚙️ 字段管理"]
+        ["库存列表", "出入库记录", "字段管理"]
     )
 
     with tab_items:
@@ -53,7 +52,8 @@ def _render_inventory_tab(service: InventoryService, operator: str) -> None:
     custom_fields = _safe_call(service.list_fields, [], "读取自定义字段失败")
     items = _safe_call(service.list_items, [], "读取库存失败")
 
-    with st.expander("➕ 新增库存物品", expanded=not items):
+    # 新增物品
+    with st.expander("新增库存物品", expanded=not items):
         _render_item_form(
             service,
             history_options,
@@ -61,12 +61,12 @@ def _render_inventory_tab(service: InventoryService, operator: str) -> None:
             operator,
             form_key="inventory_create",
         )
-        _render_history_value_manager(service, history_options)
 
-    filter_columns = st.columns([2, 1, 1, 1, 1])
+    # 筛选
+    filter_columns = st.columns([2, 1, 1, 1])
     with filter_columns[0]:
         keyword = st.text_input(
-            "🔍 搜索",
+            "搜索",
             key="inventory_filter_keyword",
             placeholder="编号、title、类别或位置",
         )
@@ -82,12 +82,11 @@ def _render_inventory_tab(service: InventoryService, operator: str) -> None:
             ["启用", "已归档", "全部"],
             key="inventory_filter_status",
         )
-    with filter_columns[4]:
-        low_stock_only = st.checkbox(
-            "仅低库存",
-            key="inventory_filter_low_stock",
-            help="显示库存数量小于或等于5的物品",
-        )
+
+    low_stock_only = st.checkbox(
+        "仅显示低库存（≤5）",
+        key="inventory_filter_low_stock",
+    )
 
     filtered_items = filter_items(
         items,
@@ -97,6 +96,8 @@ def _render_inventory_tab(service: InventoryService, operator: str) -> None:
         status=status,
         low_stock_only=low_stock_only,
     )
+
+    # 指标
     metrics = inventory_metrics(filtered_items)
     metric_columns = st.columns(4)
     metric_columns[0].metric("物品种类", metrics["item_count"])
@@ -110,7 +111,7 @@ def _render_inventory_tab(service: InventoryService, operator: str) -> None:
         st.info("暂无符合条件的库存物品。")
         return
 
-    _render_grouped_inventory_list(
+    _render_inventory_table(
         service, filtered_items, history_options, custom_fields, operator
     )
 
@@ -188,7 +189,7 @@ def _render_item_form(
                     )
 
         submitted = st.form_submit_button(
-            "💾 保存修改" if item is not None else "✅ 添加物品",
+            "保存修改" if item is not None else "添加物品",
             type="primary",
             use_container_width=True,
         )
@@ -243,128 +244,88 @@ def _render_history_value_manager(
     service: InventoryService,
     history_options: dict[str, list[str]],
 ) -> None:
-    st.markdown("**管理 title 类别（大分类）和存放位置的历史值**")
-    st.caption("删除仅从下拉历史中隐藏，不会修改已经保存的库存物品。再次使用同一值保存时，会自动恢复。")
-    columns = st.columns(2)
-    for container, (column, label) in zip(
-        columns,
-        (("category", "title 类别（大分类）"), ("location", "存放位置")),
-    ):
-        with container:
-            values = history_options.get(column, [])
-            selected = st.selectbox(
-                f"删除{label}历史值",
-                [""] + values,
-                key=f"inventory_history_delete_{column}",
-                format_func=lambda value: value or "请选择历史值",
-                disabled=not values,
-            )
-            if st.button(
-                "删除",
-                key=f"inventory_history_delete_button_{column}",
-                disabled=not selected,
-                use_container_width=True,
-            ):
-                try:
-                    service.delete_history_value(column, selected)
-                    st.success(f"已删除{label}历史值")
-                    st.rerun()
-                except InventoryError as exc:
-                    st.error(str(exc))
-                except Exception:
-                    logger.exception("删除库存历史值失败")
-                    st.error("删除失败，请稍后重试")
+    """已移至字段管理标签页，此函数保留兼容但不再在库存列表中使用。"""
+    pass
 
 
-def _render_grouped_inventory_list(
+def _render_inventory_table(
     service: InventoryService,
     items: list[dict],
     history_options: dict[str, list[str]],
     custom_fields: list[dict],
     operator: str,
 ) -> None:
-    """按 title 类别分组，以表格列表形式展示库存物品。"""
-    # 按 category 分组
-    groups: dict[str, list[dict]] = {}
+    """以单一表格展示所有库存物品，下方选择物品进行操作。"""
+    # 构建表格数据
+    table_rows = []
     for item in items:
-        cat = str(item.get("category", "")).strip() or "未分类"
-        groups.setdefault(cat, []).append(item)
+        is_active = bool(item.get("is_active", 1))
+        table_rows.append({
+            "编号": item.get("item_code", ""),
+            "title": item.get("title", ""),
+            "类别": item.get("category", "") or "—",
+            "库存": int(item.get("quantity", 0) or 0),
+            "存放位置": item.get("location", "") or "—",
+            "状态": "启用" if is_active else "已归档",
+        })
 
-    for cat_name, cat_items in groups.items():
-        st.subheader(f"📂 {cat_name}（{len(cat_items)} 件）")
+    frame = pd.DataFrame(table_rows)
+    st.dataframe(
+        frame,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "编号": st.column_config.TextColumn("编号", width="small"),
+            "title": st.column_config.TextColumn("title", width="medium"),
+            "类别": st.column_config.TextColumn("类别", width="small"),
+            "库存": st.column_config.NumberColumn("库存", width="small"),
+            "存放位置": st.column_config.TextColumn("存放位置", width="medium"),
+            "状态": st.column_config.TextColumn("状态", width="small"),
+        },
+    )
 
-        # 构建表格数据
-        table_rows = []
-        for item in cat_items:
-            is_active = bool(item.get("is_active", 1))
-            table_rows.append({
-                "编号": item.get("item_code", ""),
-                "title": item.get("title", ""),
-                "库存": int(item.get("quantity", 0) or 0),
-                "存放位置": item.get("location", "") or "—",
-                "状态": "启用" if is_active else "已归档",
-                "_item": item,
-            })
+    # 选择物品进行操作
+    st.divider()
+    options_map = {}
+    for item in items:
+        code = item.get("item_code", "")
+        title = item.get("title", "")
+        qty = int(item.get("quantity", 0) or 0)
+        label = f"{code} · {title} · 库存 {qty}"
+        options_map[label] = item
 
-        frame = pd.DataFrame(
-            [{k: v for k, v in row.items() if k != "_item"} for row in table_rows]
-        )
-        st.dataframe(
-            frame,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "编号": st.column_config.TextColumn("编号", width="small"),
-                "title": st.column_config.TextColumn("title", width="medium"),
-                "库存": st.column_config.NumberColumn("库存", width="small"),
-                "存放位置": st.column_config.TextColumn("存放位置", width="medium"),
-                "状态": st.column_config.TextColumn("状态", width="small"),
-            },
-        )
+    selected_label = st.selectbox("选择物品进行操作", list(options_map.keys()))
+    if not selected_label:
+        return
 
-        # 每个物品的操作区域
-        for item in cat_items:
-            _render_item_operations(
-                service, item, history_options, custom_fields, operator
-            )
+    selected_item = options_map[selected_label]
+    item_id = int(selected_item["id"])
+    is_active = bool(selected_item.get("is_active", 1))
 
-
-def _render_item_operations(
-    service: InventoryService,
-    item: dict,
-    history_options: dict[str, list[str]],
-    custom_fields: list[dict],
-    operator: str,
-) -> None:
-    """渲染单个物品的展开操作区域（出入库、编辑、归档）。"""
-    item_id = int(item["id"])
-    is_active = bool(item.get("is_active", 1))
-    quantity = int(item.get("quantity", 0) or 0)
-    status_text = "启用" if is_active else "已归档"
-    title = item.get("title", "")
-    code = item.get("item_code", "")
-
-    with st.expander(f"{code} · {title} · 库存 {quantity} · {status_text}"):
-        if is_active:
-            _render_stock_form(service, item, operator)
-            with st.expander("✏️ 编辑物品"):
+    if is_active:
+        op_cols = st.columns(3)
+        with op_cols[0]:
+            _render_stock_form(service, selected_item, operator)
+        with op_cols[1]:
+            with st.expander("编辑物品"):
                 _render_item_form(
                     service,
                     history_options,
                     custom_fields,
                     operator,
                     form_key=f"inventory_edit_{item_id}",
-                    item=item,
+                    item=selected_item,
                 )
-            _render_archive_delete_actions(service, item)
-        else:
-            if st.button("♻️ 恢复启用", key=f"inventory_restore_{item_id}"):
-                try:
-                    service.restore_item(item_id)
-                    st.success("物品已恢复启用")
-                    st.rerun()
-                except InventoryError as exc:
-                    st.error(str(exc))
+        with op_cols[2]:
+            _render_archive_delete_actions(service, selected_item)
+    else:
+        if st.button("恢复启用", key=f"inventory_restore_{item_id}"):
+            try:
+                service.restore_item(item_id)
+                st.success("物品已恢复启用")
+                st.rerun()
+            except InventoryError as exc:
+                st.error(str(exc))
 
 
 def _render_stock_form(service: InventoryService, item: dict, operator: str) -> None:
@@ -413,7 +374,7 @@ def _render_stock_form(service: InventoryService, item: dict, operator: str) -> 
 def _render_archive_delete_actions(service: InventoryService, item: dict) -> None:
     item_id = int(item["id"])
     confirm_key = f"inventory_confirm_remove_{item_id}"
-    if st.button("🗄️ 归档或删除", key=f"inventory_remove_{item_id}"):
+    if st.button("归档或删除", key=f"inventory_remove_{item_id}"):
         st.session_state[confirm_key] = True
     if st.session_state.get(confirm_key):
         st.warning("有出入库记录的物品将归档；无记录的物品将彻底删除。")

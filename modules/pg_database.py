@@ -716,9 +716,7 @@ class PgDatabaseManager:
                     )
                 else:
                     cur.execute("SELECT EXISTS(SELECT 1 FROM price_library LIMIT 1)")
-                item_id = cur.fetchone()[0]
-                self._restore_inventory_history_values(cur, item)
-                return item_id
+                return cur.fetchone()[0]
 
     def get_price_library_as_dataframe(self, customer_type: Optional[str] = None) -> Dict[str, pd.DataFrame]:
         """从数据库加载价格库为 DataFrame（按客户类型分组）"""

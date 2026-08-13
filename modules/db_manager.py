@@ -592,7 +592,7 @@ class _MySQLManager(_BaseManager):
 
         CREATE TABLE IF NOT EXISTS inventory_items (
             id           INT AUTO_INCREMENT PRIMARY KEY,
-            item_code    VARCHAR(100)  NOT NULL UNIQUE,
+            item_code    VARCHAR(100)  NOT NULL,
             title        VARCHAR(200)  NOT NULL,
             category     VARCHAR(100),
             location     VARCHAR(200),
@@ -660,6 +660,19 @@ class _MySQLManager(_BaseManager):
             )
             if not rows:
                 self._execute(f"ALTER TABLE {table_name} ADD COLUMN {column_ddl}")
+
+        unique_indexes = self._execute(
+            "SHOW INDEX FROM inventory_items WHERE Column_name=%s AND Non_unique=0",
+            ("item_code",),
+            fetch=True,
+        )
+        for index in unique_indexes:
+            index_name = index.get("Key_name")
+            if index_name and index_name != "PRIMARY":
+                escaped_index_name = index_name.replace("`", "``")
+                self._execute(
+                    f"ALTER TABLE inventory_items DROP INDEX `{escaped_index_name}`"
+                )
 
         indexes = (
             ("idx_inv_location", "location"),
@@ -1880,7 +1893,7 @@ class _SQLiteManager(_BaseManager):
         conn = self._get_conn()
         conn.execute("""CREATE TABLE IF NOT EXISTS inventory_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_code TEXT NOT NULL UNIQUE,
+            item_code TEXT NOT NULL,
             title TEXT NOT NULL,
             category TEXT,
             location TEXT,
@@ -1923,6 +1936,7 @@ class _SQLiteManager(_BaseManager):
             conn.execute(
                 "ALTER TABLE inventory_items ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP"
             )
+        self._inv_remove_item_code_unique_constraint(conn)
 
         transaction_columns = {
             row[1]
@@ -1951,6 +1965,43 @@ class _SQLiteManager(_BaseManager):
         )
         conn.commit()
         conn.close()
+
+    @staticmethod
+    def _inv_remove_item_code_unique_constraint(conn):
+        unique_indexes = conn.execute("PRAGMA index_list(inventory_items)").fetchall()
+        has_unique_item_code = any(
+            index[2]
+            and [column[2] for column in conn.execute(f"PRAGMA index_info({index[1]!r})")]
+            == ["item_code"]
+            for index in unique_indexes
+        )
+        if not has_unique_item_code:
+            return
+
+        conn.execute("ALTER TABLE inventory_items RENAME TO inventory_items_legacy")
+        conn.execute(
+            """CREATE TABLE inventory_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_code TEXT NOT NULL,
+                title TEXT NOT NULL,
+                category TEXT,
+                location TEXT,
+                quantity INTEGER DEFAULT 0,
+                extra_fields TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_active INTEGER NOT NULL DEFAULT 1
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO inventory_items
+                (id, item_code, title, category, location, quantity, extra_fields,
+                 created_at, updated_at, is_active)
+               SELECT id, item_code, title, category, location, quantity, extra_fields,
+                      created_at, updated_at, is_active
+                 FROM inventory_items_legacy"""
+        )
+        conn.execute("DROP TABLE inventory_items_legacy")
 
     def list_inventory_items(self) -> List[Dict]:
         self._inv_ensure_tables()

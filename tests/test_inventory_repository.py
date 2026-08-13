@@ -60,6 +60,40 @@ class InventoryRepositoryTests(unittest.TestCase):
         item = self.manager.get_inventory_item(item_id)
         self.assertEqual(item["is_active"], 1)
 
+    def test_existing_unique_item_code_constraint_is_removed(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            """CREATE TABLE inventory_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_code TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                category TEXT,
+                location TEXT,
+                quantity INTEGER DEFAULT 0,
+                extra_fields TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE inventory_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                transaction_type TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                remark TEXT,
+                operator TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
+        conn.commit()
+        conn.close()
+
+        self.manager.add_inventory_item({"item_code": "M-001", "title": "模型A"})
+        self.manager.add_inventory_item({"item_code": "M-001", "title": "模型B"})
+
+        self.assertEqual(len(self.manager.list_inventory_items()), 2)
+
     def test_saved_values_are_returned_as_history(self):
         self.manager.add_inventory_item(
             {

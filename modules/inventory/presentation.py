@@ -54,6 +54,20 @@ def inventory_metrics(items: Iterable[dict]) -> dict[str, int]:
     }
 
 
+def group_items_by_category(items: Iterable[dict]) -> list[tuple[str, list[dict]]]:
+    groups: dict[str, list[dict]] = {}
+    for item in items:
+        category = str(item.get("category") or "").strip() or "未分类"
+        groups.setdefault(category, []).append(item)
+    return [
+        (category, groups[category])
+        for category in sorted(
+            groups,
+            key=lambda value: (value == "未分类", value.casefold()),
+        )
+    ]
+
+
 def transaction_rows(records: Iterable[dict]) -> list[dict[str, Any]]:
     rows = []
     for record in records:

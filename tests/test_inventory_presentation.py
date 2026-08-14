@@ -5,6 +5,7 @@ from modules.inventory.presentation import (
     inventory_metrics,
     transaction_rows,
 )
+from modules.inventory import presentation
 
 
 ITEMS = [
@@ -64,6 +65,21 @@ class InventoryPresentationTests(unittest.TestCase):
         self.assertEqual(
             inventory_metrics(ITEMS),
             {"item_count": 3, "total_quantity": 10, "low_stock": 2, "zero_stock": 1},
+        )
+
+    def test_group_items_by_category_keeps_titles_together_and_unclassified_last(self):
+        grouped = presentation.group_items_by_category(
+            [
+                {"id": 1, "title": "title A", "category": "仪器"},
+                {"id": 2, "title": "title B", "category": "耗材"},
+                {"id": 3, "title": "title C", "category": "仪器"},
+                {"id": 4, "title": "title D", "category": "  "},
+            ]
+        )
+
+        self.assertEqual(
+            [(name, [item["id"] for item in rows]) for name, rows in grouped],
+            [("仪器", [1, 3]), ("耗材", [2]), ("未分类", [4])],
         )
 
     def test_transaction_rows_adds_chinese_type_and_signed_quantity(self):

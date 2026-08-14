@@ -59,7 +59,7 @@ class InventoryPresentationTests(unittest.TestCase):
         archived = filter_items(ITEMS, status="已归档")
         low_stock = filter_items(ITEMS, status="全部", low_stock_only=True)
         self.assertEqual([item["id"] for item in archived], [3])
-        self.assertEqual([item["id"] for item in low_stock], [2, 3])
+        self.assertEqual([item["id"] for item in low_stock], [3, 2])
 
     def test_inventory_metrics_reports_counts_and_quantity(self):
         self.assertEqual(

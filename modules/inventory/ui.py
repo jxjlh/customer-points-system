@@ -8,7 +8,12 @@ import streamlit as st
 from modules.database_config import redact_database_error
 from modules.inventory.errors import InventoryError
 from modules.inventory.field_values import normalize_options
-from modules.inventory.presentation import filter_items, inventory_metrics, transaction_rows
+from modules.inventory.presentation import (
+    filter_items,
+    group_items_by_category,
+    inventory_metrics,
+    transaction_rows,
+)
 from modules.inventory.repository import InventoryRepositoryAdapter
 from modules.inventory.service import InventoryService
 
@@ -126,9 +131,20 @@ def _render_inventory_tab(service: InventoryService, operator: str) -> None:
         st.info("暂无符合条件的库存物品。")
         return
 
-    _render_inventory_table(
-        service, filtered_items, history_options, custom_fields, operator, remarks_by_item
-    )
+    for category_name, category_items in group_items_by_category(filtered_items):
+        with st.expander(
+            f"{category_name}（{len(category_items)} 个物品）",
+            expanded=True,
+        ):
+            _render_inventory_table(
+                service,
+                category_items,
+                history_options,
+                custom_fields,
+                operator,
+                remarks_by_item,
+                category_name,
+            )
 
 
 def _render_item_form(
@@ -270,8 +286,9 @@ def _render_inventory_table(
     custom_fields: list[dict],
     operator: str,
     remarks_by_item: dict[int, str],
+    category_name: str,
 ) -> None:
-    """以单一表格展示所有库存物品，下方选择物品进行操作。"""
+    """以类别表格展示库存物品，并提供该类别的操作入口。"""
     # 构建表格数据（顺序：编号、类别、title、库存、存放位置、备注）
     table_rows = []
     for item in items:
@@ -310,7 +327,11 @@ def _render_inventory_table(
         label = f"{code} · {title} · 库存 {qty}"
         options_map[label] = item
 
-    selected_label = st.selectbox("选择物品进行操作", list(options_map.keys()))
+    selected_label = st.selectbox(
+        "选择物品进行操作",
+        list(options_map.keys()),
+        key=f"inventory_operation_{category_name}",
+    )
     if not selected_label:
         return
 

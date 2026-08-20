@@ -165,11 +165,16 @@ def get_db_manager():
                 db_info["fallback_reason"] = error_detail
 
         # 降级到 SQLite（不抛出异常）
-        db_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "database",
-            "points.db",
-        )
+        # 优先使用环境变量指定的可写目录（Streamlit Cloud 通过 app.py 设置）
+        _crayotter_writable = os.environ.get("CRAYOTTER_WRITABLE_DIR", "")
+        if _crayotter_writable:
+            db_path = os.path.join(_crayotter_writable, "database", "points.db")
+        else:
+            db_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "database",
+                "points.db",
+            )
         sqlite_mgr = _SQLiteManager(db_path)
         sqlite_mgr.init_schema()
         sqlite_mgr._backend_name = "SQLite（本地临时数据库）"

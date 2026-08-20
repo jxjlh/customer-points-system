@@ -1,11 +1,30 @@
 import os
 import sys
 import traceback
+import tempfile
 
 # Ensure app directory is on sys.path BEFORE any other imports
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
+
+# 检测是否在只读文件系统（如 Streamlit Cloud）
+def _get_writable_dir():
+    """返回可写目录路径，Cloud 环境自动降级到 /tmp"""
+    test_path = os.path.join(_APP_DIR, ".write_test")
+    try:
+        with open(test_path, "w") as f:
+            f.write("test")
+        os.remove(test_path)
+        return _APP_DIR  # 本地开发环境：正常写入
+    except (OSError, PermissionError):
+        writable = os.path.join(tempfile.gettempdir(), "crayotter_data")
+        os.makedirs(writable, exist_ok=True)
+        return writable
+
+_WRITABLE_DIR = _get_writable_dir()
+_IS_CLOUD = (_WRITABLE_DIR != _APP_DIR)
+os.environ["CRAYOTTER_WRITABLE_DIR"] = _WRITABLE_DIR
 
 import streamlit as st
 import textwrap
@@ -50,9 +69,9 @@ except Exception as e:
     st.code(traceback.format_exc())
     st.stop()
 
-DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database", "points.db")
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
+DEFAULT_EXCEL_PATH = os.path.join(_APP_DIR, "2026春夏促销活动清单-7.16.xlsx")
+DB_PATH = os.path.join(_WRITABLE_DIR, "database", "points.db")
+CONFIG_PATH = os.path.join(_APP_DIR, "config.yaml")
 
 
 def load_data(excel_path=None, file_bytes=None):
@@ -1419,7 +1438,7 @@ def show_invoice_registration():
         "password": st.text_input("客户端授权码", type="password"),
         "sender": st.text_input("发件人过滤", "百旺金穗云dzfpfwpt@hnfapiao.com"),
         "subject_filter": st.text_input("主题关键字", "开具的发票"),
-        "output_dir": st.text_input("保存目录", r"C:\Users\Admin\Downloads\发票汇总"),
+        "output_dir": st.text_input("保存目录", os.path.join(_WRITABLE_DIR, "发票汇总")),
         "days_back": st.number_input("检索天数", min_value=1, max_value=30, value=5),
     }
     
@@ -1525,8 +1544,17 @@ def main():
     )
     st.markdown(hide_sidebar_css, unsafe_allow_html=True)
     
-    with open(CONFIG_PATH) as file:
-        config = yaml.load(file, Loader=SafeLoader)
+    # 加载配置（Cloud 环境使用可写路径缓存）
+    _config_cache_path = os.path.join(_WRITABLE_DIR, "config.yaml")
+    if os.path.exists(_config_cache_path):
+        with open(_config_cache_path) as file:
+            config = yaml.load(file, Loader=SafeLoader)
+    elif os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH) as file:
+            config = yaml.load(file, Loader=SafeLoader)
+    else:
+        st.error(f"配置文件不存在: {CONFIG_PATH}")
+        st.stop()
     
     authenticator = stauth.Authenticate(
         config['credentials'],
@@ -1579,8 +1607,15 @@ def main():
                         "role": "user"
                     }
                     
-                    with open(CONFIG_PATH, 'w') as file:
-                        yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
+                    # 写入可写路径（Cloud 环境降级到 /tmp）
+                    _save_path = _config_cache_path if _IS_CLOUD else CONFIG_PATH
+                    try:
+                        with open(_save_path, 'w') as file:
+                            yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
+                        if _IS_CLOUD:
+                            st.info(f"💡 注册信息已保存到云端临时存储（重启后需重新注册）")
+                    except Exception as write_err:
+                        st.warning(f"⚠️ 写入失败: {write_err}。注册信息仅在当前会话有效。")
                     
                     st.success("🎉 注册成功！请切换到登录页面登录")
         

@@ -31,7 +31,34 @@ def guess_smtp_config(email_address: str) -> tuple:
     }
     if domain in presets:
         return presets[domain]
+    # 网易企业邮箱（自定义域名）：smtp.qiye.163.com
+    # 腾讯企业邮箱（自定义域名）：smtp.exmail.qq.com
+    # 阿里企业邮箱（自定义域名）：smtp.mxhichina.com
+    # 已知客户域名硬编码映射
+    known_corp_domains = {
+        # 网易企业邮箱客户域名
+        "ibiologistics.com": ("smtp.qiye.163.com", 465, True),
+    }
+    if domain in known_corp_domains:
+        return known_corp_domains[domain]
     return (f"smtp.{domain}", 465, True)
+
+
+def list_smtp_candidates(email_address: str) -> list:
+    """返回常见企业邮箱候选列表，用于连接失败时逐一尝试或提示用户选择。"""
+    domain = email_address.split("@")[-1].lower() if "@" in email_address else ""
+    host, port, ssl = guess_smtp_config(email_address)
+    candidates = [(host, port, ssl, "自动识别")]
+    if domain not in {
+        "qq.com", "vip.qq.com", "foxmail.com", "163.com", "126.com",
+        "yeah.net", "gmail.com", "outlook.com", "icloud.com", "sina.com",
+        "sina.cn", "sohu.com", "139.com", "aliyun.com", "exmail.qq.com",
+        "ibiologistics.com",
+    }:
+        candidates.append(("smtp.qiye.163.com", 465, True, "网易企业邮箱"))
+        candidates.append(("smtp.exmail.qq.com", 465, True, "腾讯企业邮箱"))
+        candidates.append(("smtp.mxhichina.com", 465, True, "阿里企业邮箱"))
+    return candidates
 
 
 def test_smtp_connection(smtp_user, smtp_password, smtp_host=None, smtp_port=None):

@@ -1002,7 +1002,7 @@ def process_excel_email(file_bytes):
 
 
 def show_email_generator():
-    from modules.email_sender import test_smtp_connection, send_bulk_emails, guess_smtp_config
+    from modules.email_sender import test_smtp_connection, send_bulk_emails, guess_smtp_config, list_smtp_candidates
 
     st.title("📧 JAX小鼠发货通知邮件生成器")
 
@@ -1028,19 +1028,47 @@ def show_email_generator():
             host, port, ssl_flag = guess_smtp_config(smtp_user)
             st.caption(f"自动识别SMTP: {host}:{port} {'(SSL)' if ssl_flag else '(STARTTLS)'}")
 
+        with st.expander("🛠️ 高级：手动覆盖SMTP服务器", expanded=False):
+            override_col1, override_col2, override_col3 = st.columns(3)
+            with override_col1:
+                manual_host = st.text_input("SMTP主机（留空用自动识别）", value=st.session_state.get("eg_smtp_host", ""), key="eg_manual_host", placeholder="例如 smtp.qiye.163.com")
+            with override_col2:
+                manual_port_input = st.text_input("端口（留空用自动识别）", value=str(st.session_state.get("eg_smtp_port", "") or ""), key="eg_manual_port", placeholder="例如 465")
+            with override_col3:
+                manual_ssl = st.checkbox("使用SSL（465/994）", value=st.session_state.get("eg_smtp_ssl", True), key="eg_manual_ssl")
+            candidates = list_smtp_candidates(smtp_user) if smtp_user else []
+            if len(candidates) > 1:
+                st.caption("常见候选（企业域名不确定时可尝试）：" + "；".join([f"{c[3]} {c[0]}:{c[1]}" for c in candidates[1:]]))
+
+        eff_host = manual_host.strip() or host
+        try:
+            eff_port = int(str(manual_port_input).strip()) if str(manual_port_input).strip() else port
+        except Exception:
+            eff_port = port
+        eff_ssl = manual_ssl
+
         test_col1, test_col2 = st.columns([1, 3])
         with test_col1:
             if st.button("🔌 测试连接", key="eg_test_conn", use_container_width=True):
                 with st.spinner("测试SMTP连接..."):
-                    conn_result = test_smtp_connection(smtp_user, smtp_password)
+                    conn_result = test_smtp_connection(smtp_user, smtp_password, eff_host, eff_port)
                     if conn_result["status"] == "success":
                         st.success(f"✅ 连接成功！{conn_result['smtp_host']}:{conn_result['smtp_port']} ({conn_result['elapsed_seconds']}s)")
                     else:
                         st.error(f"❌ 连接失败: {conn_result.get('message', '未知错误')}")
+                        candidates = list_smtp_candidates(smtp_user)
+                        if len(candidates) > 1:
+                            st.info(f"💡 自动识别未命中，请在「高级」里手动指定。常见候选：" + "；".join([f"{c[3]} {c[0]}:{c[1]}" for c in candidates[1:]]))
 
         st.session_state["email_smtp_user"] = smtp_user
         st.session_state["email_smtp_password"] = smtp_password
         st.session_state["email_sender_name"] = sender_name
+        st.session_state["eg_smtp_host"] = manual_host
+        st.session_state["eg_smtp_port"] = str(manual_port_input or "")
+        st.session_state["eg_smtp_ssl"] = manual_ssl
+        st.session_state["eg_smtp_eff_host"] = eff_host
+        st.session_state["eg_smtp_eff_port"] = eff_port
+        st.session_state["eg_smtp_eff_ssl"] = eff_ssl
 
     uploaded_file = st.file_uploader("选择Excel文件", type=["xlsx", "xls"])
 
@@ -1188,7 +1216,7 @@ def _extract_surname(name: str) -> str:
 
 
 def show_email_blast():
-    from modules.email_sender import test_smtp_connection, send_bulk_emails, guess_smtp_config
+    from modules.email_sender import test_smtp_connection, send_bulk_emails, guess_smtp_config, list_smtp_candidates
 
     st.title("📨 邮件群发")
 
@@ -1213,17 +1241,45 @@ def show_email_blast():
             host, port, ssl_flag = guess_smtp_config(smtp_user)
             st.caption(f"自动识别SMTP: {host}:{port} {'(SSL)' if ssl_flag else '(STARTTLS)'}")
 
+        with st.expander("🛠️ 高级：手动覆盖SMTP服务器", expanded=False):
+            override_col1, override_col2, override_col3 = st.columns(3)
+            with override_col1:
+                manual_host = st.text_input("SMTP主机（留空用自动识别）", value=st.session_state.get("mb_smtp_host", ""), key="mb_manual_host", placeholder="例如 smtp.qiye.163.com")
+            with override_col2:
+                manual_port_input = st.text_input("端口（留空用自动识别）", value=str(st.session_state.get("mb_smtp_port", "") or ""), key="mb_manual_port", placeholder="例如 465")
+            with override_col3:
+                manual_ssl = st.checkbox("使用SSL（465/994）", value=st.session_state.get("mb_smtp_ssl", True), key="mb_manual_ssl")
+            candidates = list_smtp_candidates(smtp_user) if smtp_user else []
+            if len(candidates) > 1:
+                st.caption("常见候选（企业域名不确定时可尝试）：" + "；".join([f"{c[3]} {c[0]}:{c[1]}" for c in candidates[1:]]))
+
+        eff_host = manual_host.strip() or host
+        try:
+            eff_port = int(str(manual_port_input).strip()) if str(manual_port_input).strip() else port
+        except Exception:
+            eff_port = port
+        eff_ssl = manual_ssl
+
         if st.button("🔌 测试连接", key="mb_test_conn", use_container_width=True):
             with st.spinner("测试SMTP连接..."):
-                conn_result = test_smtp_connection(smtp_user, smtp_password)
+                conn_result = test_smtp_connection(smtp_user, smtp_password, eff_host, eff_port)
                 if conn_result["status"] == "success":
                     st.success(f"✅ 连接成功！{conn_result['smtp_host']}:{conn_result['smtp_port']} ({conn_result['elapsed_seconds']}s)")
                 else:
                     st.error(f"❌ 连接失败: {conn_result.get('message', '未知错误')}")
+                    candidates = list_smtp_candidates(smtp_user)
+                    if len(candidates) > 1:
+                        st.info(f"💡 自动识别未命中，请在「高级」里手动指定。常见候选：" + "；".join([f"{c[3]} {c[0]}:{c[1]}" for c in candidates[1:]]))
 
         st.session_state["email_smtp_user"] = smtp_user
         st.session_state["email_smtp_password"] = smtp_password
         st.session_state["email_sender_name"] = sender_name
+        st.session_state["mb_smtp_host"] = manual_host
+        st.session_state["mb_smtp_port"] = str(manual_port_input or "")
+        st.session_state["mb_smtp_ssl"] = manual_ssl
+        st.session_state["mb_smtp_eff_host"] = eff_host
+        st.session_state["mb_smtp_eff_port"] = eff_port
+        st.session_state["mb_smtp_eff_ssl"] = eff_ssl
 
     st.subheader("1. 上传Excel")
     uploaded_file = st.file_uploader("选择Excel文件", type=["xlsx", "xls"], key="mb_excel")

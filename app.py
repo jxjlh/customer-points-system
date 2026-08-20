@@ -1363,13 +1363,27 @@ def show_email_blast():
         dry_run = st.checkbox("演练模式（不实际发送）", value=True, key="mb_dry_run")
 
     if recipients_data and (subject_template or body_template):
+        # 中文变量名映射到实际字段名
+        CN_VAR_MAP = {
+            "姓氏": "surname",
+            "姓名": "name",
+            "名字": "given_name",
+            "邮箱": "email",
+        }
         email_list_for_send = []
         for r in recipients_data:
             subject = subject_template
             body = body_template
+            # 构造完整替换映射：中文字段名 + 实际字段名 + Excel原始列名
+            replace_map = {}
+            for cn_name, field_name in CN_VAR_MAP.items():
+                if field_name in r:
+                    replace_map[cn_name] = str(r[field_name] or "")
             for key, val in r.items():
-                subject = subject.replace("{{" + key + "}}", str(val))
-                body = body.replace("{{" + key + "}}", str(val))
+                replace_map[key] = str(val or "")
+            for k, v in replace_map.items():
+                subject = subject.replace("{{" + k + "}}", v)
+                body = body.replace("{{" + k + "}}", v)
             email_list_for_send.append({
                 "email": r["email"],
                 "name": r.get("name", ""),
@@ -1380,7 +1394,7 @@ def show_email_blast():
         missing_vars = set()
         import re
         for item in email_list_for_send:
-            remaining = re.findall(r'\{\{(\w+)\}\}', item["subject"] + item["body"])
+            remaining = re.findall(r'\{\{([^}]+)\}\}', item["subject"] + item["body"])
             missing_vars.update(remaining)
         if missing_vars:
             st.warning(f"⚠️ 模板中存在未替换的变量: {', '.join(missing_vars)}")

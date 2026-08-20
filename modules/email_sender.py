@@ -89,11 +89,11 @@ def test_smtp_connection(smtp_user, smtp_password, smtp_host=None, smtp_port=Non
         return {"status": "error", "message": str(e), "smtp_host": host, "smtp_port": port, "elapsed_seconds": elapsed}
 
 
-def _encode_filename(filename: str) -> str:
-    """RFC 2231 规范编码附件文件名，兼容中文/特殊字符，避免被网关降级为 .bin。"""
+def _encode_filename_rfc2231(filename: str) -> str:
+    """RFC 2231 规范编码文件名（用于 filename*）。"""
     import urllib.parse
     safe = urllib.parse.quote(filename, safe="!#$&+-.^_`|~")
-    return f"filename*=UTF-8''{safe}"
+    return f"UTF-8''{safe}"
 
 
 def _attach_one(msg: MIMEMultipart, att: Any, fallback_name: str = "") -> None:
@@ -182,11 +182,33 @@ def _attach_one(msg: MIMEMultipart, att: Any, fallback_name: str = "") -> None:
         part.set_payload(data)
         encoders.encode_base64(part)
 
-    # 规范的 Content-Disposition：同时写 filename 和 RFC 2231 filename*
-    # 双写可兼容不支持 RFC 2231 的旧客户端，中文不会变 .bin
-    safe_ascii = "".join(c if ord(c) < 128 and c not in ' \t"\\;:/<>*?' else "_" for c in filename)
-    disposition = f'attachment; filename="{safe_ascii}"; {_encode_filename(filename)}'
-    part["Content-Disposition"] = disposition
+    # ======================
+    # 附件文件名双写（兼容所有主流客户端）
+    # ======================
+    # 1) filename: RFC 2047 encoded-word (Base64)
+    #    —— 网易企业邮箱、QQ 邮箱、Foxmail、Windows 旧版 Outlook、国内手机邮件客户端都优先识别
+    # 2) filename*: RFC 2231 percent-encoded
+    #    —— Gmail / Outlook 365 / iOS 邮件 / Apple Mail 等新标准客户端优先
+    # 只设置一条 Content-Disposition 头（避免重复头造成客户端选错）。
+    has_non_ascii = any(ord(ch) > 127 for ch in filename)
+    if has_non_ascii:
+        # 强制 RFC 2047 Base64 编码（不要依赖 Header 自动选择，它有时直接回退为明文中文）
+        # Header(...).encode() 保证形如 =?utf-8?b?xxxx?=
+        hdr_rfc2047 = Header(filename, "utf-8", header_name="content-disposition")
+        filename_rfc2047 = hdr_rfc2047.encode()  # 注意：不用 str()，强制触发 encode() 输出 =?...?=
+        filename_star_rfc2231 = _encode_filename_rfc2231(filename)
+        disp_value = (
+            'attachment; '
+            f'filename="{filename_rfc2047}"; '
+            f'filename*={filename_star_rfc2231}'
+        )
+    else:
+        safe_ascii = filename.replace('"', '\\"')
+        disp_value = f'attachment; filename="{safe_ascii}"'
+    if "Content-Disposition" in part:
+        part.replace_header("Content-Disposition", disp_value)
+    else:
+        part["Content-Disposition"] = disp_value
     msg.attach(part)
 
 

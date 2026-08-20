@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+*.bak
 node_modules/
 .vscode/
 .playwright-cli/

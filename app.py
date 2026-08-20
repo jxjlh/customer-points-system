@@ -1215,6 +1215,61 @@ def _extract_surname(name: str) -> str:
     return name[0] if name else ""
 
 
+# 中文变量名（含别名） → 实际字段名
+_CN_TEMPLATE_ALIASES = {
+    "姓氏": "surname", "姓": "surname", "Surname": "surname",
+    "姓名": "name", "客户姓名": "name", "客户": "name",
+    "名字": "given_name", "名": "given_name",
+    "邮箱": "email", "Email": "email", "email": "email",
+}
+# 方括号占位符归一化：[xxx] 翻译成 {{yyy}} 标准语法
+_BRACKET_NORMALIZE = [
+    # 「客户姓名/老师」 特殊匹配：整个 [客户姓名/老师] → {{姓氏}}老师
+    (r'\[\s*客户姓名\s*/\s*老师\s*\]', '{{姓氏}}老师'),
+    (r'\[\s*姓名\s*/\s*老师\s*\]', '{{姓氏}}老师'),
+    (r'\[\s*客户姓名\s*\+\s*老师\s*\]', '{{姓氏}}老师'),
+    # 其他方括号包裹变量：[xxx] → {{xxx}}
+    (r'\[\s*([^\[\]]{1,30}?)\s*\]', r'{{\1}}'),
+]
+
+
+def _normalize_bracket_placeholders(text: str) -> str:
+    """把常见方括号占位符 [客户姓名/老师]、[姓名] 等归一化到 {{...}} 语法。"""
+    if not text:
+        return text
+    import re
+    for pattern, repl in _BRACKET_NORMALIZE:
+        text = re.sub(pattern, repl, text)
+    return text
+
+
+def _render_template_with_cn(text: str, variables: dict) -> str:
+    """用变量字典渲染模板，自动处理中文别名和方括号占位符。"""
+    if not text:
+        return text
+    import re
+    # 1. 方括号 → {{xxx}}
+    text = _normalize_bracket_placeholders(text)
+    # 2. 构造完整替换字典
+    resolved = {}
+    for k, v in variables.items():
+        resolved[str(k)] = "" if v is None else str(v)
+    for alias, real_key in _CN_TEMPLATE_ALIASES.items():
+        if alias not in resolved and real_key in resolved:
+            resolved[alias] = resolved[real_key]
+    # 3. 替换 {{xxx}}
+    def _repl(m):
+        key = m.group(1).strip()
+        # 别名解析
+        real = _CN_TEMPLATE_ALIASES.get(key, key)
+        if real in resolved:
+            return resolved[real]
+        if key in resolved:
+            return resolved[key]
+        return m.group(0)
+    return re.sub(r'\{\{\s*([^{}]+?)\s*\}\}', _repl, text)
+
+
 def show_email_blast():
     from modules.email_sender import test_smtp_connection, send_bulk_emails, guess_smtp_config, list_smtp_candidates
 
@@ -1363,27 +1418,11 @@ def show_email_blast():
         dry_run = st.checkbox("演练模式（不实际发送）", value=True, key="mb_dry_run")
 
     if recipients_data and (subject_template or body_template):
-        # 中文变量名映射到实际字段名
-        CN_VAR_MAP = {
-            "姓氏": "surname",
-            "姓名": "name",
-            "名字": "given_name",
-            "邮箱": "email",
-        }
         email_list_for_send = []
         for r in recipients_data:
-            subject = subject_template
-            body = body_template
-            # 构造完整替换映射：中文字段名 + 实际字段名 + Excel原始列名
-            replace_map = {}
-            for cn_name, field_name in CN_VAR_MAP.items():
-                if field_name in r:
-                    replace_map[cn_name] = str(r[field_name] or "")
-            for key, val in r.items():
-                replace_map[key] = str(val or "")
-            for k, v in replace_map.items():
-                subject = subject.replace("{{" + k + "}}", v)
-                body = body.replace("{{" + k + "}}", v)
+            # 使用统一模板渲染（自动兼容方括号 [客户姓名/老师] 和中文别名）
+            subject = _render_template_with_cn(subject_template, r)
+            body = _render_template_with_cn(body_template, r)
             email_list_for_send.append({
                 "email": r["email"],
                 "name": r.get("name", ""),

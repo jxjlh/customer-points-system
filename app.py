@@ -1114,6 +1114,21 @@ def show_email_generator():
                 with send_col1:
                     delay_seconds = st.number_input("发送间隔(秒)", min_value=0.0, max_value=10.0, value=2.0, step=0.5, key="eg_delay")
                     dry_run = st.checkbox("演练模式（不实际发送）", value=True, key="eg_dry_run")
+                    with st.expander("👥 抄送 / 密抄", expanded=False):
+                        eg_cc_text = st.text_area(
+                            "抄送 CC（发货通知抄送给谁）",
+                            value=st.session_state.get("eg_cc_text", ""),
+                            key="eg_cc_input", height=50,
+                            placeholder="每行一个，或逗号分隔",
+                        )
+                        eg_bcc_text = st.text_area(
+                            "密抄 BCC（自己备份/领导签收，收件人不可见）",
+                            value=st.session_state.get("eg_bcc_text", ""),
+                            key="eg_bcc_input", height=50,
+                            placeholder="每行一个，或逗号分隔",
+                        )
+                        st.session_state["eg_cc_text"] = eg_cc_text
+                        st.session_state["eg_bcc_text"] = eg_bcc_text
                 with send_col2:
                     eg_attachment_files = st.file_uploader(
                         "📎 添加附件（每封发货通知都会带上，支持多文件）",
@@ -1151,13 +1166,25 @@ def show_email_generator():
                         uf.seek(0)
                         eg_global_attachments.append((uf.read(), uf.name))
 
+                # 全局 Cc / Bcc
+                from modules.email_sender import _normalize_addrs as _norm_eg
+                eg_g_cc = _norm_eg(eg_cc_text)
+                eg_g_bcc = _norm_eg(eg_bcc_text)
+
                 if email_list_for_send:
                     info_parts = [f"待发送 {len(email_list_for_send)} 封邮件"]
                     if eg_global_attachments:
                         info_parts.append(f"每封附加 {len(eg_global_attachments)} 个文件")
+                    if eg_g_cc: info_parts.append(f"抄送×{len(eg_g_cc)}")
+                    if eg_g_bcc: info_parts.append(f"密抄×{len(eg_g_bcc)}")
                     st.info("，".join(info_parts) + "：" + ", ".join(
                         f"{r['name']}→{r['email']}" for r in email_list_for_send
                     ))
+                    if eg_g_cc or eg_g_bcc:
+                        parts = []
+                        if eg_g_cc: parts.append("👁️ CC：" + "、".join(eg_g_cc))
+                        if eg_g_bcc: parts.append("🕵️ BCC：" + "、".join(eg_g_bcc) + "（收件人不可见）")
+                        st.caption("   ".join(parts))
 
                     if st.button("🚀 " + ("演练预览" if dry_run else "立即发送"), key="eg_send", type="primary", use_container_width=True):
                         if not smtp_user or not smtp_password:
@@ -1169,13 +1196,20 @@ def show_email_generator():
                                     email_list=email_list_for_send, sender_name=sender_name,
                                     delay_seconds=delay_seconds, dry_run=True,
                                     global_attachments=eg_global_attachments,
+                                    global_cc=eg_g_cc, global_bcc=eg_g_bcc,
                                 )
-                            st.success(f"演练完成！共 {result['total']} 封邮件待发送")
+                            summary = [f"共 {result['total']} 封邮件待发送"]
+                            if eg_g_cc: summary.append(f"抄送×{len(eg_g_cc)}")
+                            if eg_g_bcc: summary.append(f"密抄×{len(eg_g_bcc)}")
+                            st.success("演练完成！" + "，".join(summary))
                             for r in result["results"]:
                                 with st.expander(f"📧 [{r['index']}] {r['name']} <{r['email']}>"):
                                     st.write(f"主题: {r['subject']}")
-                                    if r.get("message") and "附件" in r["message"]:
-                                        st.caption(r["message"])
+                                    extras = []
+                                    if r.get("message"): extras.append(r["message"])
+                                    if r.get("cc"): extras.append("CC：" + "、".join(r["cc"]))
+                                    if r.get("bcc"): extras.append("BCC：" + "、".join(r["bcc"]))
+                                    if extras: st.caption(" | ".join(extras))
                         else:
                             progress = st.progress(0)
                             status_text = st.empty()
@@ -1189,6 +1223,7 @@ def show_email_generator():
                                     email_list=[item], sender_name=sender_name,
                                     dry_run=False,
                                     global_attachments=eg_global_attachments,
+                                    global_cc=eg_g_cc, global_bcc=eg_g_bcc,
                                 )
                                 if single_result["success_count"] > 0:
                                     success_count += 1
@@ -1200,7 +1235,10 @@ def show_email_generator():
                                     time.sleep(delay_seconds)
 
                             status_text.empty()
-                            st.success(f"✅ 发送完成！成功 {success_count} 封，失败 {fail_count} 封")
+                            summary = [f"成功 {success_count} 封，失败 {fail_count} 封"]
+                            if eg_g_cc: summary.append(f"抄送×{len(eg_g_cc)}")
+                            if eg_g_bcc: summary.append(f"密抄×{len(eg_g_bcc)}")
+                            st.success("✅ 发送完成！" + "，".join(summary))
 
                             if success_count > 0:
                                 st.session_state["last_send_result"] = {
@@ -1440,6 +1478,23 @@ def show_email_blast():
     with col1:
         delay_seconds = st.number_input("发送间隔(秒)", min_value=0.0, max_value=10.0, value=2.0, step=0.5, key="mb_delay")
         dry_run = st.checkbox("演练模式（不实际发送）", value=True, key="mb_dry_run")
+        with st.expander("👥 抄送 / 密抄", expanded=False):
+            global_cc_text = st.text_area(
+                "抄送 CC（出现在邮件头，收件人可见）",
+                value=st.session_state.get("mb_cc_text", ""),
+                key="mb_cc_input",
+                height=55,
+                placeholder="每行一个，或用逗号分隔\n例如：cindy.zhang@ibiologistics.com",
+            )
+            global_bcc_text = st.text_area(
+                "密抄 BCC（不出现在邮件头，收件人不可见）",
+                value=st.session_state.get("mb_bcc_text", ""),
+                key="mb_bcc_input",
+                height=55,
+                placeholder="每行一个，或用逗号分隔\n例如：boss@ibiologistics.com，可用来备份自己",
+            )
+            st.session_state["mb_cc_text"] = global_cc_text
+            st.session_state["mb_bcc_text"] = global_bcc_text
     with col2:
         attachment_files = st.file_uploader(
             "📎 添加附件（每封邮件都会带上，支持多文件）",
@@ -1479,14 +1534,34 @@ def show_email_blast():
             for uf in attachment_files:
                 uf.seek(0)
                 global_attachments.append((uf.read(), uf.name))
-            st.info(f"待发送 {len(email_list_for_send)} 封邮件，每封附加 {len(global_attachments)} 个文件")
-        else:
-            st.info(f"待发送 {len(email_list_for_send)} 封邮件")
+
+        # 全局 Cc / Bcc（前端文案里提到的密抄就在这里）
+        from modules.email_sender import _normalize_addrs
+        g_cc = _normalize_addrs(global_cc_text)
+        g_bcc = _normalize_addrs(global_bcc_text)
+
+        info_parts = [f"待发送 {len(email_list_for_send)} 封邮件"]
+        if global_attachments:
+            info_parts.append(f"每封附加 {len(global_attachments)} 个文件")
+        if g_cc:
+            info_parts.append(f"抄送 CC×{len(g_cc)}")
+        if g_bcc:
+            info_parts.append(f"密抄 BCC×{len(g_bcc)}")
+        st.info("，".join(info_parts))
+        if g_cc or g_bcc:
+            st.caption("  · ".join([
+                (f"CC：{', '.join(g_cc)}" if g_cc else ""),
+                (f"BCC：{', '.join(g_bcc)}" if g_bcc else ""),
+            ] if (g_cc and g_bcc) else ([(f"CC：{', '.join(g_cc)}" if g_cc else f"BCC：{', '.join(g_bcc)}")])))
 
         with st.expander("📧 预览前3封"):
             for item in email_list_for_send[:3]:
                 st.markdown(f"**收件人:** {item['name']} ({item['email']})")
                 st.markdown(f"**主题:** {item['subject']}")
+                if g_cc:
+                    st.caption("👁️ 抄送 CC：" + "、".join(g_cc))
+                if g_bcc:
+                    st.caption("🕵️ 密抄 BCC：" + "、".join(g_bcc) + "（收件人看不到）")
                 if global_attachments:
                     names = [a[1] for a in global_attachments] if isinstance(global_attachments[0], tuple) else [str(a) for a in global_attachments]
                     st.caption("📎 附件：" + "、".join(names))
@@ -1503,10 +1578,15 @@ def show_email_blast():
                         email_list=email_list_for_send, sender_name=sender_name,
                         delay_seconds=delay_seconds, dry_run=True,
                         global_attachments=global_attachments,
+                        global_cc=g_cc, global_bcc=g_bcc,
                     )
-                st.success(f"演练完成！共 {result['total']} 封邮件")
+                summary = [f"共 {result['total']} 封邮件"]
+                if g_cc: summary.append(f"抄送×{len(g_cc)}")
+                if g_bcc: summary.append(f"密抄×{len(g_bcc)}")
+                st.success("演练完成！" + "，".join(summary))
                 for r in result["results"]:
-                    st.write(f"  [{r['index']}] {r['name']} <{r['email']}> - {r['subject']} {r.get('message','')}")
+                    extras = r.get("message", "")
+                    st.write(f"  [{r['index']}] {r['name']} <{r['email']}> - {r['subject']} {extras}")
             else:
                 progress = st.progress(0)
                 status_text = st.empty()
@@ -1520,6 +1600,7 @@ def show_email_blast():
                         email_list=[item], sender_name=sender_name,
                         dry_run=False,
                         global_attachments=global_attachments,
+                        global_cc=g_cc, global_bcc=g_bcc,
                     )
                     if single_result["success_count"] > 0:
                         success_count += 1
@@ -1531,13 +1612,18 @@ def show_email_blast():
                         time.sleep(delay_seconds)
 
                 status_text.empty()
-                st.success(f"✅ 发送完成！成功 {success_count} 封，失败 {fail_count} 封")
+                summary = [f"成功 {success_count} 封，失败 {fail_count} 封"]
+                if g_cc: summary.append(f"抄送×{len(g_cc)}")
+                if g_bcc: summary.append(f"密抄×{len(g_bcc)}")
+                st.success("✅ 发送完成！" + "，".join(summary))
 
                 if success_count > 0:
                     st.session_state["last_blast_result"] = {
                         "total": len(email_list_for_send),
                         "success": success_count,
                         "failed": fail_count,
+                        "cc_count": len(g_cc),
+                        "bcc_count": len(g_bcc),
                         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     }
     elif not recipients_data:

@@ -190,10 +190,43 @@ def _attach_one(msg: MIMEMultipart, att: Any, fallback_name: str = "") -> None:
     msg.attach(part)
 
 
+def _normalize_addrs(value) -> List[str]:
+    """把 逗号/换行/空格 分隔的邮箱字符串或列表，规范为纯净邮箱列表（去重、去空、保留顺序）。"""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts = [p for p in __import__("re").split(r"[,;\s，；]+", value.strip()) if p]
+    else:
+        try:
+            iter(value)
+        except TypeError:
+            return []
+        parts = []
+        for item in value:
+            if item is None:
+                continue
+            if isinstance(item, str):
+                parts.extend(p for p in __import__("re").split(r"[,;\s，；]+", item.strip()) if p)
+            else:
+                parts.append(str(item))
+    seen = set()
+    result = []
+    for a in parts:
+        a = a.strip().strip("<>").strip()
+        if not a or "@" not in a:
+            continue
+        low = a.lower()
+        if low in seen:
+            continue
+        seen.add(low)
+        result.append(a)
+    return result
+
+
 def send_single_email(
     smtp_user, smtp_password, to_addr, subject, body,
     smtp_host=None, smtp_port=None, sender_name="",
-    cc_addrs=None, reply_to=None, attachments=None,
+    cc_addrs=None, bcc_addrs=None, reply_to=None, attachments=None,
 ):
     host, port, use_ssl = guess_smtp_config(smtp_user)
     if smtp_host:
@@ -201,12 +234,19 @@ def send_single_email(
     if smtp_port:
         port = int(smtp_port)
 
+    to_list = _normalize_addrs(to_addr)
+    cc_list = _normalize_addrs(cc_addrs)
+    bcc_list = _normalize_addrs(bcc_addrs)
+    first_to = to_list[0] if to_list else (str(to_addr) if to_addr else "")
+
     msg = MIMEMultipart()
     msg["From"] = formataddr((str(Header(sender_name or smtp_user, "utf-8")), smtp_user))
-    msg["To"] = to_addr
+    if to_list:
+        msg["To"] = ", ".join(to_list)
     msg["Subject"] = str(Header(subject, "utf-8"))
-    if cc_addrs:
-        msg["Cc"] = ", ".join(cc_addrs)
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
+    # 注意：Bcc 不能写在 msg 头部，否则会被收件人看到。只把 Bcc 放入 SMTP sendmail 实际收件人列表。
     if reply_to:
         msg["Reply-To"] = reply_to
 
@@ -228,32 +268,54 @@ def send_single_email(
             server = smtplib.SMTP(host, port, timeout=30)
             server.starttls()
         server.login(smtp_user, smtp_password)
-        all_recipients = [to_addr]
-        if cc_addrs:
-            all_recipients.extend(cc_addrs)
-        server.sendmail(smtp_user, all_recipients, msg.as_string())
+        # SMTP 层的所有实际收件人：To + Cc + Bcc（Bcc 不会出现在头里）
+        all_recipients: List[str] = list(to_list)
+        all_recipients.extend(cc_list)
+        all_recipients.extend(bcc_list)
+        # 去重（大小写不敏感），保留顺序
+        seen = set()
+        unique_recipients = []
+        for addr in all_recipients:
+            low = addr.lower()
+            if low in seen:
+                continue
+            seen.add(low)
+            unique_recipients.append(addr)
+        if not unique_recipients:
+            raise ValueError("没有可送达的收件人地址（To/Cc/Bcc 均为空或非法）")
+        server.sendmail(smtp_user, unique_recipients, msg.as_string())
         server.quit()
         elapsed = round(time.time() - start, 2)
-        return {"status": "success", "elapsed_seconds": elapsed, "smtp_host": host, "smtp_port": port}
+        return {
+            "status": "success", "elapsed_seconds": elapsed,
+            "smtp_host": host, "smtp_port": port,
+            "to_count": len(to_list), "cc_count": len(cc_list), "bcc_count": len(bcc_list),
+            "recipients": unique_recipients,
+        }
     except Exception as e:
         elapsed = round(time.time() - start, 2)
-        return {"status": "error", "message": str(e), "elapsed_seconds": elapsed}
+        return {"status": "error", "message": str(e), "elapsed_seconds": elapsed,
+                "to_count": len(to_list), "cc_count": len(cc_list), "bcc_count": len(bcc_list)}
 
 
 def send_bulk_emails(
     smtp_user, smtp_password, email_list,
     smtp_host=None, smtp_port=None, sender_name="",
     delay_seconds=1.0, dry_run=True,
-    global_attachments=None,
+    global_attachments=None, global_cc=None, global_bcc=None,
 ):
     """批量发送邮件。
 
     参数:
         global_attachments: 统一附加在每封邮件上的附件列表
-            支持 str（路径）/ tuple(data,name) / dict / bytes / BytesIO
+        global_cc: 每封邮件统一抄送给这些邮箱（出现在 Cc 头）
+        global_bcc: 每封邮件统一密抄送给这些邮箱（不出现在邮件头，仅 SMTP 层送达）
         email_list[i]:
-            可自带 "attachments" 字段，作为该邮件独有的附件（与 global_attachments 合并）
+            可自带 "attachments" / "cc" / "bcc" 字段（对应字段会与全局字段合并、去重）
     """
+    g_cc = _normalize_addrs(global_cc)
+    g_bcc = _normalize_addrs(global_bcc)
+
     results = []
     for i, item in enumerate(email_list):
         item = dict(item) if isinstance(item, dict) else {"email": str(item)}
@@ -275,15 +337,27 @@ def send_bulk_emails(
                 combined.append(global_attachments)
         combined = [a for a in combined if a is not None] or None
 
-        if not to_addr:
-            results.append({"index": i + 1, "email": to_addr, "status": "error", "message": "邮箱地址为空"})
+        # 合并 Cc / Bcc：每封邮件独有 + 全局
+        per_cc = _normalize_addrs(item.get("cc"))
+        per_bcc = _normalize_addrs(item.get("bcc"))
+        merged_cc = list(dict.fromkeys([*g_cc, *per_cc]))
+        merged_bcc = list(dict.fromkeys([*g_bcc, *per_bcc]))
+
+        if not to_addr and not merged_cc and not merged_bcc:
+            results.append({"index": i + 1, "email": to_addr, "status": "error", "message": "收件人地址为空"})
             continue
 
         if dry_run:
+            extra = []
+            if combined: extra.append(f"附件x{len(combined)}")
+            if merged_cc: extra.append(f"Cc×{len(merged_cc)}")
+            if merged_bcc: extra.append(f"Bcc×{len(merged_bcc)}")
+            msg_suffix = "（" + "，".join(extra) + "）" if extra else ""
             results.append({
                 "index": i + 1, "email": to_addr, "name": item.get("name", ""),
                 "subject": subject, "status": "success",
-                "message": "演练模式 - 未实际发送" + (f"（附件x{len(combined or [])}）" if combined else ""),
+                "message": f"演练模式 - 未实际发送{msg_suffix}",
+                "cc": merged_cc, "bcc": merged_bcc,
             })
             continue
 
@@ -296,6 +370,8 @@ def send_bulk_emails(
             smtp_host=smtp_host,
             smtp_port=smtp_port,
             sender_name=sender_name,
+            cc_addrs=merged_cc,
+            bcc_addrs=merged_bcc,
             attachments=combined,
         )
         results.append({
@@ -306,6 +382,10 @@ def send_bulk_emails(
             "status": result["status"],
             "message": "发送成功" if result["status"] == "success" else result.get("message", ""),
             "elapsed_seconds": result.get("elapsed_seconds", 0),
+            "to_count": result.get("to_count", 0),
+            "cc_count": result.get("cc_count", 0),
+            "bcc_count": result.get("bcc_count", 0),
+            "cc": merged_cc, "bcc": merged_bcc,
         })
 
         if not dry_run and i < len(email_list) - 1 and delay_seconds > 0:
@@ -322,5 +402,7 @@ def send_bulk_emails(
         "results": results,
         "smtp_host": guess_smtp_config(smtp_user)[0],
         "smtp_port": guess_smtp_config(smtp_user)[1],
+        "global_cc": g_cc,
+        "global_bcc": g_bcc,
     }
 

@@ -1,0 +1,92 @@
+# ============================================================================
+# 🎬 AI 视频剪辑（Crayotter 子模块）附加依赖
+#
+# 仅在你启用"AI 视频剪辑"板块时需要。完整安装：
+#   pip install -r requirements.txt
+#   pip install -r requirements-video.txt
+#
+# 如果你的环境已经能单独跑 Crayotter，这些依赖通常已安装。
+# 版本号与官方 Crayotter requirements.txt 保持一致（2026-08 版本）。
+# ============================================================================
+
+aiohappyeyeballs==2.6.1
+aiohttp==3.13.3
+aiosignal==1.4.0
+annotated-types==0.7.0
+anyio==4.12.1
+APScheduler==3.11.2
+attrs==25.4.0
+beautifulsoup4==4.14.3
+bilibili-api-python==17.4.1
+brotli==1.2.0
+certifi==2026.1.4
+cffi==2.0.0
+charset-normalizer==3.4.5
+colorama==0.4.6
+cryptography==46.0.5
+dashscope==1.25.12
+decorator==5.2.1
+distro==1.9.0
+frozenlist==1.8.0
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+socksio==1.0.0
+idna==3.11
+ImageIO==2.37.3
+imageio-ffmpeg==0.6.0
+jiter==0.13.0
+jsonpatch==1.33
+jsonpointer==3.0.0
+langchain-core==1.2.18
+langchain-openai==1.1.11
+langgraph==1.1.1
+langgraph-checkpoint==4.0.1
+langgraph-prebuilt==1.0.8
+langgraph-sdk==0.3.11
+langsmith==0.7.17
+lxml==6.0.2
+moviepy==2.2.1
+multidict==6.7.1
+numpy==2.2.6
+openai==2.26.0
+opencv-python==4.13.0.92
+opencv-python-headless==4.12.0.88
+orjson==3.11.7
+ormsgpack==1.12.2
+packaging==26.0
+pillow==11.3.0
+proglog==0.1.12
+propcache==0.4.1
+pycparser==3.0
+pycryptodomex==3.23.0
+pydantic==2.12.5
+pydantic_core==2.41.5
+PyJWT==2.12.1
+python-dotenv==1.2.2
+PyYAML==6.0.3
+qrcode==8.2
+qrcode-terminal==0.8
+regex==2026.2.28
+requests==2.32.5
+requests-toolbelt==1.0.0
+sniffio==1.3.1
+soupsieve==2.8.3
+tenacity==9.1.4
+tiktoken==0.12.0
+tqdm==4.67.3
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2025.3
+tzlocal==5.3.1
+urllib3==2.6.3
+uuid_utils==0.14.1
+websocket-client==1.9.0
+xxhash==3.6.0
+yarl==1.23.0
+yt-dlp==2026.3.13
+zstandard==0.25.0
+legacy-cgi==2.6.4
+
+# 可选：浏览器自动化采集抖音/小红书（复用本地 Chrome/Edge，不会绕过验证码）
+# pip install -r requirements-browser.txt  （位于 crayotter/requirements-browser.txt）

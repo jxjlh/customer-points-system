@@ -1644,15 +1644,12 @@ def show_email_blast():
             enable_schedule = st.checkbox("启用定时发送", value=False, key="mb_enable_schedule")
             if enable_schedule:
                 from datetime import datetime as _dt, timedelta as _td
-                min_time = _dt.now() + _td(minutes=1)
-                default_time = _dt.now() + _td(minutes=10)
-                scheduled_time = st.datetime_input(
-                    "选择发送时间",
-                    value=default_time,
-                    min_value=min_time,
-                    format="YYYY-MM-DD HH:mm",
-                    key="mb_schedule_time",
-                )
+                import datetime as _dt_mod
+                min_date = _dt.now().date()
+                default_date = _dt.now().date()
+                sched_date = st.date_input("发送日期", value=default_date, min_value=min_date, key="mb_sched_date")
+                sched_time = st.time_input("发送时间", value=(_dt.now() + _td(minutes=10)).time(), key="mb_sched_time")
+                scheduled_time = _dt.combine(sched_date, sched_time)
                 st.caption(f"将在 {scheduled_time.strftime('%Y-%m-%d %H:%M')} 自动开始发送")
             else:
                 scheduled_time = None

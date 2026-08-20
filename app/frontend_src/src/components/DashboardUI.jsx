@@ -19,6 +19,7 @@ import {
   History,
   Languages,
   LayoutDashboard,
+  Mail,
   Menu,
   Play,
   Plus,
@@ -47,6 +48,7 @@ const NAV_ITEMS = [
   { id: "jobs", icon: History, labelKey: "navJobs" },
   { id: "materials", icon: FolderOpen, labelKey: "navMaterials" },
   { id: "artifacts", icon: Archive, labelKey: "navArtifacts" },
+  { id: "email", icon: Mail, labelKey: "navEmail" },
 ];
 
 function BrandMark({ button = false, onClick }) {

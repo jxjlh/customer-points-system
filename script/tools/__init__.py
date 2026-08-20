@@ -25,6 +25,9 @@ from .rank_video_candidates import rank_video_candidates
 from .search_material_sources import search_material_sources
 from .import_material_urls import import_material_urls
 from .download_material_video import download_material_video
+from .read_email_excel import read_email_excel
+from .render_email_template import render_email_template, load_email_template_file
+from .send_email_smtp import test_smtp_connection, send_single_email, send_bulk_emails
 
 
 def configure(*, api_key=None, base_url=None, model_name=None, video_api_key=None, video_base_url=None, video_model_name=None, tts_api_key=None, tts_base_url=None, tts_model_name=None) -> None:
@@ -84,6 +87,21 @@ ALL_TOOLS = [
     add_narration_segments,
     add_subtitles,
     export_video,
+    read_email_excel,
+    render_email_template,
+    load_email_template_file,
+    test_smtp_connection,
+    send_single_email,
+    send_bulk_emails,
+]
+
+EMAIL_TOOLS = [
+    read_email_excel,
+    render_email_template,
+    load_email_template_file,
+    test_smtp_connection,
+    send_single_email,
+    send_bulk_emails,
 ]
 
 __all__ = [
@@ -94,6 +112,7 @@ __all__ = [
     'logger',
     'configure',
     'ALL_TOOLS',
+    'EMAIL_TOOLS',
     'search_youtobe_video',
     'download_youtobe_video',
     'analyze_video',
@@ -125,6 +144,12 @@ __all__ = [
     'import_material_urls',
     'download_material_video',
     'rank_video_candidates',
+    'read_email_excel',
+    'render_email_template',
+    'load_email_template_file',
+    'test_smtp_connection',
+    'send_single_email',
+    'send_bulk_emails',
     'API_KEY',
     'BASE_URL',
     'MODEL_NAME',

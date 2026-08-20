@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Eye, EyeOff, KeyRound, RefreshCw, Save, Settings2, SlidersHorizontal, Workflow, X } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Mail, RefreshCw, Save, Settings2, SlidersHorizontal, Workflow, X } from "lucide-react";
 import settingsVisualImage from "../assets/settings-visual.webp";
 
 export function SettingsModal({ configForm, setConfigForm, configMessage, setConfigMessage, submitConfig, loadConfig, setSettingsOpen, notify, t }) {
@@ -43,12 +43,14 @@ export function SettingsModal({ configForm, setConfigForm, configMessage, setCon
               <img src={settingsVisualImage} alt="" aria-hidden="true" />
               <div className="mt-4 grid gap-2">
                 <SettingsNavButton active={activeSection === "api"} icon={KeyRound} label={t("apiKey")} onClick={() => setActiveSection("api")} />
+                <SettingsNavButton active={activeSection === "email"} icon={Mail} label={t("emailConfigTitle") || "邮件配置"} onClick={() => setActiveSection("email")} />
                 <SettingsNavButton active={activeSection === "advanced"} icon={SlidersHorizontal} label={t("advanced")} onClick={() => setActiveSection("advanced")} />
               </div>
             </aside>
             <div className="min-h-0 overflow-y-auto bg-[#FAFBFF] p-4 sm:p-6">
               <div className="settings-mobile-tabs md:hidden">
                 <SettingsNavButton active={activeSection === "api"} icon={KeyRound} label={t("apiKey")} onClick={() => setActiveSection("api")} />
+                <SettingsNavButton active={activeSection === "email"} icon={Mail} label={t("emailConfigTitle") || "邮件配置"} onClick={() => setActiveSection("email")} />
                 <SettingsNavButton active={activeSection === "advanced"} icon={SlidersHorizontal} label={t("advanced")} onClick={() => setActiveSection("advanced")} />
               </div>
               <div className="settings-section-stage" key={activeSection}>
@@ -62,6 +64,30 @@ export function SettingsModal({ configForm, setConfigForm, configMessage, setCon
                       type="password"
                       showSecretLabel={t("showSecret")}
                       hideSecretLabel={t("hideSecret")}
+                    />
+                  </SettingSection>
+                ) : activeSection === "email" ? (
+                  <SettingSection icon={Mail} title={t("emailConfigTitle") || "邮件配置"}>
+                    <Field
+                      label={t("emailSmtpUser") || "邮箱地址"}
+                      value={configForm.email_smtp_user || ""}
+                      onChange={(value) => update("email_smtp_user", value)}
+                      placeholder="your@qq.com"
+                    />
+                    <Field
+                      label={t("emailSmtpPassword") || "SMTP授权码"}
+                      value={configForm.email_smtp_password || ""}
+                      onChange={(value) => update("email_smtp_password", value)}
+                      placeholder="授权码（非登录密码）"
+                      type="password"
+                      showSecretLabel={t("showSecret")}
+                      hideSecretLabel={t("hideSecret")}
+                    />
+                    <Field
+                      label={t("emailSenderName") || "发件人显示名"}
+                      value={configForm.email_sender_name || ""}
+                      onChange={(value) => update("email_sender_name", value)}
+                      placeholder="Cindy"
                     />
                   </SettingSection>
                 ) : (

@@ -96,6 +96,8 @@ class BackendHandler(BaseHTTPRequestHandler):
                             "POST /jobs/{job_id}/plans/{version}/approve",
                             "POST /jobs/{job_id}/plans/{version}/reject",
                             "DELETE /jobs/{job_id}",
+                            "POST /email/send",
+                            "POST /email/test-connection",
                         ],
                     },
                 )
@@ -286,6 +288,18 @@ class BackendHandler(BaseHTTPRequestHandler):
                     result = SERVICE.runtime_manager.reject_plan(job_id, version)
                     self._write_json(HTTPStatus.OK, result)
                     return
+
+            if path == "/email/test-connection":
+                payload = self._read_json()
+                result = self._handle_email_test(payload)
+                self._write_json(HTTPStatus.OK, result)
+                return
+
+            if path == "/email/send":
+                payload = self._read_json()
+                result = self._handle_email_send(payload)
+                self._write_json(HTTPStatus.OK, result)
+                return
 
             self._write_json(HTTPStatus.NOT_FOUND, {"error": f"Unknown route: {path}"})
         except RuntimeError as exc:
@@ -652,6 +666,87 @@ class BackendHandler(BaseHTTPRequestHandler):
                     break
         except (ConnectionError, BrokenPipeError):
             return
+
+    def _get_email_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        config = SERVICE.config_store.load()
+        return {
+            "smtp_user": (payload.get("smtp_user") or "").strip() or config.email_smtp_user,
+            "smtp_password": (payload.get("smtp_password") or "").strip() or config.email_smtp_password,
+            "smtp_host": (payload.get("smtp_host") or "").strip() or config.email_smtp_host,
+            "smtp_port": int(payload.get("smtp_port") or 0) or config.email_smtp_port,
+            "sender_name": (payload.get("sender_name") or "").strip() or config.email_sender_name,
+        }
+
+    def _handle_email_test(self, payload: dict[str, Any]) -> dict[str, Any]:
+        import sys
+        sys.path.insert(0, str(BUNDLE_ROOT / "script"))
+        from tools.send_email_smtp import test_smtp_connection
+
+        cfg = self._get_email_config(payload)
+        if not cfg["smtp_user"] or not cfg["smtp_password"]:
+            return {"status": "error", "message": "邮箱地址和授权码不能为空"}
+        return json.loads(test_smtp_connection(
+            smtp_user=cfg["smtp_user"],
+            smtp_password=cfg["smtp_password"],
+            smtp_host=cfg["smtp_host"] or None,
+            smtp_port=cfg["smtp_port"] or None,
+            sender_name=cfg["sender_name"],
+        ))
+
+    def _handle_email_send(self, payload: dict[str, Any]) -> dict[str, Any]:
+        import sys
+        sys.path.insert(0, str(BUNDLE_ROOT / "script"))
+        from tools.read_email_excel import read_email_excel
+        from tools.render_email_template import render_email_template, load_email_template_file
+        from tools.send_email_smtp import send_bulk_emails
+
+        cfg = self._get_email_config(payload)
+        if not cfg["smtp_user"] or not cfg["smtp_password"]:
+            return {"status": "error", "message": "邮箱地址和授权码不能为空"}
+
+        excel_path = (payload.get("excel_path") or "").strip()
+        if not excel_path:
+            return {"status": "error", "message": "Excel文件路径不能为空"}
+
+        subject_template = (payload.get("subject") or "").strip()
+        body_template = payload.get("body") or ""
+        body_format = payload.get("body_format") or "plain"
+        delay_seconds = float(payload.get("delay_seconds") or 1.0)
+        dry_run = bool(payload.get("dry_run", True))
+
+        if not subject_template or not body_template:
+            template_path = (payload.get("template_path") or "").strip()
+            if not template_path:
+                return {"status": "error", "message": "主题和正文不能为空"}
+            tpl = json.loads(load_email_template_file(template_path))
+            subject_template = tpl["subject"]
+            body_template = tpl["body"]
+            body_format = tpl.get("body_format", "plain")
+
+        excel_result = json.loads(read_email_excel(excel_path))
+        if excel_result["status"] != "success":
+            return excel_result
+
+        render_result = json.loads(render_email_template(
+            subject_template=subject_template,
+            body_template=body_template,
+            recipients_json=json.dumps(excel_result["recipients"], ensure_ascii=False),
+            body_format=body_format,
+        ))
+        if render_result["status"] != "success":
+            return render_result
+
+        send_result = json.loads(send_bulk_emails(
+            smtp_user=cfg["smtp_user"],
+            smtp_password=cfg["smtp_password"],
+            rendered_emails_json=json.dumps(render_result["rendered_emails"], ensure_ascii=False),
+            sender_name=cfg["sender_name"],
+            delay_seconds=delay_seconds,
+            dry_run=dry_run,
+            smtp_host=cfg["smtp_host"] or None,
+            smtp_port=cfg["smtp_port"] or None,
+        ))
+        return send_result
 
 
 def build_http_server(host: str = "127.0.0.1", port: int = 8765) -> ThreadingHTTPServer:

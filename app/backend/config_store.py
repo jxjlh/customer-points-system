@@ -57,6 +57,11 @@ APP_ENV_VARS = {
     "browser_auth_browser": "CRAYOTTER_BROWSER_AUTH_BROWSER",
     "browser_auth_profile": "CRAYOTTER_BROWSER_AUTH_PROFILE",
     "enabled_material_platforms": "CRAYOTTER_ENABLED_MATERIAL_PLATFORMS",
+    "email_smtp_user": "CRAYOTTER_EMAIL_SMTP_USER",
+    "email_smtp_password": "CRAYOTTER_EMAIL_SMTP_PASSWORD",
+    "email_smtp_host": "CRAYOTTER_EMAIL_SMTP_HOST",
+    "email_smtp_port": "CRAYOTTER_EMAIL_SMTP_PORT",
+    "email_sender_name": "CRAYOTTER_EMAIL_SENDER_NAME",
 }
 
 BOOL_FIELDS = {
@@ -74,6 +79,10 @@ STRING_FIELDS = {
     "output_profile",
     "browser_auth_browser",
     "browser_auth_profile",
+    "email_smtp_user",
+    "email_smtp_password",
+    "email_smtp_host",
+    "email_sender_name",
 }
 
 FLOAT_FIELDS = {

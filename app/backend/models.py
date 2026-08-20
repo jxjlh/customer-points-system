@@ -75,6 +75,12 @@ class AppConfig(BaseModel):
     )
     browser_auth_browser: str = ""
     browser_auth_profile: str = ""
+    # 邮件Agent配置
+    email_smtp_user: str = ""
+    email_smtp_password: str = ""
+    email_smtp_host: str = ""
+    email_smtp_port: int = 0
+    email_sender_name: str = ""
 
     def get_profile(self, profile_name: str | None = None) -> ServiceProfile:
         name = profile_name or self.active_profile

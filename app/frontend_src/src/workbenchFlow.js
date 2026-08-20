@@ -68,6 +68,9 @@ export function buildConfigPayload(configForm) {
     output_profile: String(configForm?.outputProfile || "auto"),
     browser_auth_browser: String(configForm?.browserAuthBrowser || "").trim(),
     browser_auth_profile: String(configForm?.browserAuthProfile || "").trim(),
+    email_smtp_user: String(configForm?.email_smtp_user || "").trim(),
+    email_smtp_password: String(configForm?.email_smtp_password || "").trim(),
+    email_sender_name: String(configForm?.email_sender_name || "").trim(),
   };
 }
 

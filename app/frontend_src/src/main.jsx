@@ -11,6 +11,7 @@ import {
   MobileDrawer,
   WorkbenchView,
 } from "./components/DashboardUI";
+import { EmailView } from "./components/EmailView";
 import { SettingsModal as RedesignedSettingsModal } from "./components/SettingsModal";
 import { ConfirmDialog, ToastViewport } from "./components/FeedbackUI";
 import { MESSAGES } from "./i18n";
@@ -159,6 +160,9 @@ function App() {
     outputProfile: "auto",
     browserAuthBrowser: "",
     browserAuthProfile: "",
+    email_smtp_user: "",
+    email_smtp_password: "",
+    email_sender_name: "",
   });
   const eventSourceRef = useRef(null);
   const refreshTimerRef = useRef(null);
@@ -442,6 +446,9 @@ function App() {
       outputProfile: config.output_profile || "auto",
       browserAuthBrowser: config.browser_auth_browser || "",
       browserAuthProfile: config.browser_auth_profile || "",
+      email_smtp_user: config.email_smtp_user || "",
+      email_smtp_password: config.email_smtp_password || "",
+      email_sender_name: config.email_sender_name || "",
     });
     setEnablePhase2Research(config.enable_phase2_research !== false);
     setEnablePlanReview(config.enable_plan_review !== false);
@@ -1027,6 +1034,13 @@ function App() {
               formatDuration={formatDuration}
               selectTask={() => setCurrentView("jobs")}
               backToWorkbench={() => setCurrentView("workbench")}
+              t={t}
+            />
+          )}
+          {currentView === "email" && (
+            <EmailView
+              config={configForm}
+              notify={notify}
               t={t}
             />
           )}

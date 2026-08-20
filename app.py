@@ -1224,7 +1224,6 @@ def show_email_generator():
                             if eg_g_cc: summary.append(f"抄送×{len(eg_g_cc)}")
                             if eg_g_bcc: summary.append(f"密抄×{len(eg_g_bcc)}")
                             st.success("演练完成！" + "，".join(summary))
-                            import pandas as pd
                             rows = [{
                                 "#": r["index"], "姓名": r.get("name", ""), "邮箱": r["email"],
                                 "主题": r.get("subject", ""), "状态": "✅ 演练通过", "说明": r.get("message", ""),
@@ -1294,7 +1293,6 @@ def show_email_generator():
 
                             with results_log_container:
                                 st.subheader("📋 发送详情（全部）")
-                                import pandas as pd
                                 st.dataframe(pd.DataFrame(detailed_rows), use_container_width=True, hide_index=True,
                                              column_config={
                                                  "#": st.column_config.NumberColumn(width="small"),
@@ -1840,7 +1838,6 @@ def show_email_blast():
                 if g_bcc: summary.append(f"密抄×{len(g_bcc)}")
                 st.success("演练完成！" + "，".join(summary))
                 # 把演练结果（每一封）全部展示（可翻页表格）
-                import pandas as pd
                 rows = [{
                     "#": r["index"], "姓名": r.get("name", ""), "邮箱": r["email"],
                     "主题": r.get("subject", ""), "状态": "✅ 演练通过", "说明": r.get("message", ""),
@@ -1928,7 +1925,6 @@ def show_email_blast():
                 # 完整结果表（用户可以看到每一封是否成功/失败详情）
                 with results_log_container:
                     st.subheader("📋 发送详情（全部）")
-                    import pandas as pd
                     st.dataframe(pd.DataFrame(detailed_rows), use_container_width=True, hide_index=True,
                                  column_config={
                                      "#": st.column_config.NumberColumn(width="small"),

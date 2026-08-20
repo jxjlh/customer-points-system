@@ -1564,10 +1564,10 @@ def show_email_blast():
 
                 if recipients_data:
                     preview_cols = [c for c in ["name", "email", "surname", "given_name"] if c in recipients_data[0]]
-                    preview_df = pd.DataFrame([{k: r.get(k, "") for k in preview_cols} for r in recipients_data[:10]])
-                    st.dataframe(preview_df, use_container_width=True)
-                    if len(recipients_data) > 10:
-                        st.caption(f"... 还有 {len(recipients_data) - 10} 条")
+                    preview_df_all = pd.DataFrame([{k: r.get(k, "") for k in preview_cols} for r in recipients_data])
+                    with st.expander(f"📋 查看全部 {len(recipients_data)} 条收件人数据", expanded=True):
+                        st.dataframe(preview_df_all, use_container_width=True, hide_index=True, height=min(400, 35 + len(preview_df_all) * 35))
+                    st.caption(f"共 {len(recipients_data)} 条数据")
                 else:
                     st.warning("未找到有效收件人，请确认Excel包含邮箱列")
 

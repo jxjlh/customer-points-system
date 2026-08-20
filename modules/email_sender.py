@@ -249,17 +249,25 @@ def send_single_email(
     smtp_user, smtp_password, to_addr, subject, body,
     smtp_host=None, smtp_port=None, sender_name="",
     cc_addrs=None, bcc_addrs=None, reply_to=None, attachments=None,
+    max_retries=3, base_backoff_seconds=2.0,
 ):
+    """发送单封邮件，带自动重试与指数退避（防止网易企业邮箱长时间批量断开连接）。
+
+    max_retries: 最大尝试次数（>=1），默认 3 次
+    base_backoff_seconds: 重试 2 次等待 base 秒；重试 3 次等待 base*2 秒…（指数退避）
+    """
     host, port, use_ssl = guess_smtp_config(smtp_user)
     if smtp_host:
         host = smtp_host
     if smtp_port:
         port = int(smtp_port)
 
+    if max_retries < 1:
+        max_retries = 1
+
     to_list = _normalize_addrs(to_addr)
     cc_list = _normalize_addrs(cc_addrs)
     bcc_list = _normalize_addrs(bcc_addrs)
-    first_to = to_list[0] if to_list else (str(to_addr) if to_addr else "")
 
     msg = MIMEMultipart()
     msg["From"] = formataddr((str(Header(sender_name or smtp_user, "utf-8")), smtp_user))
@@ -281,43 +289,75 @@ def send_single_email(
             except Exception:
                 pass
 
-    start = time.time()
-    try:
-        if use_ssl:
-            ctx = ssl.create_default_context()
-            server = smtplib.SMTP_SSL(host, port, context=ctx, timeout=30)
-        else:
-            server = smtplib.SMTP(host, port, timeout=30)
-            server.starttls()
-        server.login(smtp_user, smtp_password)
-        # SMTP 层的所有实际收件人：To + Cc + Bcc（Bcc 不会出现在头里）
-        all_recipients: List[str] = list(to_list)
-        all_recipients.extend(cc_list)
-        all_recipients.extend(bcc_list)
-        # 去重（大小写不敏感），保留顺序
-        seen = set()
-        unique_recipients = []
-        for addr in all_recipients:
-            low = addr.lower()
-            if low in seen:
-                continue
-            seen.add(low)
-            unique_recipients.append(addr)
-        if not unique_recipients:
-            raise ValueError("没有可送达的收件人地址（To/Cc/Bcc 均为空或非法）")
-        server.sendmail(smtp_user, unique_recipients, msg.as_string())
-        server.quit()
-        elapsed = round(time.time() - start, 2)
-        return {
-            "status": "success", "elapsed_seconds": elapsed,
-            "smtp_host": host, "smtp_port": port,
-            "to_count": len(to_list), "cc_count": len(cc_list), "bcc_count": len(bcc_list),
-            "recipients": unique_recipients,
-        }
-    except Exception as e:
-        elapsed = round(time.time() - start, 2)
-        return {"status": "error", "message": str(e), "elapsed_seconds": elapsed,
+    # SMTP 层的所有实际收件人：To + Cc + Bcc（Bcc 不会出现在头里）
+    all_recipients_raw: List[str] = list(to_list)
+    all_recipients_raw.extend(cc_list)
+    all_recipients_raw.extend(bcc_list)
+    seen = set()
+    unique_recipients = []
+    for addr in all_recipients_raw:
+        low = addr.lower()
+        if low in seen:
+            continue
+        seen.add(low)
+        unique_recipients.append(addr)
+
+    if not unique_recipients:
+        return {"status": "error", "message": "没有可送达的收件人地址（To/Cc/Bcc 均为空或非法）",
+                "elapsed_seconds": 0,
                 "to_count": len(to_list), "cc_count": len(cc_list), "bcc_count": len(bcc_list)}
+
+    msg_text = msg.as_string()  # 提前生成一次，每次重试复用（含附件，防止重复编码）
+
+    last_err = None
+    start = time.time()
+    for attempt in range(1, max_retries + 1):
+        server = None
+        try:
+            # 每一次尝试：新连接 + 新登录，避免网易服务器因连接过长踢下线
+            if use_ssl:
+                ctx = ssl.create_default_context()
+                server = smtplib.SMTP_SSL(host, port, context=ctx, timeout=60)
+            else:
+                server = smtplib.SMTP(host, port, timeout=60)
+                server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_user, unique_recipients, msg_text)
+            try:
+                server.quit()
+            except Exception:
+                pass
+            elapsed = round(time.time() - start, 2)
+            return {
+                "status": "success", "elapsed_seconds": elapsed,
+                "smtp_host": host, "smtp_port": port,
+                "to_count": len(to_list), "cc_count": len(cc_list), "bcc_count": len(bcc_list),
+                "recipients": unique_recipients,
+                "attempts": attempt,
+            }
+        except Exception as e:
+            last_err = e
+            # 尝试关闭遗留连接，避免半开连接累积
+            if server is not None:
+                try:
+                    server.close()
+                except Exception:
+                    pass
+            # 指数退避，最后一次不再等待
+            if attempt < max_retries:
+                sleep_s = base_backoff_seconds * (2 ** (attempt - 1))  # 2s -> 4s -> 8s ...
+                # 常见"频控/稍后再试"类响应码再额外加一点缓冲
+                msg_str = str(e).lower()
+                if any(k in msg_str for k in ("421", "450", "452", "too many", "rate", "limit", "busy", "稍后")):
+                    sleep_s += 3.0
+                time.sleep(sleep_s)
+
+    elapsed = round(time.time() - start, 2)
+    return {"status": "error",
+            "message": f"{str(last_err)}（已重试 {max_retries} 次）" if last_err else "未知错误",
+            "elapsed_seconds": elapsed,
+            "to_count": len(to_list), "cc_count": len(cc_list), "bcc_count": len(bcc_list),
+            "attempts": max_retries}
 
 
 def send_bulk_emails(

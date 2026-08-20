@@ -167,10 +167,7 @@ def show_home(config):
         db_status = db_mgr.get_connection_status()
         if db_status.get('connection_info', {}).get('is_fallback'):
             fallback_reason = db_status.get('connection_info', {}).get('fallback_reason', '未知原因')
-            if _IS_CLOUD:
-                st.info("ℹ️ 云端环境使用本地 SQLite 数据库（部署重启后数据会重置）")
-            else:
-                st.warning(f"⚠️ 数据库连接降级为本地 SQLite。原因: {fallback_reason}")
+            st.info("ℹ️ 使用本地 SQLite 数据库（无需额外配置，数据保存在应用目录）")
             with st.expander("查看数据库诊断信息"):
                 st.code(str(db_status), language="text")
                 if st.button("🔄 重新检测数据库连接", key="btn-db-diagnose"):
@@ -1397,10 +1394,10 @@ def show_inventory():
 
     try:
         db = get_db_manager()
+        show_inventory_page(db, operator=st.session_state.get("username", ""))
     except Exception as exc:
-        st.error(f"数据库连接失败：{exc}")
-        return
-    show_inventory_page(db, operator=st.session_state.get("username", ""))
+        st.error(f"库存页面加载失败：{exc}")
+        st.info("请刷新页面重试，或联系管理员。")
 
 
 def show_user_management(config):

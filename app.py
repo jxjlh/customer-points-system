@@ -1393,7 +1393,10 @@ def show_user_management(config):
     """))
     
     st.subheader("📊 当前域名")
-    domain = st.secrets.get("domain", "customer-points-system.streamlit.app") if hasattr(st, 'secrets') else "customer-points-system.streamlit.app"
+    try:
+        domain = st.secrets.get("domain", "customer-points-system.streamlit.app")
+    except Exception:
+        domain = "customer-points-system.streamlit.app"
     st.info(f"当前域名：{domain}")
     
     st.subheader("👥 用户列表")
@@ -1515,6 +1518,26 @@ def show_invoice_registration():
 
 
 def main():
+    try:
+        _main_inner()
+    except Exception as e:
+        st.set_page_config(page_title="启动错误", layout="wide")
+        st.error(f"❌ 应用启动失败: {type(e).__name__}: {e}")
+        st.subheader("诊断信息")
+        st.code(traceback.format_exc(), language="python")
+        with st.expander("环境信息"):
+            st.text(f"Python: {sys.version}")
+            st.text(f"应用目录: {_APP_DIR}")
+            st.text(f"可写目录: {_WRITABLE_DIR}")
+            st.text(f"Cloud模式: {_IS_CLOUD}")
+            st.text(f"Config文件: {CONFIG_PATH}")
+            st.text(f"DB路径: {DB_PATH}")
+            st.text(f"sys.path:")
+            for p in sys.path:
+                st.text(f"  {p}")
+
+
+def _main_inner():
     st.set_page_config(
         page_title="澄天小助手",
         page_icon="🐭",

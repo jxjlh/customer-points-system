@@ -74,6 +74,8 @@ def _detect_db_type(secrets=None) -> str:
             import streamlit as st
 
             secrets = st.secrets
+            # 尝试访问 secrets 以确认可用
+            _ = list(secrets.keys())
         except Exception:
             return "sqlite"
 

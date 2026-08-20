@@ -250,11 +250,14 @@ def send_single_email(
     smtp_host=None, smtp_port=None, sender_name="",
     cc_addrs=None, bcc_addrs=None, reply_to=None, attachments=None,
     max_retries=3, base_backoff_seconds=2.0,
+    is_html=False, scheduled_send_time=None,
 ):
     """发送单封邮件，带自动重试与指数退避（防止网易企业邮箱长时间批量断开连接）。
 
     max_retries: 最大尝试次数（>=1），默认 3 次
     base_backoff_seconds: 重试 2 次等待 base 秒；重试 3 次等待 base*2 秒…（指数退避）
+    is_html: True 时邮件体作为 HTML 发送（支持字体大小/颜色/排版）
+    scheduled_send_time: datetime 对象，如果指定，函数会等待到该时间再发送
     """
     host, port, use_ssl = guess_smtp_config(smtp_user)
     if smtp_host:
@@ -269,6 +272,17 @@ def send_single_email(
     cc_list = _normalize_addrs(cc_addrs)
     bcc_list = _normalize_addrs(bcc_addrs)
 
+    # 定时发送：如果指定了时间，等待到该时刻再发
+    if scheduled_send_time is not None:
+        from datetime import datetime as _dt
+        now = _dt.now()
+        if hasattr(scheduled_send_time, "timestamp"):
+            wait_seconds = (scheduled_send_time - now).total_seconds()
+        else:
+            wait_seconds = float(scheduled_send_time)
+        if wait_seconds > 0:
+            time.sleep(wait_seconds)
+
     msg = MIMEMultipart()
     msg["From"] = formataddr((str(Header(sender_name or smtp_user, "utf-8")), smtp_user))
     if to_list:
@@ -280,7 +294,9 @@ def send_single_email(
     if reply_to:
         msg["Reply-To"] = reply_to
 
-    msg.attach(MIMEText(body, "plain", "utf-8"))
+    # 根据是否 HTML 选择邮件体类型
+    body_subtype = "html" if is_html else "plain"
+    msg.attach(MIMEText(body, body_subtype, "utf-8"))
 
     if attachments:
         for i, att in enumerate(attachments):
@@ -365,6 +381,7 @@ def send_bulk_emails(
     smtp_host=None, smtp_port=None, sender_name="",
     delay_seconds=1.0, dry_run=True,
     global_attachments=None, global_cc=None, global_bcc=None,
+    is_html=False, scheduled_send_time=None,
 ):
     """批量发送邮件。
 
@@ -372,8 +389,10 @@ def send_bulk_emails(
         global_attachments: 统一附加在每封邮件上的附件列表
         global_cc: 每封邮件统一抄送给这些邮箱（出现在 Cc 头）
         global_bcc: 每封邮件统一密抄送给这些邮箱（不出现在邮件头，仅 SMTP 层送达）
+        is_html: True 时邮件体作为 HTML 发送（支持字体大小/颜色/排版）
+        scheduled_send_time: datetime 对象，如果指定，第一封会等待到该时间再开始发送
         email_list[i]:
-            可自带 "attachments" / "cc" / "bcc" 字段（对应字段会与全局字段合并、去重）
+            可自带 "attachments" / "cc" / "bcc" / "is_html" 字段（对应字段会与全局字段合并、去重）
     """
     g_cc = _normalize_addrs(global_cc)
     g_bcc = _normalize_addrs(global_bcc)
@@ -435,6 +454,8 @@ def send_bulk_emails(
             cc_addrs=merged_cc,
             bcc_addrs=merged_bcc,
             attachments=combined,
+            is_html=item.get("is_html", is_html) if isinstance(item.get("is_html"), bool) else is_html,
+            scheduled_send_time=scheduled_send_time if i == 0 else None,
         )
         results.append({
             "index": i + 1,

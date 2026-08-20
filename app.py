@@ -1409,13 +1409,77 @@ def show_email_blast():
     """))
 
     with st.expander("🔐 SMTP邮箱配置", expanded=True):
+        # 多发件邮箱保存与切换
+        if "saved_senders" not in st.session_state:
+            st.session_state["saved_senders"] = []
+        saved = st.session_state["saved_senders"]
+
+        if len(saved) > 0:
+            sender_col1, sender_col2 = st.columns([3, 1])
+            with sender_col1:
+                sender_options = ["（直接输入）"] + [f"{s['name']} ({s['user']})" for s in saved]
+                selected_idx = st.selectbox("🏷️ 选择发件邮箱", range(len(sender_options)),
+                                           format_func=lambda i: sender_options[i], key="mb_sender_select")
+            with sender_col2:
+                if selected_idx > 0 and st.button("🗑️ 删除此邮箱", key="mb_del_sender"):
+                    del saved[selected_idx - 1]
+                    st.session_state["saved_senders"] = saved
+                    st.rerun()
+        else:
+            selected_idx = 0
+
+        # 如果选中了已保存的邮箱，自动填充
+        if selected_idx > 0 and selected_idx <= len(saved):
+            s = saved[selected_idx - 1]
+            default_user = s["user"]
+            default_password = s["password"]
+            default_name = s["name"]
+            default_host = s.get("host", "")
+            default_port = s.get("port", "")
+            default_ssl = s.get("ssl", True)
+        else:
+            default_user = st.session_state.get("email_smtp_user", "1392039316@qq.com")
+            default_password = st.session_state.get("email_smtp_password", "dtepljmsauzgjbfa")
+            default_name = st.session_state.get("email_sender_name", "Cindy 张茹")
+            default_host = st.session_state.get("mb_smtp_host", "")
+            default_port = st.session_state.get("mb_smtp_port", "")
+            default_ssl = st.session_state.get("mb_smtp_ssl", True)
+
         cfg_col1, cfg_col2, cfg_col3 = st.columns(3)
         with cfg_col1:
-            smtp_user = st.text_input("邮箱地址", value=st.session_state.get("email_smtp_user", "1392039316@qq.com"), key="mb_smtp_user")
+            smtp_user = st.text_input("邮箱地址", value=default_user, key="mb_smtp_user")
         with cfg_col2:
-            smtp_password = st.text_input("SMTP授权码", type="password", value=st.session_state.get("email_smtp_password", "dtepljmsauzgjbfa"), key="mb_smtp_password")
+            smtp_password = st.text_input("SMTP授权码", type="password", value=default_password, key="mb_smtp_password")
         with cfg_col3:
-            sender_name = st.text_input("发件人名称", value=st.session_state.get("email_sender_name", "Cindy 张茹"), key="mb_sender_name")
+            sender_name = st.text_input("发件人名称", value=default_name, key="mb_sender_name")
+
+        # 保存当前邮箱配置
+        save_col1, save_col2 = st.columns(2)
+        with save_col1:
+            if st.button("💾 保存当前邮箱配置", key="mb_save_sender", use_container_width=True):
+                exists = False
+                for s in saved:
+                    if s["user"] == smtp_user:
+                        s["password"] = smtp_password
+                        s["name"] = sender_name
+                        s["host"] = st.session_state.get("mb_manual_host", "")
+                        s["port"] = st.session_state.get("mb_manual_port", "")
+                        s["ssl"] = st.session_state.get("mb_manual_ssl", True)
+                        exists = True
+                        break
+                if not exists and smtp_user:
+                    saved.append({"user": smtp_user, "password": smtp_password, "name": sender_name,
+                                  "host": st.session_state.get("mb_manual_host", ""),
+                                  "port": st.session_state.get("mb_manual_port", ""),
+                                  "ssl": st.session_state.get("mb_manual_ssl", True)})
+                st.session_state["saved_senders"] = saved
+                st.success(f"已保存「{sender_name}」({smtp_user})，共 {len(saved)} 个邮箱配置")
+        with save_col2:
+            if st.button("📋 查看已保存邮箱", key="mb_list_senders", use_container_width=True):
+                if saved:
+                    st.write(pd.DataFrame([{"邮箱": s["user"], "名称": s["name"]} for s in saved]), use_container_width=True)
+                else:
+                    st.info("还没有保存的邮箱配置")
 
         if smtp_user:
             host, port, ssl_flag = guess_smtp_config(smtp_user)
@@ -1424,11 +1488,11 @@ def show_email_blast():
         with st.expander("🛠️ 高级：手动覆盖SMTP服务器", expanded=False):
             override_col1, override_col2, override_col3 = st.columns(3)
             with override_col1:
-                manual_host = st.text_input("SMTP主机（留空用自动识别）", value=st.session_state.get("mb_smtp_host", ""), key="mb_manual_host", placeholder="例如 smtp.qiye.163.com")
+                manual_host = st.text_input("SMTP主机（留空用自动识别）", value=default_host, key="mb_manual_host", placeholder="例如 smtp.qiye.163.com")
             with override_col2:
-                manual_port_input = st.text_input("端口（留空用自动识别）", value=str(st.session_state.get("mb_smtp_port", "") or ""), key="mb_manual_port", placeholder="例如 465")
+                manual_port_input = st.text_input("端口（留空用自动识别）", value=str(default_port or ""), key="mb_manual_port", placeholder="例如 465")
             with override_col3:
-                manual_ssl = st.checkbox("使用SSL（465/994）", value=st.session_state.get("mb_smtp_ssl", True), key="mb_manual_ssl")
+                manual_ssl = st.checkbox("使用SSL（465/994）", value=default_ssl, key="mb_manual_ssl")
             candidates = list_smtp_candidates(smtp_user) if smtp_user else []
             if len(candidates) > 1:
                 st.caption("常见候选（企业域名不确定时可尝试）：" + "；".join([f"{c[3]} {c[0]}:{c[1]}" for c in candidates[1:]]))
@@ -1534,6 +1598,24 @@ def show_email_blast():
     if "{{" in subject_template or "{{" in body_template:
         st.caption("💡 可用变量: {{姓氏}} {{姓名}} {{名字}} {{邮箱}} 以及Excel中的任意列名")
 
+    # 字体大小/颜色/样式控制
+    with st.expander("🎨 字体与样式设置", expanded=False):
+        font_col1, font_col2, font_col3, font_col4 = st.columns(4)
+        with font_col1:
+            font_size = st.number_input("字体大小(px)", min_value=10, max_value=32, value=14, step=1, key="mb_font_size")
+        with font_col2:
+            font_color = st.color_picker("字体颜色", value="#333333", key="mb_font_color")
+        with font_col3:
+            bg_color = st.color_picker("背景颜色", value="#ffffff", key="mb_bg_color")
+        with font_col4:
+            font_family = st.selectbox("字体", ["微软雅黑", "宋体", "黑体", "Arial", "Times New Roman", "仿宋"],
+                                       index=0, key="mb_font_family")
+        use_html = st.checkbox("🎨 以HTML富文本格式发送（支持字体大小/颜色）", value=False, key="mb_use_html")
+        if use_html:
+            st.caption("✅ 启用后邮件将以 HTML 格式发送，收件人将看到带字体样式的排版")
+        else:
+            st.caption("当前为纯文本发送，字体设置不生效（需要勾选上方选项）")
+
     st.divider()
     st.subheader("3. 预览与发送")
 
@@ -1558,6 +1640,23 @@ def show_email_blast():
             )
             st.session_state["mb_cc_text"] = global_cc_text
             st.session_state["mb_bcc_text"] = global_bcc_text
+        with st.expander("⏰ 定时发送", expanded=False):
+            enable_schedule = st.checkbox("启用定时发送", value=False, key="mb_enable_schedule")
+            if enable_schedule:
+                from datetime import datetime as _dt, timedelta as _td
+                min_time = _dt.now() + _td(minutes=1)
+                default_time = _dt.now() + _td(minutes=10)
+                scheduled_time = st.datetime_input(
+                    "选择发送时间",
+                    value=default_time,
+                    min_value=min_time,
+                    format="YYYY-MM-DD HH:mm",
+                    key="mb_schedule_time",
+                )
+                st.caption(f"将在 {scheduled_time.strftime('%Y-%m-%d %H:%M')} 自动开始发送")
+            else:
+                scheduled_time = None
+                st.caption("当前为立即发送模式")
     with col2:
         attachment_files = st.file_uploader(
             "📎 添加附件（每封邮件都会带上，支持多文件）",
@@ -1570,12 +1669,12 @@ def show_email_blast():
                        "、".join([f.name for f in attachment_files]))
 
     if recipients_data and (subject_template or body_template):
-        email_list_for_send = []
+        email_list_all = []
         for r in recipients_data:
             # 使用统一模板渲染（自动兼容方括号 [客户姓名/老师] 和中文别名）
             subject = _render_template_with_cn(subject_template, r)
             body = _render_template_with_cn(body_template, r)
-            email_list_for_send.append({
+            email_list_all.append({
                 "email": r["email"],
                 "name": r.get("name", ""),
                 "subject": subject,
@@ -1584,11 +1683,50 @@ def show_email_blast():
 
         missing_vars = set()
         import re
-        for item in email_list_for_send:
+        for item in email_list_all:
             remaining = re.findall(r'\{\{([^}]+)\}\}', item["subject"] + item["body"])
             missing_vars.update(remaining)
         if missing_vars:
             st.warning(f"⚠️ 模板中存在未替换的变量: {', '.join(missing_vars)}")
+
+        # 如果启用 HTML，把纯文本 body 包装成带样式的 HTML
+        if use_html:
+            def _wrap_html(text_body):
+                # 把换行转成 <br>，制表符转成 &nbsp;&nbsp;
+                import html as _html_mod
+                safe = _html_mod.escape(text_body)
+                safe = safe.replace("\n", "<br>\n")
+                style = (f"font-size:{font_size}px;color:{font_color};"
+                         f"background-color:{bg_color};font-family:{font_family};"
+                         f"line-height:1.8;padding:16px;")
+                return f'<div style="{style}">{safe}</div>'
+            for item in email_list_all:
+                item["body"] = _wrap_html(item["body"])
+                item["is_html"] = True
+        else:
+            for item in email_list_all:
+                item["is_html"] = False
+
+        # ===== 发送数量选择 =====
+        send_qty_col1, send_qty_col2 = st.columns([1, 2])
+        with send_qty_col1:
+            send_mode = st.radio("📊 发送范围", ["全部发送", "前N封", "指定范围"], index=0, key="mb_send_mode")
+        with send_qty_col2:
+            if send_mode == "前N封":
+                send_n = st.number_input("发送前几封", min_value=1, max_value=len(email_list_all),
+                                         value=min(10, len(email_list_all)), step=1, key="mb_send_n")
+                email_list_for_send = email_list_all[:send_n]
+            elif send_mode == "指定范围":
+                range_col1, range_col2 = st.columns(2)
+                with range_col1:
+                    start_idx = st.number_input("起始序号(从1开始)", min_value=1, max_value=len(email_list_all),
+                                                value=1, step=1, key="mb_range_start")
+                with range_col2:
+                    end_idx = st.number_input("结束序号", min_value=int(start_idx), max_value=len(email_list_all),
+                                              value=min(int(start_idx) + 9, len(email_list_all)), step=1, key="mb_range_end")
+                email_list_for_send = email_list_all[int(start_idx)-1:int(end_idx)]
+            else:
+                email_list_for_send = list(email_list_all)
 
         # 把 Streamlit UploadedFile 转成 (bytes, filename) 列表供后端附加
         global_attachments = None
@@ -1603,13 +1741,19 @@ def show_email_blast():
         g_cc = _normalize_addrs(global_cc_text)
         g_bcc = _normalize_addrs(global_bcc_text)
 
-        info_parts = [f"待发送 {len(email_list_for_send)} 封邮件"]
+        info_parts = [f"待发送 {len(email_list_for_send)} 封邮件（共 {len(email_list_all)} 封）"]
+        if send_mode != "全部发送":
+            info_parts.append(f"已选范围")
         if global_attachments:
             info_parts.append(f"每封附加 {len(global_attachments)} 个文件")
         if g_cc:
             info_parts.append(f"抄送 CC×{len(g_cc)}")
         if g_bcc:
             info_parts.append(f"密抄 BCC×{len(g_bcc)}")
+        if use_html:
+            info_parts.append(f"HTML富文本({font_size}px)")
+        if enable_schedule and scheduled_time:
+            info_parts.append(f"定时 {scheduled_time.strftime('%H:%M')}")
         st.info("，".join(info_parts))
         if g_cc or g_bcc:
             st.caption("  · ".join([
@@ -1618,7 +1762,7 @@ def show_email_blast():
             ] if (g_cc and g_bcc) else ([(f"CC：{', '.join(g_cc)}" if g_cc else f"BCC：{', '.join(g_bcc)}")])))
 
         # 预览数量选择
-        preview_col_p, preview_col_s, _ = st.columns([1, 1.2, 3])
+        preview_col_p, preview_col_s, preview_col_e = st.columns([1, 1.2, 1.5])
         with preview_col_p:
             preview_limit = st.selectbox(
                 "📧 预览数量",
@@ -1630,10 +1774,12 @@ def show_email_blast():
             )
         with preview_col_s:
             preview_show_body = st.checkbox("显示正文摘要", value=True, key="mb_show_body")
+        with preview_col_e:
+            enable_edit = st.checkbox("✏️ 允许单封编辑", value=False, key="mb_enable_edit")
 
         n_preview = len(email_list_for_send) if preview_limit >= len(email_list_for_send) else preview_limit
         with st.expander(f"📧 预览前 {n_preview} 封（共 {len(email_list_for_send)} 封）", expanded=True):
-            for item in email_list_for_send[:n_preview]:
+            for idx, item in enumerate(email_list_for_send[:n_preview]):
                 line1 = f"**{item['name']}** ({item['email']})　•　主题：{item['subject']}"
                 extras = []
                 if g_cc: extras.append("👁️ CC：" + "、".join(g_cc))
@@ -1641,17 +1787,45 @@ def show_email_blast():
                 if global_attachments:
                     names = [a[1] for a in global_attachments] if isinstance(global_attachments[0], tuple) else [str(a) for a in global_attachments]
                     extras.append("📎 " + "、".join(names))
-                if preview_show_body:
-                    body_excerpt = item['body'][:400] + ("..." if len(item['body']) > 400 else "")
-                    st.markdown(line1 + ("　　" if extras else ""))
-                    if extras: st.caption("　".join(extras))
-                    st.text(body_excerpt)
+
+                if enable_edit:
+                    # 单封编辑模式：每封可修改主题和正文
+                    with st.expander(f"✏️ [{idx+1}] {item['name']} ({item['email']})", expanded=False):
+                        edit_col1, edit_col2 = st.columns([2, 1])
+                        with edit_col1:
+                            new_subject = st.text_input(f"主题", value=item["subject"], key=f"mb_edit_subject_{idx}")
+                        with edit_col2:
+                            new_email = st.text_input(f"收件人", value=item["email"], key=f"mb_edit_email_{idx}")
+                        new_body = st.text_area(f"正文", value=item["body"], key=f"mb_edit_body_{idx}", height=150)
+                        if st.button("💾 保存修改", key=f"mb_save_{idx}"):
+                            item["subject"] = new_subject
+                            item["body"] = new_body
+                            item["email"] = new_email
+                            st.success(f"已保存 [{idx+1}] {item['name']} 的修改")
+                        st.caption("　".join(extras))
                 else:
-                    st.markdown(line1)
-                    if extras: st.caption("　".join(extras))
+                    if preview_show_body:
+                        body_excerpt = item['body'][:400] + ("..." if len(item['body']) > 400 else "")
+                        st.markdown(line1 + ("　　" if extras else ""))
+                        if extras: st.caption("　".join(extras))
+                        if use_html:
+                            st.markdown(body_excerpt, unsafe_allow_html=True)
+                        else:
+                            st.text(body_excerpt)
+                    else:
+                        st.markdown(line1)
+                        if extras: st.caption("　".join(extras))
                 st.divider()
 
-        if st.button("🚀 " + ("演练预览" if dry_run else "立即发送"), key="mb_send", type="primary", use_container_width=True):
+        # 定时发送等待提示
+        send_button_label = "演练预览" if dry_run else "立即发送"
+        if enable_schedule and scheduled_time and not dry_run:
+            from datetime import datetime as _dt2
+            wait_seconds = (scheduled_time - _dt2.now()).total_seconds()
+            if wait_seconds > 0:
+                send_button_label = f"⏰ 定时发送 ({scheduled_time.strftime('%m-%d %H:%M')})"
+
+        if st.button("🚀 " + send_button_label, key="mb_send", type="primary", use_container_width=True):
             if not smtp_user or not smtp_password:
                 st.error("请先在上方配置SMTP邮箱信息")
             elif dry_run:
@@ -1662,6 +1836,7 @@ def show_email_blast():
                         delay_seconds=delay_seconds, dry_run=True,
                         global_attachments=global_attachments,
                         global_cc=g_cc, global_bcc=g_bcc,
+                        is_html=use_html,
                     )
                 summary = [f"共 {result['total']} 封邮件"]
                 if g_cc: summary.append(f"抄送×{len(g_cc)}")
@@ -1676,6 +1851,21 @@ def show_email_blast():
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
                              column_config={"#": st.column_config.NumberColumn(width="small")})
             else:
+                # 定时发送：如果启用了定时，先等待到指定时间
+                if enable_schedule and scheduled_time:
+                    from datetime import datetime as _dt3
+                    wait_secs = (scheduled_time - _dt3.now()).total_seconds()
+                    if wait_secs > 0:
+                        countdown = st.empty()
+                        import time as _time_mod
+                        while wait_secs > 0:
+                            mins, secs = divmod(int(wait_secs), 60)
+                            countdown.info(f"⏰ 定时发送倒计时：{mins:02d}:{secs:02d}（{scheduled_time.strftime('%Y-%m-%d %H:%M')}）")
+                            _time_mod.sleep(min(5, wait_secs))
+                            wait_secs = (scheduled_time - _dt3.now()).total_seconds()
+                        countdown.empty()
+                        st.info(f"⏰ 到达指定时间 {scheduled_time.strftime('%H:%M')}，开始发送...")
+
                 progress = st.progress(0, text=f"准备发送 0 / {len(email_list_for_send)}")
                 status_text = st.empty()
                 results_log_container = st.container()
@@ -1693,6 +1883,8 @@ def show_email_blast():
                             dry_run=False, delay_seconds=0,
                             global_attachments=global_attachments,
                             global_cc=g_cc, global_bcc=g_bcc,
+                            is_html=use_html,
+                            scheduled_send_time=scheduled_time if (enable_schedule and i == 0) else None,
                         )
                     except Exception as outer_e:
                         single_result = {"status": "error", "success_count": 0, "failed_count": 1,

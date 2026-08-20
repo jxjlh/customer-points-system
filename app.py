@@ -1114,6 +1114,15 @@ def show_email_generator():
                 with send_col1:
                     delay_seconds = st.number_input("发送间隔(秒)", min_value=0.0, max_value=10.0, value=2.0, step=0.5, key="eg_delay")
                     dry_run = st.checkbox("演练模式（不实际发送）", value=True, key="eg_dry_run")
+                with send_col2:
+                    eg_attachment_files = st.file_uploader(
+                        "📎 添加附件（每封发货通知都会带上，支持多文件）",
+                        type=None, accept_multiple_files=True, key="eg_attachments",
+                        help="随发货通知一起发送：发票、装箱单、品系说明等。"
+                    )
+                    if eg_attachment_files:
+                        total_kb = sum(f.size for f in eg_attachment_files) / 1024
+                        st.caption(f"已选 {len(eg_attachment_files)} 个附件，共 {total_kb:.1f} KB")
 
                 recipient_emails = st.text_area(
                     "收件人邮箱列表（每行一个，对应上面邮件列表顺序）",
@@ -1134,8 +1143,19 @@ def show_email_generator():
                             "body": row["邮件内容"],
                         })
 
+                # 构造全局附件
+                eg_global_attachments = None
+                if eg_attachment_files:
+                    eg_global_attachments = []
+                    for uf in eg_attachment_files:
+                        uf.seek(0)
+                        eg_global_attachments.append((uf.read(), uf.name))
+
                 if email_list_for_send:
-                    st.info(f"待发送 {len(email_list_for_send)} 封邮件：" + ", ".join(
+                    info_parts = [f"待发送 {len(email_list_for_send)} 封邮件"]
+                    if eg_global_attachments:
+                        info_parts.append(f"每封附加 {len(eg_global_attachments)} 个文件")
+                    st.info("，".join(info_parts) + "：" + ", ".join(
                         f"{r['name']}→{r['email']}" for r in email_list_for_send
                     ))
 
@@ -1148,11 +1168,14 @@ def show_email_generator():
                                     smtp_user=smtp_user, smtp_password=smtp_password,
                                     email_list=email_list_for_send, sender_name=sender_name,
                                     delay_seconds=delay_seconds, dry_run=True,
+                                    global_attachments=eg_global_attachments,
                                 )
                             st.success(f"演练完成！共 {result['total']} 封邮件待发送")
                             for r in result["results"]:
                                 with st.expander(f"📧 [{r['index']}] {r['name']} <{r['email']}>"):
                                     st.write(f"主题: {r['subject']}")
+                                    if r.get("message") and "附件" in r["message"]:
+                                        st.caption(r["message"])
                         else:
                             progress = st.progress(0)
                             status_text = st.empty()
@@ -1165,6 +1188,7 @@ def show_email_generator():
                                     smtp_user=smtp_user, smtp_password=smtp_password,
                                     email_list=[item], sender_name=sender_name,
                                     dry_run=False,
+                                    global_attachments=eg_global_attachments,
                                 )
                                 if single_result["success_count"] > 0:
                                     success_count += 1
@@ -1416,6 +1440,16 @@ def show_email_blast():
     with col1:
         delay_seconds = st.number_input("发送间隔(秒)", min_value=0.0, max_value=10.0, value=2.0, step=0.5, key="mb_delay")
         dry_run = st.checkbox("演练模式（不实际发送）", value=True, key="mb_dry_run")
+    with col2:
+        attachment_files = st.file_uploader(
+            "📎 添加附件（每封邮件都会带上，支持多文件）",
+            type=None, accept_multiple_files=True, key="mb_attachments",
+            help="支持 PDF / Excel / Word / 图片 / ZIP 等任意格式。中文文件名不会乱码。"
+        )
+        if attachment_files:
+            total_kb = sum(f.size for f in attachment_files) / 1024
+            st.caption(f"已选 {len(attachment_files)} 个附件，共 {total_kb:.1f} KB：" +
+                       "、".join([f.name for f in attachment_files]))
 
     if recipients_data and (subject_template or body_template):
         email_list_for_send = []
@@ -1438,12 +1472,24 @@ def show_email_blast():
         if missing_vars:
             st.warning(f"⚠️ 模板中存在未替换的变量: {', '.join(missing_vars)}")
 
-        st.info(f"待发送 {len(email_list_for_send)} 封邮件")
+        # 把 Streamlit UploadedFile 转成 (bytes, filename) 列表供后端附加
+        global_attachments = None
+        if attachment_files:
+            global_attachments = []
+            for uf in attachment_files:
+                uf.seek(0)
+                global_attachments.append((uf.read(), uf.name))
+            st.info(f"待发送 {len(email_list_for_send)} 封邮件，每封附加 {len(global_attachments)} 个文件")
+        else:
+            st.info(f"待发送 {len(email_list_for_send)} 封邮件")
 
         with st.expander("📧 预览前3封"):
             for item in email_list_for_send[:3]:
                 st.markdown(f"**收件人:** {item['name']} ({item['email']})")
                 st.markdown(f"**主题:** {item['subject']}")
+                if global_attachments:
+                    names = [a[1] for a in global_attachments] if isinstance(global_attachments[0], tuple) else [str(a) for a in global_attachments]
+                    st.caption("📎 附件：" + "、".join(names))
                 st.text(item['body'][:300] + "..." if len(item['body']) > 300 else item['body'])
                 st.divider()
 
@@ -1456,10 +1502,11 @@ def show_email_blast():
                         smtp_user=smtp_user, smtp_password=smtp_password,
                         email_list=email_list_for_send, sender_name=sender_name,
                         delay_seconds=delay_seconds, dry_run=True,
+                        global_attachments=global_attachments,
                     )
                 st.success(f"演练完成！共 {result['total']} 封邮件")
                 for r in result["results"]:
-                    st.write(f"  [{r['index']}] {r['name']} <{r['email']}> - {r['subject']}")
+                    st.write(f"  [{r['index']}] {r['name']} <{r['email']}> - {r['subject']} {r.get('message','')}")
             else:
                 progress = st.progress(0)
                 status_text = st.empty()
@@ -1472,6 +1519,7 @@ def show_email_blast():
                         smtp_user=smtp_user, smtp_password=smtp_password,
                         email_list=[item], sender_name=sender_name,
                         dry_run=False,
+                        global_attachments=global_attachments,
                     )
                     if single_result["success_count"] > 0:
                         success_count += 1

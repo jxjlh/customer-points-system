@@ -1188,13 +1188,20 @@ def show_email_generator():
                         if eg_g_bcc: parts.append("🕵️ BCC：" + "、".join(eg_g_bcc) + "（收件人不可见）")
                         st.caption("   ".join(parts))
 
-                    # 预览数量切换（全部/前10）
-                    eg_preview_limit = st.selectbox(
+                    # 预览数量切换（默认全部）
+                    eg_preview_options = [("全部", len(email_list_for_send))]
+                    for n in [10, 50]:
+                        if len(email_list_for_send) > n:
+                            eg_preview_options.append((f"前 {n} 封", n))
+                    eg_preview_labels = [o[0] for o in eg_preview_options]
+                    eg_preview_values = [o[1] for o in eg_preview_options]
+                    eg_preview_idx = st.selectbox(
                         "📧 预览数量",
-                        options=[10, len(email_list_for_send)] if len(email_list_for_send) > 10 else [len(email_list_for_send)],
-                        format_func=lambda v: f"全部 ({len(email_list_for_send)} 封)" if v == len(email_list_for_send) else f"前 {v} 封",
-                        key="eg_preview_limit",
+                        range(len(eg_preview_options)),
+                        format_func=lambda i: eg_preview_labels[i],
+                        index=0, key="eg_preview_limit",
                     )
+                    eg_preview_limit = eg_preview_values[eg_preview_idx]
                     with st.expander(f"📧 预览前 {min(eg_preview_limit, len(email_list_for_send))} 封（共 {len(email_list_for_send)} 封）", expanded=False):
                         for item in email_list_for_send[:eg_preview_limit]:
                             st.markdown(f"**{item['name']}** ({item['email']})　•　主题：{item['subject']}")
@@ -1759,14 +1766,20 @@ def show_email_blast():
         # 预览数量选择
         preview_col_p, preview_col_s, preview_col_e = st.columns([1, 1.2, 1.5])
         with preview_col_p:
-            preview_limit = st.selectbox(
+            preview_options = [("全部", len(email_list_for_send))]
+            for n in [3, 10, 50]:
+                if len(email_list_for_send) > n:
+                    preview_options.append((f"前 {n} 封", n))
+            preview_labels = [o[0] for o in preview_options]
+            preview_values = [o[1] for o in preview_options]
+            default_idx = 0  # 默认选"全部"
+            preview_limit_label = st.selectbox(
                 "📧 预览数量",
-                options=[3, 10, 50, len(email_list_for_send) if len(email_list_for_send) > 0 else 3],
-                format_func=lambda v: f"全部 ({len(email_list_for_send)} 封)" if (v == len(email_list_for_send) and len(email_list_for_send) > 0 and v > 50) else (
-                    f"全部 ({v} 封)" if v > 50 else f"前 {v} 封"
-                ),
-                index=0, key="mb_preview_limit",
+                range(len(preview_options)),
+                format_func=lambda i: preview_labels[i],
+                index=default_idx, key="mb_preview_limit",
             )
+            preview_limit = preview_values[preview_limit_label]
         with preview_col_s:
             preview_show_body = st.checkbox("显示正文摘要", value=True, key="mb_show_body")
         with preview_col_e:

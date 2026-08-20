@@ -167,27 +167,45 @@ def get_db_manager():
                 db_info["fallback_reason"] = error_detail
 
         # 降级到 SQLite（不抛出异常）
-        # 优先使用环境变量指定的可写目录（Streamlit Cloud 通过 app.py 设置）
-        _crayotter_writable = os.environ.get("CRAYOTTER_WRITABLE_DIR", "")
-        if _crayotter_writable:
-            db_path = os.path.join(_crayotter_writable, "database", "points.db")
-        else:
-            db_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "database",
-                "points.db",
-            )
-        sqlite_mgr = _SQLiteManager(db_path)
-        sqlite_mgr.init_schema()
-        sqlite_mgr._backend_name = "SQLite（本地临时数据库）"
-        sqlite_mgr._fallback_note = "; ".join(errors) if errors else ""
-        sqlite_mgr._connection_info = {
-            "db_type": "sqlite",
-            "primary_connection": None,
-            "fallback_reason": sqlite_mgr._fallback_note or "无主数据库配置",
-            "is_fallback": True,
-        }
-        return sqlite_mgr
+        try:
+            _crayotter_writable = os.environ.get("CRAYOTTER_WRITABLE_DIR", "")
+            if _crayotter_writable:
+                db_path = os.path.join(_crayotter_writable, "database", "points.db")
+            else:
+                db_path = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "database",
+                    "points.db",
+                )
+            sqlite_mgr = _SQLiteManager(db_path)
+            try:
+                sqlite_mgr.init_schema()
+            except Exception as schema_err:
+                # schema 初始化失败不阻塞，SQLite 会在首次查询时自动建表
+                pass
+            sqlite_mgr._backend_name = "SQLite（本地临时数据库）"
+            sqlite_mgr._fallback_note = "; ".join(errors) if errors else "无主数据库配置，使用本地 SQLite"
+            sqlite_mgr._connection_info = {
+                "db_type": "sqlite",
+                "primary_connection": None,
+                "fallback_reason": sqlite_mgr._fallback_note,
+                "is_fallback": True,
+            }
+            return sqlite_mgr
+        except Exception as sqlite_err:
+            # 最后兜底：内存数据库
+            import tempfile
+            tmp_db = os.path.join(tempfile.gettempdir(), "crayotter_emergency.db")
+            sqlite_mgr = _SQLiteManager(tmp_db)
+            sqlite_mgr._backend_name = "SQLite（紧急模式）"
+            sqlite_mgr._fallback_note = f"数据库降级失败: {sqlite_err}"
+            sqlite_mgr._connection_info = {
+                "db_type": "sqlite",
+                "primary_connection": None,
+                "fallback_reason": f"数据库降级失败: {sqlite_err}",
+                "is_fallback": True,
+            }
+            return sqlite_mgr
 
     return _get_manager()
 

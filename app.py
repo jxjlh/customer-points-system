@@ -167,8 +167,11 @@ def show_home(config):
         db_status = db_mgr.get_connection_status()
         if db_status.get('connection_info', {}).get('is_fallback'):
             fallback_reason = db_status.get('connection_info', {}).get('fallback_reason', '未知原因')
-            st.warning(f"⚠️ 数据库连接降级为本地 SQLite。原因: {fallback_reason}")
-            with st.expander("查看详细诊断信息"):
+            if _IS_CLOUD:
+                st.info("ℹ️ 云端环境使用本地 SQLite 数据库（部署重启后数据会重置）")
+            else:
+                st.warning(f"⚠️ 数据库连接降级为本地 SQLite。原因: {fallback_reason}")
+            with st.expander("查看数据库诊断信息"):
                 st.code(str(db_status), language="text")
                 if st.button("🔄 重新检测数据库连接", key="btn-db-diagnose"):
                     st.cache_resource.clear()
@@ -180,7 +183,7 @@ def show_home(config):
         elif db_status.get('db_type', '').startswith('SQLite'):
             st.info("ℹ️ 使用本地 SQLite 数据库")
     except Exception as db_err:
-        st.error(f"❌ 数据库管理器初始化失败: {db_err}")
+        st.warning(f"⚠️ 数据库初始化异常: {db_err}。请刷新页面重试。")
     
     st.divider()
 

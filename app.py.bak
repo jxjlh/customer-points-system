@@ -2,17 +2,6 @@ import os
 import sys
 import traceback
 import tempfile
-import logging
-
-# 设置日志输出到 stderr（Streamlit Cloud 会捕获 stderr）
-logging.basicConfig(stream=sys.stderr, level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-_log = logging.getLogger("crayotter")
-_log.info("=" * 60)
-_log.info("Crayotter Streamlit App 启动中...")
-_log.info(f"Python: {sys.version}")
-_log.info(f"Working dir: {os.getcwd()}")
-_log.info(f"App dir: {os.path.dirname(os.path.abspath(__file__))}")
-_log.info("=" * 60)
 
 # Ensure app directory is on sys.path BEFORE any other imports
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -36,7 +25,6 @@ def _get_writable_dir():
 _WRITABLE_DIR = _get_writable_dir()
 _IS_CLOUD = (_WRITABLE_DIR != _APP_DIR)
 os.environ["CRAYOTTER_WRITABLE_DIR"] = _WRITABLE_DIR
-_log.info(f"Writable dir: {_WRITABLE_DIR} (cloud={_IS_CLOUD})")
 
 import streamlit as st
 import textwrap
@@ -63,12 +51,7 @@ try:
     from modules.db_manager import get_db_manager
     from logo_base64 import get_logo_html, get_avatar_html, get_logo_data_url, get_avatar_data_url
 except Exception as e:
-    _log.error(f"模块导入失败: {type(e).__name__}: {e}")
-    _log.error(traceback.format_exc())
-    try:
-        st.set_page_config(page_title="诊断错误", layout="wide")
-    except Exception:
-        pass
+    st.set_page_config(page_title="诊断错误", layout="wide")
     st.error(f"模块导入失败: {type(e).__name__}: {e}")
     st.subheader("诊断信息")
     st.text(f"Python 版本: {sys.version}")

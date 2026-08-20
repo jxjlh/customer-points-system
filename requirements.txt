@@ -1,4 +1,4 @@
-﻿aiohappyeyeballs==2.6.1
+aiohappyeyeballs==2.6.1
 aiohttp==3.13.3
 aiosignal==1.4.0
 annotated-types==0.7.0
@@ -79,5 +79,10 @@ zstandard==0.25.0
 legacy-cgi==2.6.4
 
 # ── Email Agent 依赖 ──
-pandas>=2.0.0
+pandas>=2.0.0,<2.3.0
 openpyxl>=3.1.0
+streamlit>=1.37.0
+streamlit-aggrid>=1.0.0
+streamlit-authenticator>=0.3.0
+bcrypt>=4.0.0
+plotly>=5.0.0

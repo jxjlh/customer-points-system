@@ -209,6 +209,16 @@ def show_home(config):
             "session_value": "📦 库存管理",
             "help": "点击进入库存管理模块",
             "emojis": "📦,✨,📊,🔍,💡,🎉"
+        },
+        {
+            "icon": "📨",
+            "title": "邮件群发",
+            "desc": "Excel批量导入 · 模板变量 · 一键群发",
+            "color_class": "card-purple",
+            "key": "btn-mass-email",
+            "session_value": "📨 邮件群发",
+            "help": "点击进入邮件群发模块",
+            "emojis": "📨,✨,🚀,💫,🎉,📋"
         }
     ]
     
@@ -956,59 +966,391 @@ def process_excel_email(file_bytes):
 
 
 def show_email_generator():
+    from modules.email_sender import test_smtp_connection, send_bulk_emails, guess_smtp_config
+
     st.title("📧 JAX小鼠发货通知邮件生成器")
-    
+
     st.markdown(textwrap.dedent(
         """
     **使用说明：**
     1. 上传Excel文件（需包含【出隔离场】和【发货清单】Sheet）
     2. 小鼠详细信息（货号、基因型、性别、周龄、数量）从「发货清单」读取
     3. 收货地址、提货人、拟收货时间从「出隔离场」读取
-    4. 下载生成的邮件结果Excel文件
+    4. 配置SMTP后可直接批量发送邮件
     """))
-    
+
+    with st.expander("🔐 SMTP邮箱配置", expanded=False):
+        cfg_col1, cfg_col2, cfg_col3 = st.columns(3)
+        with cfg_col1:
+            smtp_user = st.text_input("邮箱地址", value=st.session_state.get("email_smtp_user", "1392039316@qq.com"), key="eg_smtp_user")
+        with cfg_col2:
+            smtp_password = st.text_input("SMTP授权码", type="password", value=st.session_state.get("email_smtp_password", "dtepljmsauzgjbfa"), key="eg_smtp_password")
+        with cfg_col3:
+            sender_name = st.text_input("发件人名称", value=st.session_state.get("email_sender_name", "Cindy 张茹"), key="eg_sender_name")
+
+        if smtp_user:
+            host, port, ssl_flag = guess_smtp_config(smtp_user)
+            st.caption(f"自动识别SMTP: {host}:{port} {'(SSL)' if ssl_flag else '(STARTTLS)'}")
+
+        test_col1, test_col2 = st.columns([1, 3])
+        with test_col1:
+            if st.button("🔌 测试连接", key="eg_test_conn", use_container_width=True):
+                with st.spinner("测试SMTP连接..."):
+                    conn_result = test_smtp_connection(smtp_user, smtp_password)
+                    if conn_result["status"] == "success":
+                        st.success(f"✅ 连接成功！{conn_result['smtp_host']}:{conn_result['smtp_port']} ({conn_result['elapsed_seconds']}s)")
+                    else:
+                        st.error(f"❌ 连接失败: {conn_result.get('message', '未知错误')}")
+
+        st.session_state["email_smtp_user"] = smtp_user
+        st.session_state["email_smtp_password"] = smtp_password
+        st.session_state["email_sender_name"] = sender_name
+
     uploaded_file = st.file_uploader("选择Excel文件", type=["xlsx", "xls"])
-    
+
     if uploaded_file is not None:
         with st.spinner("正在处理Excel文件..."):
             try:
                 result_df = process_excel_email(uploaded_file.getvalue())
-                
-                st.success("邮件生成完成！")
-                
-                # 显示调试信息
+
+                st.success(f"邮件生成完成！共 {len(result_df)} 封邮件")
+
                 debug_info = getattr(process_excel_email, '_debug_info', '')
-                
+
                 with st.expander("🔍 调试信息（发货清单解析详情）", expanded=False):
                     if debug_info:
                         st.text(debug_info)
                     else:
                         st.info("无调试信息")
-                
+
                 st.subheader("生成的邮件列表")
-                st.dataframe(result_df, width="stretch", height=400)
-                
+                st.dataframe(result_df, width="stretch", height=300)
+
                 excel_buffer = BytesIO()
                 result_df.to_excel(excel_buffer, index=False, sheet_name="邮件生成结果")
                 excel_buffer.seek(0)
-                
+
                 st.download_button(
                     label="📥 下载邮件结果",
                     data=excel_buffer,
                     file_name=f"JAX邮件生成结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-                
-                st.subheader("邮件预览")
+
+                st.subheader("📧 邮件预览")
                 for _, row in result_df.iterrows():
                     with st.expander(f"📧 {row['Individual PO Number']} - {row['单位名称']}"):
                         st.text(row['邮件内容'])
-            
+
+                st.divider()
+
+                st.subheader("📤 批量发送邮件")
+
+                send_col1, send_col2 = st.columns([1, 2])
+                with send_col1:
+                    delay_seconds = st.number_input("发送间隔(秒)", min_value=0.0, max_value=10.0, value=2.0, step=0.5, key="eg_delay")
+                    dry_run = st.checkbox("演练模式（不实际发送）", value=True, key="eg_dry_run")
+
+                recipient_emails = st.text_area(
+                    "收件人邮箱列表（每行一个，对应上面邮件列表顺序）",
+                    key="eg_recipients",
+                    height=100,
+                    placeholder="heng.li@lab-direct.com\niblcs01@ibiologistics.com\n..."
+                )
+
+                email_list_for_send = []
+                for idx, row in result_df.iterrows():
+                    lines = recipient_emails.strip().split("\n") if recipient_emails.strip() else []
+                    to_email = lines[idx].strip() if idx < len(lines) else ""
+                    if to_email:
+                        email_list_for_send.append({
+                            "email": to_email,
+                            "name": row.get("收货人", ""),
+                            "subject": f"JAX小鼠发货通知 - {row['Individual PO Number']}",
+                            "body": row["邮件内容"],
+                        })
+
+                if email_list_for_send:
+                    st.info(f"待发送 {len(email_list_for_send)} 封邮件：" + ", ".join(
+                        f"{r['name']}→{r['email']}" for r in email_list_for_send
+                    ))
+
+                    if st.button("🚀 " + ("演练预览" if dry_run else "立即发送"), key="eg_send", type="primary", use_container_width=True):
+                        if not smtp_user or not smtp_password:
+                            st.error("请先在上方配置SMTP邮箱信息")
+                        elif dry_run:
+                            with st.spinner("演练预览中..."):
+                                result = send_bulk_emails(
+                                    smtp_user=smtp_user, smtp_password=smtp_password,
+                                    email_list=email_list_for_send, sender_name=sender_name,
+                                    delay_seconds=delay_seconds, dry_run=True,
+                                )
+                            st.success(f"演练完成！共 {result['total']} 封邮件待发送")
+                            for r in result["results"]:
+                                with st.expander(f"📧 [{r['index']}] {r['name']} <{r['email']}>"):
+                                    st.write(f"主题: {r['subject']}")
+                        else:
+                            progress = st.progress(0)
+                            status_text = st.empty()
+                            success_count = 0
+                            fail_count = 0
+
+                            for i, item in enumerate(email_list_for_send):
+                                status_text.write(f"发送中 [{i+1}/{len(email_list_for_send)}] {item['email']}...")
+                                single_result = send_bulk_emails(
+                                    smtp_user=smtp_user, smtp_password=smtp_password,
+                                    email_list=[item], sender_name=sender_name,
+                                    dry_run=False,
+                                )
+                                if single_result["success_count"] > 0:
+                                    success_count += 1
+                                else:
+                                    fail_count += 1
+                                progress.progress((i + 1) / len(email_list_for_send))
+                                if i < len(email_list_for_send) - 1 and delay_seconds > 0:
+                                    import time
+                                    time.sleep(delay_seconds)
+
+                            status_text.empty()
+                            st.success(f"✅ 发送完成！成功 {success_count} 封，失败 {fail_count} 封")
+
+                            if success_count > 0:
+                                st.session_state["last_send_result"] = {
+                                    "total": len(email_list_for_send),
+                                    "success": success_count,
+                                    "failed": fail_count,
+                                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                }
+                elif not recipient_emails.strip():
+                    st.warning("请填写收件人邮箱列表")
+
             except Exception as e:
                 st.error(f"处理过程中发生错误：\n\n{str(e)}")
                 import traceback
                 with st.expander("查看详细错误信息"):
                     st.code(traceback.format_exc())
+
+
+def _extract_surname(name: str) -> str:
+    if not name:
+        return ""
+    surname_map = [
+        "欧阳", "太史", "端木", "上官", "司马", "东方", "独孤", "南宫", "万俟",
+        "闻人", "夏侯", "诸葛", "尉迟", "公羊", "赫连", "澹台", "皇甫", "宗政",
+        "濮阳", "公冶", "太叔", "申屠", "公孙", "慕容", "仲孙", "钟离", "长孙",
+        "宇文", "司徒", "鲜于", "司空", "闾丘", "子车", "亓官", "司寇", "巫马",
+        "公西", "颛孙", "壤驷", "公良", "漆雕", "乐正", "宰父", "谷梁", "拓跋",
+        "夹谷", "轩辕", "令狐", "段干", "百里", "呼延", "东郭", "南门", "羊舌",
+        "微生", "公户", "公玉", "公仪", "梁丘", "公仲", "公上", "公门", "公山",
+        "公坚", "左丘", "公伯", "西门", "公祖", "第五", "公乘", "贯丘", "公皙",
+        "南荣", "东里", "东宫", "仲长", "子书", "子桑", "即墨", "达奚", "褚师"
+    ]
+    for compound in surname_map:
+        if name.startswith(compound):
+            return compound
+    return name[0] if name else ""
+
+
+def show_email_blast():
+    from modules.email_sender import test_smtp_connection, send_bulk_emails, guess_smtp_config
+
+    st.title("📨 邮件群发")
+
+    st.markdown(textwrap.dedent(
+        """
+    **使用说明：**
+    1. 上传Excel文件（须包含「姓名」和「邮箱」列）
+    2. 输入邮件主题和正文，支持模板变量：{{姓氏}} {{姓名}} {{名字}} {{邮箱}} 以及Excel中的任意列名
+    3. 演练预览确认后，一键批量发送
+    """))
+
+    with st.expander("🔐 SMTP邮箱配置", expanded=True):
+        cfg_col1, cfg_col2, cfg_col3 = st.columns(3)
+        with cfg_col1:
+            smtp_user = st.text_input("邮箱地址", value=st.session_state.get("email_smtp_user", "1392039316@qq.com"), key="mb_smtp_user")
+        with cfg_col2:
+            smtp_password = st.text_input("SMTP授权码", type="password", value=st.session_state.get("email_smtp_password", "dtepljmsauzgjbfa"), key="mb_smtp_password")
+        with cfg_col3:
+            sender_name = st.text_input("发件人名称", value=st.session_state.get("email_sender_name", "Cindy 张茹"), key="mb_sender_name")
+
+        if smtp_user:
+            host, port, ssl_flag = guess_smtp_config(smtp_user)
+            st.caption(f"自动识别SMTP: {host}:{port} {'(SSL)' if ssl_flag else '(STARTTLS)'}")
+
+        if st.button("🔌 测试连接", key="mb_test_conn", use_container_width=True):
+            with st.spinner("测试SMTP连接..."):
+                conn_result = test_smtp_connection(smtp_user, smtp_password)
+                if conn_result["status"] == "success":
+                    st.success(f"✅ 连接成功！{conn_result['smtp_host']}:{conn_result['smtp_port']} ({conn_result['elapsed_seconds']}s)")
+                else:
+                    st.error(f"❌ 连接失败: {conn_result.get('message', '未知错误')}")
+
+        st.session_state["email_smtp_user"] = smtp_user
+        st.session_state["email_smtp_password"] = smtp_password
+        st.session_state["email_sender_name"] = sender_name
+
+    st.subheader("1. 上传Excel")
+    uploaded_file = st.file_uploader("选择Excel文件", type=["xlsx", "xls"], key="mb_excel")
+
+    recipients_data = []
+    if uploaded_file is not None:
+        with st.spinner("正在读取Excel文件..."):
+            try:
+                df = pd.read_excel(uploaded_file)
+                df.columns = [str(c).strip() for c in df.columns]
+                st.success(f"读取成功！共 {len(df)} 行数据")
+
+                name_col = None
+                email_col = None
+                for col in df.columns:
+                    col_lower = str(col).lower()
+                    if col in ("姓名", "客户", "名称", "联系人") or col_lower in ("name", "customer", "contact"):
+                        if name_col is None:
+                            name_col = col
+                    if col in ("邮箱", "邮件", "email", "e-mail", "mail") or any(kw in col_lower for kw in ["email", "邮箱", "邮件"]):
+                        if email_col is None:
+                            email_col = col
+
+                if name_col:
+                    st.caption(f"自动识别姓名字段: {name_col}")
+                if email_col:
+                    st.caption(f"自动识别邮箱字段: {email_col}")
+
+                recipients_data = []
+                for _, row in df.iterrows():
+                    name = str(row.get(name_col, "")).strip() if name_col else ""
+                    email = str(row.get(email_col, "")).strip() if email_col else ""
+                    if email:
+                        entry = {"email": email, "name": name}
+                        entry["surname"] = _extract_surname(name)
+                        entry["given_name"] = name[len(entry["surname"]):] if name and entry["surname"] else name
+                        for col in df.columns:
+                            entry[str(col)] = str(row[col]).strip() if pd.notna(row[col]) else ""
+                        recipients_data.append(entry)
+
+                if recipients_data:
+                    preview_cols = [c for c in ["name", "email", "surname", "given_name"] if c in recipients_data[0]]
+                    preview_df = pd.DataFrame([{k: r.get(k, "") for k in preview_cols} for r in recipients_data[:10]])
+                    st.dataframe(preview_df, use_container_width=True)
+                    if len(recipients_data) > 10:
+                        st.caption(f"... 还有 {len(recipients_data) - 10} 条")
+                else:
+                    st.warning("未找到有效收件人，请确认Excel包含邮箱列")
+
+            except Exception as e:
+                st.error(f"读取失败: {e}")
+                import traceback
+                with st.expander("详细错误"):
+                    st.code(traceback.format_exc())
+
+    st.divider()
+    st.subheader("2. 编辑邮件内容")
+
+    subject_template = st.text_input(
+        "邮件主题",
+        value=st.session_state.get("mb_subject", "尊敬的{{姓氏}}老师，您好"),
+        key="mb_subject",
+    )
+
+    body_template = st.text_area(
+        "邮件正文",
+        value=st.session_state.get("mb_body", "尊敬的{{姓氏}}老师：\n\n您好！\n\n（在此编写邮件内容，支持{{姓氏}} {{姓名}}等变量）\n\n祝好！"),
+        key="mb_body",
+        height=250,
+    )
+
+    if "{{" in subject_template or "{{" in body_template:
+        st.caption("💡 可用变量: {{姓氏}} {{姓名}} {{名字}} {{邮箱}} 以及Excel中的任意列名")
+
+    st.divider()
+    st.subheader("3. 预览与发送")
+
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        delay_seconds = st.number_input("发送间隔(秒)", min_value=0.0, max_value=10.0, value=2.0, step=0.5, key="mb_delay")
+        dry_run = st.checkbox("演练模式（不实际发送）", value=True, key="mb_dry_run")
+
+    if recipients_data and (subject_template or body_template):
+        email_list_for_send = []
+        for r in recipients_data:
+            subject = subject_template
+            body = body_template
+            for key, val in r.items():
+                subject = subject.replace("{{" + key + "}}", str(val))
+                body = body.replace("{{" + key + "}}", str(val))
+            email_list_for_send.append({
+                "email": r["email"],
+                "name": r.get("name", ""),
+                "subject": subject,
+                "body": body,
+            })
+
+        missing_vars = set()
+        import re
+        for item in email_list_for_send:
+            remaining = re.findall(r'\{\{(\w+)\}\}', item["subject"] + item["body"])
+            missing_vars.update(remaining)
+        if missing_vars:
+            st.warning(f"⚠️ 模板中存在未替换的变量: {', '.join(missing_vars)}")
+
+        st.info(f"待发送 {len(email_list_for_send)} 封邮件")
+
+        with st.expander("📧 预览前3封"):
+            for item in email_list_for_send[:3]:
+                st.markdown(f"**收件人:** {item['name']} ({item['email']})")
+                st.markdown(f"**主题:** {item['subject']}")
+                st.text(item['body'][:300] + "..." if len(item['body']) > 300 else item['body'])
+                st.divider()
+
+        if st.button("🚀 " + ("演练预览" if dry_run else "立即发送"), key="mb_send", type="primary", use_container_width=True):
+            if not smtp_user or not smtp_password:
+                st.error("请先在上方配置SMTP邮箱信息")
+            elif dry_run:
+                with st.spinner("演练预览中..."):
+                    result = send_bulk_emails(
+                        smtp_user=smtp_user, smtp_password=smtp_password,
+                        email_list=email_list_for_send, sender_name=sender_name,
+                        delay_seconds=delay_seconds, dry_run=True,
+                    )
+                st.success(f"演练完成！共 {result['total']} 封邮件")
+                for r in result["results"]:
+                    st.write(f"  [{r['index']}] {r['name']} <{r['email']}> - {r['subject']}")
+            else:
+                progress = st.progress(0)
+                status_text = st.empty()
+                success_count = 0
+                fail_count = 0
+
+                for i, item in enumerate(email_list_for_send):
+                    status_text.write(f"发送中 [{i+1}/{len(email_list_for_send)}] {item['email']}...")
+                    single_result = send_bulk_emails(
+                        smtp_user=smtp_user, smtp_password=smtp_password,
+                        email_list=[item], sender_name=sender_name,
+                        dry_run=False,
+                    )
+                    if single_result["success_count"] > 0:
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                    progress.progress((i + 1) / len(email_list_for_send))
+                    if i < len(email_list_for_send) - 1 and delay_seconds > 0:
+                        import time
+                        time.sleep(delay_seconds)
+
+                status_text.empty()
+                st.success(f"✅ 发送完成！成功 {success_count} 封，失败 {fail_count} 封")
+
+                if success_count > 0:
+                    st.session_state["last_blast_result"] = {
+                        "total": len(email_list_for_send),
+                        "success": success_count,
+                        "failed": fail_count,
+                        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+    elif not recipients_data:
+        st.info("请先上传Excel文件")
+    else:
+        st.info("请填写邮件主题和正文")
 
 
 def show_inventory():
@@ -1345,6 +1687,9 @@ def main():
 
         elif selected_main == '📦 库存管理':
             show_inventory()
+
+        elif selected_main == '📨 邮件群发':
+            show_email_blast()
 
         elif selected_main == '👑 用户管理':
             show_user_management(config)

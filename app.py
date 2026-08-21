@@ -1795,14 +1795,18 @@ def show_email_blast():
             rt_color = st.color_picker("文字颜色", value="#FF0000", key="mb_rt_color")
         with rt_col4:
             rt_size = st.number_input("字号(px)", min_value=10, max_value=48, value=18, step=1, key="mb_rt_size")
-        rt_bg = st.color_picker("背景色（可选）", value="#FFFFFF00", key="mb_rt_bg")
+        rt_col_bg1, rt_col_bg2 = st.columns([1, 4])
+        with rt_col_bg1:
+            rt_enable_bg = st.checkbox("添加背景色", value=False, key="mb_rt_enable_bg")
+        with rt_col_bg2:
+            rt_bg = st.color_picker("背景色", value="#FFFACD", key="mb_rt_bg")
         if st.button("📋 生成带样式片段", key="mb_rt_gen") and rt_text:
             style_parts = []
             if rt_bold:
                 style_parts.append("font-weight:bold")
             style_parts.append(f"color:{rt_color}")
             style_parts.append(f"font-size:{rt_size}px")
-            if rt_bg and rt_bg != "#FFFFFF00":
+            if rt_enable_bg:
                 style_parts.append(f"background-color:{rt_bg}")
             styled = f'<span style="{";".join(style_parts)}">{rt_text}</span>'
             st.code(styled, language="html")

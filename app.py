@@ -2237,21 +2237,66 @@ def show_email_blast():
     st.divider()
     st.subheader("2. 编辑邮件内容")
 
+    # ===== 动态可用变量面板：从 Excel 列名自动生成 =====
+    if recipients_data:
+        # 收集所有可用变量名（Excel 列名 + 内置字段）
+        all_var_names = list(recipients_data[0].keys())
+        # 优先显示内置字段
+        builtin_order = ["姓氏", "姓", "姓名", "客户姓名", "客户", "名字", "名", "邮箱", "email"]
+        ordered = []
+        for b in builtin_order:
+            for v in all_var_names:
+                if v == b or v.lower() == b.lower():
+                    if v not in ordered:
+                        ordered.append(v)
+        for v in all_var_names:
+            if v not in ordered:
+                ordered.append(v)
+
+        with st.expander(f"📋 可用变量（共 {len(ordered)} 个，点击插入到模板）", expanded=False):
+            st.caption("💡 在主题/正文里用 `{{列名}}` 引用任意 Excel 列。也可以用方括号 `[列名]`。")
+            # 分列展示，点击即插入到正文末尾
+            var_cols = st.columns(4)
+            for i, var_name in enumerate(ordered):
+                col_idx = i % 4
+                with var_cols[col_idx]:
+                    sample_val = str(recipients_data[0].get(var_name, ""))[:20]
+                    if st.button(f"{{{{{var_name}}}}}", key=f"mb_var_btn_{i}", help=f"示例值：{sample_val}"):
+                        # 插入到正文末尾
+                        cur_body = st.session_state.get("mb_body", "")
+                        st.session_state["mb_body"] = cur_body + f"{{{{{var_name}}}}}"
+                        st.rerun()
+            st.caption("---")
+            st.caption("内置变量：`{{姓氏}}` 自动提取姓（支持中英文/复姓） · `{{姓名}}` 全名 · `{{邮箱}}` 邮箱地址")
+            st.caption("Excel 列：所有上传 Excel 的列名都可直接用 `{{列名}}` 引用，例如 `{{订单跟踪号}}` `{{手机号}}` 等")
+
     subject_template = st.text_input(
         "邮件主题",
-        value=st.session_state.get("mb_subject", "尊敬的{{姓氏}}老师，您好"),
+        value=st.session_state.get("mb_subject", ""),
         key="mb_subject",
+        placeholder="如：尊敬的{{姓氏}}老师，您好",
     )
 
     body_template = st.text_area(
         "邮件正文",
-        value=st.session_state.get("mb_body", "尊敬的{{姓氏}}老师：\n\n您好！\n\n（在此编写邮件内容，支持{{姓氏}} {{姓名}}等变量）\n\n祝好！"),
+        value=st.session_state.get("mb_body", ""),
         key="mb_body",
         height=250,
+        placeholder="如：尊敬的{{姓氏}}老师：\n\n您好！\n\n您的订单号是{{订单跟踪号}}...\n\n祝好！",
     )
 
-    if "{{" in subject_template or "{{" in body_template:
-        st.caption("💡 可用变量: {{姓氏}} {{姓名}} {{名字}} {{邮箱}} 以及Excel中的任意列名")
+    # 检测模板中使用的变量是否都有对应数据
+    if recipients_data and ("{{" in subject_template or "{{" in body_template):
+        import re as _re_check
+        used_vars = set()
+        for m in _re_check.finditer(r'\{\{\s*([^{}]+?)\s*\}\}', subject_template + body_template):
+            used_vars.add(m.group(1).strip())
+        available_vars = set(recipients_data[0].keys()) | set(_CN_TEMPLATE_ALIASES.keys())
+        missing = used_vars - available_vars
+        if missing:
+            st.warning(f"⚠️ 以下变量在 Excel 中找不到对应列：{'、'.join(missing)}")
+        else:
+            st.caption(f"✅ 模板使用了 {len(used_vars)} 个变量，全部可匹配")
 
     # ===== 讯飞星火AI 助手 =====
     with st.expander("🤖 星火AI助手（润色/改写）", expanded=False):

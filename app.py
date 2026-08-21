@@ -1336,8 +1336,16 @@ def show_email_generator():
 
 
 def _extract_surname(name: str) -> str:
+    """从姓名中提取姓氏，不管名字里是否有英文，都只提取中文姓。"""
     if not name:
         return ""
+    import re
+    # 去除首尾空白和常见标点
+    name = name.strip().strip("·•・-_.")
+    if not name:
+        return ""
+
+    # 复姓列表
     surname_map = [
         "欧阳", "太史", "端木", "上官", "司马", "东方", "独孤", "南宫", "万俟",
         "闻人", "夏侯", "诸葛", "尉迟", "公羊", "赫连", "澹台", "皇甫", "宗政",
@@ -1349,10 +1357,28 @@ def _extract_surname(name: str) -> str:
         "公坚", "左丘", "公伯", "西门", "公祖", "第五", "公乘", "贯丘", "公皙",
         "南荣", "东里", "东宫", "仲长", "子书", "子桑", "即墨", "达奚", "褚师"
     ]
-    for compound in surname_map:
-        if name.startswith(compound):
-            return compound
-    return name[0] if name else ""
+
+    # 提取所有中文字符部分
+    chinese_parts = re.findall(r'[\u4e00-\u9fff]+', name)
+
+    if chinese_parts:
+        # 有中文字符：用第一段中文匹配复姓或取第一个字
+        chinese_name = chinese_parts[0]
+        for compound in surname_map:
+            if chinese_name.startswith(compound):
+                return compound
+        return chinese_name[0] if chinese_name else ""
+
+    # 纯英文名：取最后一个单词作为姓（Family Name）
+    # 例如 "John Smith" → "Smith"，"Li Heng" → "Heng"
+    # 如果是 "heng.li" 格式，取点后面的部分
+    cleaned = re.sub(r'[·•・\-_.]', ' ', name)
+    words = cleaned.split()
+    if len(words) >= 2:
+        return words[-1]  # 最后一个词是姓
+    elif words:
+        return words[0]  # 只有一个词，取首词
+    return ""
 
 
 # 中文变量名（含别名） → 实际字段名

@@ -2687,7 +2687,96 @@ def show_email_blast():
                             st.success(f"✅ 已登记发送任务，正在后台发送中... ID: `{job['id']}`。每 20 秒自动刷新进度。")
                     else:
                         st.success(f"✅ 已登记发送任务，正在后台发送中... ID: `{job['id']}`。每 20 秒自动刷新进度。")
-                    st.caption("💡 下方「📅 已排期的定时任务列表」可查看实时状态（pending→running→done/failed）")
+                    st.caption("💡 下方实时进度面板 & 「📅 已排期的定时任务列表」可查看实时状态（pending→running→done/failed）")
+
+                    # =========================================================
+                    # 📊 此处插入：刚登记这个任务的"实时进度面板"（放在这里，用户不用滚到底）
+                    # =========================================================
+                    st.markdown("#### 📊 实时发送进度")
+                    cur_job = None
+                    for j in _SCHED_SENDER.list_jobs():
+                        if j.get("id") == job["id"]:
+                            cur_job = j
+                            break
+                    if cur_job is None:
+                        st.info("等待调度中…")
+                    else:
+                        total = int(cur_job.get("total") or 0)
+                        sent_list = cur_job.get("sent_list") or []
+                        succ_list = [s for s in sent_list if str(s.get("status","")).lower() in ("success","成功","ok","done")]
+                        fail_list = [s for s in sent_list if s not in succ_list]
+                        n_sent = len(sent_list)
+                        cur_idx = int(cur_job.get("current_index") or 0)
+                        status = cur_job.get("status") or "pending"
+
+                        # 进度条
+                        if total > 0:
+                            pct = max(0.0, min(1.0, n_sent / total))
+                            st.progress(pct, text=f"{n_sent}/{total}　（✅ {len(succ_list)} 成功 / ❌ {len(fail_list)} 失败）")
+                        else:
+                            st.progress(0.0, text=f"0/0")
+
+                        # 当前正在发送的卡片
+                        if status == "running":
+                            cur_name = str(cur_job.get("current_name") or "")
+                            cur_email = str(cur_job.get("current_email") or "")
+                            cur_subj = str(cur_job.get("current_subject") or "")
+                            started_at = cur_job.get("started_at")
+                            elapsed = ""
+                            if started_at:
+                                try:
+                                    from datetime import datetime as _dt5
+                                    sec = int((now_cn() - _dt5.fromisoformat(started_at)).total_seconds())
+                                    mm, ss = divmod(sec, 60)
+                                    elapsed = f"（已用 {mm}:{ss:02d}）"
+                                except Exception:
+                                    pass
+                            if cur_idx > 0:
+                                st.info(
+                                    f"🚀 **当前正在发送第 {cur_idx}/{total} 封** {elapsed}\n\n"
+                                    f"· 👤 {cur_name}　📧 `{cur_email}`\n\n"
+                                    f"· 🏷️ {cur_subj[:90]}{'…' if len(cur_subj) > 90 else ''}"
+                                )
+                        elif status in ("pending", "scheduled"):
+                            sat = cur_job.get("scheduled_at")
+                            try:
+                                from datetime import datetime as _dt5
+                                wait = (_dt5.fromisoformat(sat) - now_cn()).total_seconds()
+                                if wait > 0:
+                                    wd, rem = divmod(int(wait), 86400); wh, wm = divmod(rem//60, 60)
+                                    st.info(f"⏳ 等待定时触发：还有 {'%d天 '%wd if wd else ''}{wh:02d}:{wm:02d}（{sat[:16]} 开始）")
+                                else:
+                                    st.info("⏳ 即将开始发送…")
+                            except Exception:
+                                st.info("⏳ 等待调度中…")
+                        elif status == "done":
+                            st.success(f"✅ 全部发送完成：成功 {len(succ_list)} 封 / 失败 {len(fail_list)} 封 / 共 {total} 封")
+                        elif status == "partial":
+                            st.warning(f"⚠️ 部分完成：成功 {len(succ_list)} 封 / 失败 {len(fail_list)} 封 / 共 {total} 封")
+                        elif status == "failed":
+                            st.error(f"❌ 发送失败：{cur_job.get('error','未知错误')[:200]}")
+                        elif status == "cancelled":
+                            st.warning("🚫 用户取消")
+                        elif status == "expired":
+                            st.warning(f"⌛ 过期未触发：{cur_job.get('error','')[:200]}")
+
+                        # 已发送明细
+                        if sent_list:
+                            with st.expander(f"✅ 已发送明细（{len(sent_list)} 封）", expanded=False):
+                                rows = []
+                                for s in sent_list:
+                                    icon = "✅" if str(s.get("status","")).lower() in ("success","成功","ok","done") else "❌"
+                                    msg = str(s.get("note") or s.get("message") or s.get("error") or "")
+                                    if len(msg) > 200: msg = msg[:200] + "…"
+                                    rows.append({
+                                        "#": s.get("index", "-"),
+                                        "状态": f"{icon} {s.get('status','')}",
+                                        "姓名": s.get("name",""),
+                                        "邮箱": s.get("email",""),
+                                        "主题": (s.get("subject","")[:50] + ("…" if len(str(s.get("subject","")))>50 else "")),
+                                        "耗时/原因": msg,
+                                    })
+                                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
         # =========================================================
         # 任务列表：展示所有排期/已完成任务（草稿任务也一并在这里看到）

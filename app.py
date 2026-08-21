@@ -2621,162 +2621,253 @@ def show_email_blast():
                     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
                                  column_config={"#": st.column_config.NumberColumn(width="small")})
                 else:
-                    # ========== 非演练（实际发送） ==========
-                    import uuid
-                    # 把附件 base64 化，存到 JSONL 里
-                    att_refs = []
-                    for a in (global_attachments or []):
-                        if isinstance(a, tuple) and len(a) >= 2:
-                            data_bytes, name = a[0], str(a[1])
-                        else:
-                            data_bytes = a
-                            name = "attachment"
-                        if isinstance(data_bytes, str) and os.path.isfile(data_bytes):
-                            with open(data_bytes, "rb") as f:
-                                b64 = base64.b64encode(f.read()).decode("ascii")
-                        elif isinstance(data_bytes, (bytes, bytearray)):
-                            b64 = base64.b64encode(bytes(data_bytes)).decode("ascii")
-                        elif hasattr(data_bytes, "read"):
+                    # ==============================================================
+                    # ✨ 实际发送 · 分两条路径：
+                    #   A) 立即发送（未启用定时）→ 老的同步方案：st.progress + status_text
+                    #      在当前请求里逐封发送 → 丝滑实时更新（用户喜欢的"最初样子"）
+                    #
+                    #   B) 启用定时/分批定时 → 新的 JSONL + 后台线程 + 5秒刷新
+                    # ==============================================================
+                    if not enable_schedule:
+                        # ---------------- 路径A：立即发送 · 同步丝滑实时进度 ----------------
+                        progress = st.progress(0.0, text=f"0 / {len(email_list_for_send)}")
+                        status_text = st.empty()
+                        detail_placeholder = st.container()
+                        success_count = 0; fail_count = 0
+                        detailed_rows = []
+
+                        for idx, item in enumerate(email_list_for_send):
+                            abs_no = selected_abs_idx[idx] + 1 if idx < len(selected_abs_idx) else idx + 1
+                            status_text.info(f"📤 发送中 [{abs_no}] {item.get('name','')} <{item['email']}> ...")
+                            result = {"status": "error", "success_count": 0, "failed_count": 0, "results": []}
                             try:
-                                data_bytes.seek(0)
-                                b64 = base64.b64encode(data_bytes.read()).decode("ascii")
-                            except Exception:
-                                continue
-                        else:
-                            continue
-                        att_refs.append([name, b64])
-
-                    job = {
-                        "id": "job_" + uuid.uuid4().hex[:12],
-                        "scheduled_at": scheduled_time.isoformat() if (enable_schedule and scheduled_time) else now_cn().isoformat(),
-                        "status": "pending",
-                        "created_at": now_cn().isoformat(),
-                        "smtp_user": smtp_user,
-                        "smtp_password": smtp_password,
-                        "sender_name": sender_name,
-                        "email_list": email_list_for_send,
-                        "delay_seconds": delay_seconds,
-                        "global_attachments_refs": att_refs,
-                        "global_cc": g_cc,
-                        "global_bcc": g_bcc,
-                        "is_html": use_html,
-                        "enable_batch": bool(enable_batch and batch_size > 0),
-                        "batch_size": int(batch_size or 0),
-                        "batch_interval": int(batch_interval or 0),
-                        "total": len(email_list_for_send),
-                    }
-                    _SCHED_SENDER.upsert(job)
-
-                    # 如果是立即发送或者现在就到点了 → 立刻触发一次 tick()，马上开跑
-                    _SCHED_SENDER.tick()
-
-                    if enable_schedule and scheduled_time:
-                        wait_now = (scheduled_time - now_cn()).total_seconds()
-                        if wait_now > 0:
-                            wd, rem = divmod(int(wait_now), 86400)
-                            wh, wm = divmod(rem // 60, 60)
-                            st.success(
-                                f"✅ 已登记定时任务！\n\n"
-                                f"· 任务ID：`{job['id']}`\n"
-                                f"· 发送时间：**{scheduled_time.strftime('%Y-%m-%d %H:%M')}**\n"
-                                f"· 还有：{'%d天 ' % wd if wd else ''}{wh:02d}小时{wm:02d}分钟\n"
-                                f"· 邮件数量：{len(email_list_for_send)} 封\n"
-                                f"\n📌 **请保持此页面打开**（每 20 秒自动检查一次，到点自动开始发送）。"
-                            )
-                        else:
-                            st.success(f"✅ 已登记发送任务，正在后台发送中... ID: `{job['id']}`。每 20 秒自动刷新进度。")
-                    else:
-                        st.success(f"✅ 已登记发送任务，正在后台发送中... ID: `{job['id']}`。每 20 秒自动刷新进度。")
-                    st.caption("💡 下方实时进度面板 & 「📅 已排期的定时任务列表」可查看实时状态（pending→running→done/failed）")
-
-                    # =========================================================
-                    # 📊 此处插入：刚登记这个任务的"实时进度面板"（放在这里，用户不用滚到底）
-                    # =========================================================
-                    st.markdown("#### 📊 实时发送进度")
-                    cur_job = None
-                    for j in _SCHED_SENDER.list_jobs():
-                        if j.get("id") == job["id"]:
-                            cur_job = j
-                            break
-                    if cur_job is None:
-                        st.info("等待调度中…")
-                    else:
-                        total = int(cur_job.get("total") or 0)
-                        sent_list = cur_job.get("sent_list") or []
-                        succ_list = [s for s in sent_list if str(s.get("status","")).lower() in ("success","成功","ok","done")]
-                        fail_list = [s for s in sent_list if s not in succ_list]
-                        n_sent = len(sent_list)
-                        cur_idx = int(cur_job.get("current_index") or 0)
-                        status = cur_job.get("status") or "pending"
-
-                        # 进度条
-                        if total > 0:
-                            pct = max(0.0, min(1.0, n_sent / total))
-                            st.progress(pct, text=f"{n_sent}/{total}　（✅ {len(succ_list)} 成功 / ❌ {len(fail_list)} 失败）")
-                        else:
-                            st.progress(0.0, text=f"0/0")
-
-                        # 当前正在发送的卡片
-                        if status == "running":
-                            cur_name = str(cur_job.get("current_name") or "")
-                            cur_email = str(cur_job.get("current_email") or "")
-                            cur_subj = str(cur_job.get("current_subject") or "")
-                            started_at = cur_job.get("started_at")
-                            elapsed = ""
-                            if started_at:
-                                try:
-                                    from datetime import datetime as _dt5
-                                    sec = int((now_cn() - _dt5.fromisoformat(started_at)).total_seconds())
-                                    mm, ss = divmod(sec, 60)
-                                    elapsed = f"（已用 {mm}:{ss:02d}）"
-                                except Exception:
-                                    pass
-                            if cur_idx > 0:
-                                st.info(
-                                    f"🚀 **当前正在发送第 {cur_idx}/{total} 封** {elapsed}\n\n"
-                                    f"· 👤 {cur_name}　📧 `{cur_email}`\n\n"
-                                    f"· 🏷️ {cur_subj[:90]}{'…' if len(cur_subj) > 90 else ''}"
+                                result = send_bulk_emails(
+                                    smtp_user=smtp_user, smtp_password=smtp_password,
+                                    email_list=[item], sender_name=sender_name,
+                                    delay_seconds=0, dry_run=False,
+                                    global_attachments=global_attachments,
+                                    global_cc=g_cc, global_bcc=g_bcc,
+                                    is_html=use_html,
                                 )
-                        elif status in ("pending", "scheduled"):
-                            sat = cur_job.get("scheduled_at")
-                            try:
-                                from datetime import datetime as _dt5
-                                wait = (_dt5.fromisoformat(sat) - now_cn()).total_seconds()
-                                if wait > 0:
-                                    wd, rem = divmod(int(wait), 86400); wh, wm = divmod(rem//60, 60)
-                                    st.info(f"⏳ 等待定时触发：还有 {'%d天 '%wd if wd else ''}{wh:02d}:{wm:02d}（{sat[:16]} 开始）")
+                            except Exception as oe:
+                                result = {"status":"error","success_count":0,"failed_count":1,
+                                          "results":[{"status":"error","message":f"{type(oe).__name__}: {oe}"}]}
+                            if result.get("success_count", 0) > 0:
+                                success_count += 1; status_txt = "✅ 成功"
+                                note = ""
+                                rr = result.get("results", [])
+                                if rr and rr[0].get("elapsed_seconds"):
+                                    note = f"耗时 {rr[0]['elapsed_seconds']}s"
+                                    if rr[0].get("attempts",1) > 1: note += f"（重试{rr[0]['attempts']-1}次）"
+                            else:
+                                fail_count += 1; status_txt = "❌ 失败"
+                                rr = result.get("results", [])
+                                if rr:
+                                    note = str(rr[0].get("message") or rr[0].get("error") or str(result))[:300]
                                 else:
-                                    st.info("⏳ 即将开始发送…")
-                            except Exception:
-                                st.info("⏳ 等待调度中…")
-                        elif status == "done":
-                            st.success(f"✅ 全部发送完成：成功 {len(succ_list)} 封 / 失败 {len(fail_list)} 封 / 共 {total} 封")
-                        elif status == "partial":
-                            st.warning(f"⚠️ 部分完成：成功 {len(succ_list)} 封 / 失败 {len(fail_list)} 封 / 共 {total} 封")
-                        elif status == "failed":
-                            st.error(f"❌ 发送失败：{cur_job.get('error','未知错误')[:200]}")
-                        elif status == "cancelled":
-                            st.warning("🚫 用户取消")
-                        elif status == "expired":
-                            st.warning(f"⌛ 过期未触发：{cur_job.get('error','')[:200]}")
+                                    note = str(result.get("message","未知错误"))[:300]
+                            detailed_rows.append({
+                                "#": abs_no, "姓名": item.get("name",""),
+                                "邮箱": item["email"], "主题": item.get("subject",""),
+                                "状态": status_txt, "详情": note,
+                            })
+                            progress.progress((idx+1)/len(email_list_for_send),
+                                              text=f"{idx+1}/{len(email_list_for_send)}　✅ {success_count} 成功 / ❌ {fail_count} 失败")
+                            if idx < len(email_list_for_send)-1 and delay_seconds > 0:
+                                time.sleep(delay_seconds)
 
-                        # 已发送明细
-                        if sent_list:
-                            with st.expander(f"✅ 已发送明细（{len(sent_list)} 封）", expanded=False):
-                                rows = []
-                                for s in sent_list:
-                                    icon = "✅" if str(s.get("status","")).lower() in ("success","成功","ok","done") else "❌"
-                                    msg = str(s.get("note") or s.get("message") or s.get("error") or "")
-                                    if len(msg) > 200: msg = msg[:200] + "…"
-                                    rows.append({
-                                        "#": s.get("index", "-"),
-                                        "状态": f"{icon} {s.get('status','')}",
-                                        "姓名": s.get("name",""),
-                                        "邮箱": s.get("email",""),
-                                        "主题": (s.get("subject","")[:50] + ("…" if len(str(s.get("subject","")))>50 else "")),
-                                        "耗时/原因": msg,
-                                    })
-                                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                        status_text.empty()
+                        summary = [f"成功 {success_count} 封，失败 {fail_count} 封（共 {len(email_list_for_send)} 封）"]
+                        if g_cc: summary.append(f"抄送×{len(g_cc)}")
+                        if g_bcc: summary.append(f"密抄×{len(g_bcc)}")
+                        if fail_count == 0:
+                            st.success("✅ 全部发送完成！" + "，".join(summary))
+                        elif success_count > 0:
+                            st.warning("⚠️ 部分发送完成 — " + "，".join(summary))
+                        else:
+                            st.error("❌ 发送全部失败 — " + "，".join(summary))
+                        st.markdown("### 📋 发送详情（全部）")
+                        st.dataframe(pd.DataFrame(detailed_rows), use_container_width=True, hide_index=True)
+                        st.session_state["last_blast_result"] = {
+                            "total": len(email_list_for_send),
+                            "success": success_count, "failed": fail_count,
+                            "cc_count": len(g_cc), "bcc_count": len(g_bcc),
+                            "rows": detailed_rows,
+                            "time": now_cn().strftime("%Y-%m-%d %H:%M:%S"),
+                        }
+                        # 顺便把结果也作为一个"done 状态的 job"记到任务列表，方便历史追溯
+                        import uuid as _uuid
+                        hist_job = {
+                            "id": "job_hist_" + _uuid.uuid4().hex[:10],
+                            "scheduled_at": now_cn().isoformat(),
+                            "status": "done" if fail_count == 0 else ("partial" if success_count > 0 else "failed"),
+                            "created_at": now_cn().isoformat(),
+                            "started_at": now_cn().isoformat(),
+                            "finished_at": now_cn().isoformat(),
+                            "smtp_user": smtp_user, "sender_name": sender_name,
+                            "total": len(email_list_for_send),
+                            "success_count": success_count, "fail_count": fail_count,
+                            "sent_list": [
+                                {
+                                    "index": r["#"], "status": "success" if "成功" in str(r["状态"]) else "failed",
+                                    "name": r["姓名"], "email": r["邮箱"],
+                                    "subject": r["主题"], "note": r["详情"],
+                                } for r in detailed_rows
+                            ],
+                            "enable_batch": False, "batch_size": 0, "batch_interval": 0,
+                            "delay_seconds": delay_seconds,
+                            "mode": "instant_sync",
+                        }
+                        _SCHED_SENDER.upsert(hist_job)
+                    else:
+                        # ---------------- 路径B：定时/分批定时 · JSONL后台线程 + 5s刷新 ----------------
+                        import uuid
+                        att_refs = []
+                        for a in (global_attachments or []):
+                            if isinstance(a, tuple) and len(a) >= 2:
+                                data_bytes, name = a[0], str(a[1])
+                            else:
+                                data_bytes = a
+                                name = "attachment"
+                            b64 = None
+                            if isinstance(data_bytes, str) and os.path.isfile(data_bytes):
+                                with open(data_bytes, "rb") as f:
+                                    b64 = base64.b64encode(f.read()).decode("ascii")
+                            elif isinstance(data_bytes, (bytes, bytearray)):
+                                b64 = base64.b64encode(bytes(data_bytes)).decode("ascii")
+                            elif hasattr(data_bytes, "read"):
+                                try:
+                                    data_bytes.seek(0)
+                                    b64 = base64.b64encode(data_bytes.read()).decode("ascii")
+                                except Exception: pass
+                            if b64:
+                                att_refs.append([name, b64])
+
+                        job = {
+                            "id": "job_" + uuid.uuid4().hex[:12],
+                            "scheduled_at": scheduled_time.isoformat(),
+                            "status": "pending",
+                            "created_at": now_cn().isoformat(),
+                            "smtp_user": smtp_user,
+                            "smtp_password": smtp_password,
+                            "sender_name": sender_name,
+                            "email_list": email_list_for_send,
+                            "delay_seconds": delay_seconds,
+                            "global_attachments_refs": att_refs,
+                            "global_cc": g_cc,
+                            "global_bcc": g_bcc,
+                            "is_html": use_html,
+                            "enable_batch": bool(enable_batch and batch_size > 0),
+                            "batch_size": int(batch_size or 0),
+                            "batch_interval": int(batch_interval or 0),
+                            "total": len(email_list_for_send),
+                        }
+                        _SCHED_SENDER.upsert(job)
+                        _SCHED_SENDER.tick()
+
+                        if enable_schedule and scheduled_time:
+                            wait_now = (scheduled_time - now_cn()).total_seconds()
+                            if wait_now > 0:
+                                wd, rem = divmod(int(wait_now), 86400)
+                                wh, wm = divmod(rem // 60, 60)
+                                st.success(
+                                    f"✅ 已登记定时任务！\n\n"
+                                    f"· 任务ID：`{job['id']}`\n"
+                                    f"· 发送时间：**{scheduled_time.strftime('%Y-%m-%d %H:%M')}**\n"
+                                    f"· 还有：{'%d天 ' % wd if wd else ''}{wh:02d}小时{wm:02d}分钟\n"
+                                    f"· 邮件数量：{len(email_list_for_send)} 封\n"
+                                    f"\n📌 **请保持此页面打开**（每 5 秒自动刷新一次，到点自动开始发送）。"
+                                )
+                            else:
+                                st.success(f"✅ 已登记发送任务，正在后台发送中... ID: `{job['id']}`。每 5 秒自动刷新进度。")
+                        else:
+                            st.success(f"✅ 已登记发送任务，正在后台发送中... ID: `{job['id']}`。每 5 秒自动刷新进度。")
+                        st.caption("💡 下方实时进度面板 & 「📅 已排期的定时任务列表」可查看实时状态")
+
+                        # ---- 这里才显示内嵌的实时进度面板 ----
+                        st.markdown("#### 📊 实时发送进度")
+                        cur_job = None
+                        for j in _SCHED_SENDER.list_jobs():
+                            if j.get("id") == job["id"]:
+                                cur_job = j; break
+                        if cur_job is None:
+                            st.info("等待调度中…")
+                        else:
+                            total = int(cur_job.get("total") or 0)
+                            sent_list = cur_job.get("sent_list") or []
+                            succ_list = [s for s in sent_list if str(s.get("status","")).lower() in ("success","成功","ok","done")]
+                            fail_list = [s for s in sent_list if s not in succ_list]
+                            n_sent = len(sent_list)
+                            cur_idx = int(cur_job.get("current_index") or 0)
+                            status = cur_job.get("status") or "pending"
+
+                            if total > 0:
+                                pct = max(0.0, min(1.0, n_sent / total))
+                                st.progress(pct, text=f"{n_sent}/{total}　（✅ {len(succ_list)} 成功 / ❌ {len(fail_list)} 失败）")
+                            else:
+                                st.progress(0.0, text="0/0")
+
+                            if status == "running":
+                                cur_name = str(cur_job.get("current_name") or "")
+                                cur_email = str(cur_job.get("current_email") or "")
+                                cur_subj = str(cur_job.get("current_subject") or "")
+                                started_at = cur_job.get("started_at")
+                                elapsed = ""
+                                if started_at:
+                                    try:
+                                        sec = int((now_cn() - datetime.fromisoformat(started_at)).total_seconds())
+                                        mm, ss = divmod(sec, 60)
+                                        elapsed = f"（已用 {mm}:{ss:02d}）"
+                                    except Exception: pass
+                                if cur_idx > 0:
+                                    st.info(
+                                        f"🚀 **当前正在发送第 {cur_idx}/{total} 封** {elapsed}\n\n"
+                                        f"· 👤 {cur_name}　📧 `{cur_email}`\n\n"
+                                        f"· 🏷️ {cur_subj[:90]}{'…' if len(cur_subj) > 90 else ''}"
+                                    )
+                            elif status in ("pending","scheduled"):
+                                sat = cur_job.get("scheduled_at")
+                                try:
+                                    wait = (datetime.fromisoformat(sat) - now_cn()).total_seconds()
+                                    if wait > 0:
+                                        wd, rem = divmod(int(wait), 86400); wh, wm = divmod(rem//60, 60)
+                                        st.info(f"⏳ 等待定时触发：还有 {'%d天 '%wd if wd else ''}{wh:02d}:{wm:02d}（{sat[:16]} 开始）")
+                                    else:
+                                        st.info("⏳ 即将开始发送…")
+                                except Exception:
+                                    st.info("⏳ 等待调度中…")
+                            elif status == "done":
+                                st.success(f"✅ 全部发送完成：成功 {len(succ_list)} / 失败 {len(fail_list)} / 共 {total}")
+                            elif status == "partial":
+                                st.warning(f"⚠️ 部分完成：成功 {len(succ_list)} / 失败 {len(fail_list)} / 共 {total}")
+                            elif status == "failed":
+                                st.error(f"❌ 发送失败：{str(cur_job.get('error','未知错误'))[:200]}")
+                            elif status == "cancelled":
+                                st.warning("🚫 用户取消")
+                            elif status == "expired":
+                                st.warning(f"⌛ 过期未触发：{str(cur_job.get('error',''))[:200]}")
+
+                            if sent_list:
+                                with st.expander(f"✅ 已发送明细（{len(sent_list)} 封）", expanded=False):
+                                    rows = []
+                                    for s in sent_list:
+                                        icon = "✅" if str(s.get("status","")).lower() in ("success","成功","ok","done") else "❌"
+                                        msg = str(s.get("note") or s.get("message") or s.get("error") or "")
+                                        if len(msg) > 200: msg = msg[:200] + "…"
+                                        rows.append({
+                                            "#": s.get("index","-"),
+                                            "状态": f"{icon} {s.get('status','')}",
+                                            "姓名": s.get("name",""),
+                                            "邮箱": s.get("email",""),
+                                            "主题": (str(s.get("subject",""))[:50] + ("…" if len(str(s.get("subject","")))>50 else "")),
+                                            "耗时/原因": msg,
+                                        })
+                                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+                        # 手动刷新按钮（不等5秒）
+                        if st.button("🔄 立刻刷新进度", key="mb_refresh_progress_now"):
+                            _SCHED_SENDER.tick()
+                            st.rerun()
 
         # =========================================================
         # 任务列表：展示所有排期/已完成任务（草稿任务也一并在这里看到）

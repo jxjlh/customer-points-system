@@ -2166,7 +2166,10 @@ def show_email_blast():
             for item in email_list_all:
                 item["is_html"] = False
 
-        # ===== 发送数量选择 =====
+        # ===== 步骤A：为每封邮件分配绝对下标（= email_list_all 的 index），作为所有匹配的唯一锚点 =====
+        email_list_all_with_idx = [{"_abs_idx": i, **item} for i, item in enumerate(email_list_all)]
+
+        # ===== 发送范围选择（先切范围，得到候选绝对下标集合） =====
         send_qty_col1, send_qty_col2 = st.columns([1, 2])
         with send_qty_col1:
             send_mode = st.radio("📊 发送范围", ["全部发送", "前N封", "指定范围"], index=0, key="mb_send_mode")
@@ -2174,7 +2177,7 @@ def show_email_blast():
             if send_mode == "前N封":
                 send_n = st.number_input("发送前几封", min_value=1, max_value=len(email_list_all),
                                          value=min(10, len(email_list_all)), step=1, key="mb_send_n")
-                email_list_for_send = email_list_all[:send_n]
+                cand_abs_idx = list(range(min(send_n, len(email_list_all))))
             elif send_mode == "指定范围":
                 range_col1, range_col2 = st.columns(2)
                 with range_col1:
@@ -2183,28 +2186,33 @@ def show_email_blast():
                 with range_col2:
                     end_idx = st.number_input("结束序号", min_value=int(start_idx), max_value=len(email_list_all),
                                               value=min(int(start_idx) + 9, len(email_list_all)), step=1, key="mb_range_end")
-                email_list_for_send = email_list_all[int(start_idx)-1:int(end_idx)]
+                cand_abs_idx = list(range(int(start_idx)-1, int(end_idx)))
             else:
-                email_list_for_send = list(email_list_all)
+                cand_abs_idx = list(range(len(email_list_all)))
 
-        # ===== 单封邮件勾选（是否发送） =====
+        # ===== 单封邮件勾选（是否发送）—— 只在"发送范围候选"范围内显示，用绝对下标 =====
         st.markdown("#### ☑️ 单封邮件是否发送")
-        per_mail_toggle = st.checkbox("启用单封选择（下方预览区可勾选）", value=False, key="mb_per_mail_toggle")
+        per_mail_toggle = st.checkbox("启用单封选择（取消勾选的邮件不会发送）", value=False, key="mb_per_mail_toggle")
         if per_mail_toggle:
-            # 默认全部勾选；用户可以在下面预览区逐封取消勾选
             send_flags = st.session_state.setdefault("mb_send_flags", {})
-            for idx, item in enumerate(email_list_all):
-                key = f"mb_mail_flag_{idx}"
-                send_flags[idx] = st.checkbox(
-                    f"发送　第 {idx+1} 封：{item.get('name') or '-'} <{item.get('email','')}>　｜　{item.get('subject','')[:50]}",
-                    value=send_flags.get(idx, True),
+            for abs_i in cand_abs_idx:
+                item = email_list_all[abs_i]
+                key = f"mb_mail_flag_{abs_i}"
+                send_flags[abs_i] = st.checkbox(
+                    f"发送　第 {abs_i+1} 封（{item.get('name') or '-'} <{item.get('email','')}>）｜{item.get('subject','')[:60]}",
+                    value=send_flags.get(abs_i, True),
                     key=key,
                 )
             st.session_state["mb_send_flags"] = send_flags
-            # 过滤
-            selected_idx_list = [i for i, v in send_flags.items() if v and i < len(email_list_all)]
-            email_list_for_send = [email_list_all[i] for i in selected_idx_list]
-            st.caption(f"☑️ 已勾选 {len(email_list_for_send)} / 共 {len(email_list_all)} 封")
+            selected_abs_idx = [i for i in cand_abs_idx if send_flags.get(i, True)]
+            st.caption(f"☑️ 已勾选 {len(selected_abs_idx)} / 候选 {len(cand_abs_idx)}（全量 {len(email_list_all)}）封")
+        else:
+            selected_abs_idx = list(cand_abs_idx)
+
+        # ===== 汇总 email_list_for_send（用绝对下标从 email_list_all 取） =====
+        # 注意：单封编辑会直接 in-place 修改 email_list_all[abs_i] 里的 subject/body/email
+        # 所以这里最后再取值，确保所有编辑都生效
+        email_list_for_send = [dict(email_list_all[i]) for i in selected_abs_idx if 0 <= i < len(email_list_all)]
 
         # 把 Streamlit UploadedFile 转成 (bytes, filename) 列表供后端附加
         global_attachments = None
@@ -2264,10 +2272,14 @@ def show_email_blast():
         with preview_col_e:
             enable_edit = st.checkbox("✏️ 允许单封编辑", value=False, key="mb_enable_edit")
 
-        n_preview = len(email_list_for_send) if preview_limit >= len(email_list_for_send) else preview_limit
-        with st.expander(f"📧 预览前 {n_preview} 封（共 {len(email_list_for_send)} 封）", expanded=True):
-            for idx, item in enumerate(email_list_for_send[:n_preview]):
-                line1 = f"**{item['name']}** ({item['email']})　•　主题：{item['subject']}"
+        n_preview = len(selected_abs_idx) if preview_limit >= len(selected_abs_idx) else preview_limit
+        preview_abs_idx = selected_abs_idx[:n_preview]
+        with st.expander(f"📧 预览前 {n_preview} 封（共 {len(selected_abs_idx)} 封）", expanded=True):
+            for local_pos, abs_i in enumerate(preview_abs_idx):
+                # 引用 email_list_all 的原始对象，所有 in-place 修改都能保留
+                item = email_list_all[abs_i]
+                disp_no = abs_i + 1  # 显示"原始全量列表里的第几封"，和上方单封勾选面板里的序号完全一致
+                line1 = f"**[{disp_no}] {item['name']}** ({item['email']})　•　主题：{item['subject']}"
                 extras = []
                 if g_cc: extras.append("👁️ CC：" + "、".join(g_cc))
                 if g_bcc: extras.append("🕵️ BCC：" + "、".join(g_bcc))
@@ -2276,19 +2288,21 @@ def show_email_blast():
                     extras.append("📎 " + "、".join(names))
 
                 if enable_edit:
-                    # 单封编辑模式：每封可修改主题和正文
-                    with st.expander(f"✏️ [{idx+1}] {item['name']} ({item['email']})", expanded=False):
+                    # 单封编辑模式：用 abs_i 作唯一 key，直接改 email_list_all[abs_i]
+                    with st.expander(f"✏️ [{disp_no}] {item['name']} ({item['email']})", expanded=False):
                         edit_col1, edit_col2 = st.columns([2, 1])
                         with edit_col1:
-                            new_subject = st.text_input(f"主题", value=item["subject"], key=f"mb_edit_subject_{idx}")
+                            new_subject = st.text_input(f"主题", value=item["subject"], key=f"mb_edit_subject_{abs_i}")
                         with edit_col2:
-                            new_email = st.text_input(f"收件人", value=item["email"], key=f"mb_edit_email_{idx}")
-                        new_body = st.text_area(f"正文", value=item["body"], key=f"mb_edit_body_{idx}", height=150)
-                        if st.button("💾 保存修改", key=f"mb_save_{idx}"):
-                            item["subject"] = new_subject
-                            item["body"] = new_body
-                            item["email"] = new_email
-                            st.success(f"已保存 [{idx+1}] {item['name']} 的修改")
+                            new_email = st.text_input(f"收件人", value=item["email"], key=f"mb_edit_email_{abs_i}")
+                        new_body = st.text_area(f"正文", value=item["body"], key=f"mb_edit_body_{abs_i}", height=150)
+                        if st.button("💾 保存修改", key=f"mb_save_{abs_i}"):
+                            email_list_all[abs_i]["subject"] = new_subject
+                            email_list_all[abs_i]["body"] = new_body
+                            email_list_all[abs_i]["email"] = new_email
+                            # 改了收件人姓名吗？单封编辑里现在不改 name，name 是 recipients_data 里的，也同步一下
+                            st.success(f"✅ 已保存 第{disp_no}封 <{item.get('name','')}> 的修改")
+                            st.rerun()
                         st.caption("　".join(extras))
                 else:
                     if preview_show_body:
@@ -2315,150 +2329,174 @@ def show_email_blast():
         if st.button("🚀 " + send_button_label, key="mb_send", type="primary", use_container_width=True):
             if not smtp_user or not smtp_password:
                 st.error("请先在上方配置SMTP邮箱信息")
-            elif dry_run:
-                with st.spinner("演练预览中..."):
-                    result = send_bulk_emails(
-                        smtp_user=smtp_user, smtp_password=smtp_password,
-                        email_list=email_list_for_send, sender_name=sender_name,
-                        delay_seconds=delay_seconds, dry_run=True,
-                        global_attachments=global_attachments,
-                        global_cc=g_cc, global_bcc=g_bcc,
-                        is_html=use_html,
-                    )
-                summary = [f"共 {result['total']} 封邮件"]
-                if g_cc: summary.append(f"抄送×{len(g_cc)}")
-                if g_bcc: summary.append(f"密抄×{len(g_bcc)}")
-                st.success("演练完成！" + "，".join(summary))
-                # 把演练结果（每一封）全部展示（可翻页表格）
-                rows = [{
-                    "#": r["index"], "姓名": r.get("name", ""), "邮箱": r["email"],
-                    "主题": r.get("subject", ""), "状态": "✅ 演练通过", "说明": r.get("message", ""),
-                } for r in result["results"]]
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
-                             column_config={"#": st.column_config.NumberColumn(width="small")})
             else:
-                # 定时发送：如果启用了定时，先等待到指定时间
-                if enable_schedule and scheduled_time:
-                    from datetime import datetime as _dt3
-                    wait_secs = (scheduled_time - _dt3.now()).total_seconds()
-                    if wait_secs > 0:
-                        countdown = st.empty()
-                        import time as _time_mod
-                        while wait_secs > 0:
-                            mins, secs = divmod(int(wait_secs), 60)
-                            countdown.info(f"⏰ 定时发送倒计时：{mins:02d}:{secs:02d}（{scheduled_time.strftime('%Y-%m-%d %H:%M')}）")
-                            _time_mod.sleep(min(5, wait_secs))
-                            wait_secs = (scheduled_time - _dt3.now()).total_seconds()
-                        countdown.empty()
-                        st.info(f"⏰ 到达指定时间 {scheduled_time.strftime('%H:%M')}，开始发送...")
+                # ★ 发送前再构建 email_list_for_send，用最新的 email_list_all（包含所有单封编辑修改）
+                email_list_for_send = []
+                send_abs_indices = []
+                for i in selected_abs_idx:
+                    if 0 <= i < len(email_list_all):
+                        email_list_for_send.append(dict(email_list_all[i]))
+                        send_abs_indices.append(i)
 
-                # 分批发送逻辑
-                if enable_batch and batch_size > 0 and len(email_list_for_send) > batch_size:
-                    batches = [email_list_for_send[i:i + batch_size] for i in range(0, len(email_list_for_send), batch_size)]
-                    num_batches = len(batches)
-                else:
-                    batches = [email_list_for_send]
-                    num_batches = 1
-
-                progress = st.progress(0, text=f"准备发送 0 / {len(email_list_for_send)}")
-                status_text = st.empty()
-                results_log_container = st.container()
-                success_count = 0
-                fail_count = 0
-                detailed_rows = []
-                total_sent = 0
-
-                for batch_idx, batch in enumerate(batches):
-                    if num_batches > 1:
-                        st.info(f"📦 正在发送第 {batch_idx + 1}/{num_batches} 批（{len(batch)} 封）")
-
-                    for i, item in enumerate(batch):
-                        global_idx = total_sent
-                        status_text.write(f"📤 发送中 [{global_idx+1}/{len(email_list_for_send)}] {item['name']} <{item['email']}> ...")
-                        single_result = {"status": "error", "message": "", "success_count": 0, "failed_count": 0}
-                        try:
-                            single_result = send_bulk_emails(
-                                smtp_user=smtp_user, smtp_password=smtp_password,
-                                email_list=[item], sender_name=sender_name,
-                                dry_run=False, delay_seconds=0,
-                                global_attachments=global_attachments,
-                                global_cc=g_cc, global_bcc=g_bcc,
-                                is_html=use_html,
-                                scheduled_send_time=scheduled_time if (enable_schedule and global_idx == 0) else None,
-                            )
-                        except Exception as outer_e:
-                            single_result = {"status": "error", "success_count": 0, "failed_count": 1,
-                                             "results": [{"status": "error", "message": f"未捕获异常：{outer_e}"}]}
-                        if single_result.get("success_count", 0) > 0:
-                            success_count += 1
-                            status_icon, status_txt = "✅", "成功"
-                            note = ""
-                            rr = single_result.get("results", [])
-                            if rr and rr[0].get("elapsed_seconds"):
-                                note = f"耗时 {rr[0]['elapsed_seconds']}s"
-                                if rr[0].get("attempts", 1) > 1:
-                                    note += f"（重试{rr[0]['attempts']-1}次）"
-                        else:
-                            fail_count += 1
-                            status_icon, status_txt = "❌", "失败"
-                            rr = single_result.get("results", [])
-                            if rr:
-                                note = rr[0].get("message", str(single_result))
-                            else:
-                                note = single_result.get("message", "未知错误")
-                        batch_label = f"第{batch_idx+1}批" if num_batches > 1 else ""
-                        detailed_rows.append({
-                            "#": global_idx + 1, "姓名": item.get("name", ""), "邮箱": item["email"],
-                            "主题": item.get("subject", ""),
-                            "状态": status_txt, "详情": note,
-                            "批次": batch_label,
+                if dry_run:
+                    with st.spinner("演练预览中..."):
+                        result = send_bulk_emails(
+                            smtp_user=smtp_user, smtp_password=smtp_password,
+                            email_list=email_list_for_send, sender_name=sender_name,
+                            delay_seconds=delay_seconds, dry_run=True,
+                            global_attachments=global_attachments,
+                            global_cc=g_cc, global_bcc=g_bcc,
+                            is_html=use_html,
+                        )
+                    summary = [f"共 {result['total']} 封邮件"]
+                    if g_cc: summary.append(f"抄送×{len(g_cc)}")
+                    if g_bcc: summary.append(f"密抄×{len(g_bcc)}")
+                    st.success("演练完成！" + "，".join(summary))
+                    rows = [{
+                        "#": send_abs_indices[r["index"]-1] + 1 if r.get("index") and 1 <= r["index"] <= len(send_abs_indices) else send_abs_indices[k] + 1
+                        if False else (send_abs_indices[k] + 1 if k < len(send_abs_indices) else r.get("index","?"))
+                        for k, r in enumerate(result["results"])
+                    }] if False else None
+                    rows = []
+                    for k, r in enumerate(result["results"]):
+                        rows.append({
+                            "#": send_abs_indices[k] + 1 if k < len(send_abs_indices) else (r.get("index","?")),
+                            "姓名": r.get("name", ""),
+                            "邮箱": r["email"],
+                            "主题": r.get("subject", ""),
+                            "状态": "✅ 演练通过",
+                            "详情": r.get("message", ""),
                         })
-                        total_sent += 1
-                        progress.progress(total_sent / len(email_list_for_send),
-                                          text=f"已发送 {total_sent} / {len(email_list_for_send)}　成功 {success_count}　失败 {fail_count}")
-                        if i < len(batch) - 1 and delay_seconds > 0:
-                            import time
-                            time.sleep(delay_seconds)
-
-                    # 批次间隔等待
-                    if batch_idx < num_batches - 1 and num_batches > 1:
-                        wait_text = st.empty()
-                        for remaining in range(batch_interval * 60, 0, -5):
-                            w_mins, w_secs = divmod(remaining, 60)
-                            wait_text.info(f"⏳ 批次间隔等待：{w_mins:02d}:{w_secs:02d}（第{batch_idx+2}批发送即将开始）")
-                            import time
-                            time.sleep(min(5, remaining))
-                        wait_text.empty()
-
-                status_text.empty()
-                summary = [f"成功 {success_count} 封，失败 {fail_count} 封（共 {len(email_list_for_send)} 封）"]
-                if g_cc: summary.append(f"抄送×{len(g_cc)}")
-                if g_bcc: summary.append(f"密抄×{len(g_bcc)}")
-                if fail_count == 0:
-                    st.success("✅ 全部发送完成！" + "，".join(summary))
-                elif success_count > 0:
-                    st.warning("⚠️ 部分发送完成 — " + "，".join(summary))
+                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                                 column_config={"#": st.column_config.NumberColumn(width="small")})
                 else:
-                    st.error("❌ 发送全部失败 — " + "，".join(summary))
+                    # 定时发送：如果启用了定时，先等待到指定时间
+                    if enable_schedule and scheduled_time:
+                        from datetime import datetime as _dt3
+                        wait_secs = (scheduled_time - _dt3.now()).total_seconds()
+                        if wait_secs > 0:
+                            countdown = st.empty()
+                            import time as _time_mod
+                            while wait_secs > 0:
+                                mins, secs = divmod(int(wait_secs), 60)
+                                countdown.info(f"⏰ 定时发送倒计时：{mins:02d}:{secs:02d}（{scheduled_time.strftime('%Y-%m-%d %H:%M')}）")
+                                _time_mod.sleep(min(5, wait_secs))
+                                wait_secs = (scheduled_time - _dt3.now()).total_seconds()
+                            countdown.empty()
+                            st.info(f"⏰ 到达指定时间 {scheduled_time.strftime('%H:%M')}，开始发送...")
 
-                # 完整结果表（用户可以看到每一封是否成功/失败详情）
-                with results_log_container:
-                    st.subheader("📋 发送详情（全部）")
+                    # 分批发送逻辑（属于"实际发送" else 分支，注意缩进）
+                    if enable_batch and batch_size > 0 and len(email_list_for_send) > batch_size:
+                        batches = [email_list_for_send[i:i + batch_size] for i in range(0, len(email_list_for_send), batch_size)]
+                        batch_abs_idx_slices = [send_abs_indices[i:i + batch_size] for i in range(0, len(send_abs_indices), batch_size)]
+                        num_batches = len(batches)
+                    else:
+                        batches = [email_list_for_send]
+                        batch_abs_idx_slices = [list(send_abs_indices)]
+                        num_batches = 1
+
+                    progress = st.progress(0, text=f"准备发送 0 / {len(email_list_for_send)}")
+                    status_text = st.empty()
+                    results_log_container = st.container()
+                    success_count = 0
+                    fail_count = 0
+                    detailed_rows = []
+                    total_sent = 0
+
+                    for batch_idx, batch in enumerate(batches):
+                        cur_abs_slice = batch_abs_idx_slices[batch_idx] if batch_idx < len(batch_abs_idx_slices) else []
+                        if num_batches > 1:
+                            st.info(f"📦 正在发送第 {batch_idx + 1}/{num_batches} 批（{len(batch)} 封）")
+
+                        for i, item in enumerate(batch):
+                            global_idx = total_sent
+                            abs_no = (cur_abs_slice[i] + 1) if i < len(cur_abs_slice) else (global_idx + 1)
+                            status_text.write(f"📤 发送中 [{abs_no}] {item['name']} <{item['email']}> ...")
+                            single_result = {"status": "error", "message": "", "success_count": 0, "failed_count": 0}
+                            try:
+                                single_result = send_bulk_emails(
+                                    smtp_user=smtp_user, smtp_password=smtp_password,
+                                    email_list=[item], sender_name=sender_name,
+                                    dry_run=False, delay_seconds=0,
+                                    global_attachments=global_attachments,
+                                    global_cc=g_cc, global_bcc=g_bcc,
+                                    is_html=use_html,
+                                    scheduled_send_time=scheduled_time if (enable_schedule and global_idx == 0) else None,
+                                )
+                            except Exception as outer_e:
+                                single_result = {"status": "error", "success_count": 0, "failed_count": 1,
+                                                 "results": [{"status": "error", "message": f"未捕获异常：{outer_e}"}]}
+                            if single_result.get("success_count", 0) > 0:
+                                success_count += 1
+                                status_txt = "成功"
+                                note = ""
+                                rr = single_result.get("results", [])
+                                if rr and rr[0].get("elapsed_seconds"):
+                                    note = f"耗时 {rr[0]['elapsed_seconds']}s"
+                                    if rr[0].get("attempts", 1) > 1:
+                                        note += f"（重试{rr[0]['attempts']-1}次）"
+                            else:
+                                fail_count += 1
+                                status_txt = "失败"
+                                rr = single_result.get("results", [])
+                                if rr:
+                                    note = rr[0].get("message", str(single_result))
+                                else:
+                                    note = single_result.get("message", "未知错误")
+                            batch_label = f"第{batch_idx+1}批" if num_batches > 1 else ""
+                            detailed_rows.append({
+                                "#": abs_no, "姓名": item.get("name", ""), "邮箱": item["email"],
+                                "主题": item.get("subject", ""),
+                                "状态": status_txt, "详情": note,
+                                "批次": batch_label,
+                            })
+                            total_sent += 1
+                            progress.progress(total_sent / len(email_list_for_send),
+                                              text=f"已发送 {total_sent} / {len(email_list_for_send)}　成功 {success_count}　失败 {fail_count}")
+                            if i < len(batch) - 1 and delay_seconds > 0:
+                                import time
+                                time.sleep(delay_seconds)
+
+                        # 批次间隔等待
+                        if batch_idx < num_batches - 1 and num_batches > 1:
+                            wait_text = st.empty()
+                            for remaining in range(batch_interval * 60, 0, -5):
+                                w_mins, w_secs = divmod(remaining, 60)
+                                wait_text.info(f"⏳ 批次间隔等待：{w_mins:02d}:{w_secs:02d}（第{batch_idx+2}批发送即将开始）")
+                                import time
+                                time.sleep(min(5, remaining))
+                            wait_text.empty()
+
+                    status_text.empty()
+                    summary = [f"成功 {success_count} 封，失败 {fail_count} 封（共 {len(email_list_for_send)} 封）"]
+                    if g_cc: summary.append(f"抄送×{len(g_cc)}")
+                    if g_bcc: summary.append(f"密抄×{len(g_bcc)}")
+                    if enable_schedule and scheduled_time:
+                        summary.append(f"定时发送 {scheduled_time.strftime('%m-%d %H:%M')}")
+
+                    if fail_count == 0:
+                        st.success("✅ 全部发送完成！" + "，".join(summary))
+                    elif success_count > 0:
+                        st.warning("⚠️ 部分发送完成 — " + "，".join(summary))
+                    else:
+                        st.error("❌ 发送全部失败 — " + "，".join(summary))
+
+                    st.markdown("### 📋 发送详情（全部）")
                     st.dataframe(pd.DataFrame(detailed_rows), use_container_width=True, hide_index=True,
                                  column_config={
                                      "#": st.column_config.NumberColumn(width="small"),
                                      "状态": st.column_config.TextColumn(width="small"),
                                  })
 
-                st.session_state["last_blast_result"] = {
-                    "total": len(email_list_for_send),
-                    "success": success_count,
-                    "failed": fail_count,
-                    "cc_count": len(g_cc),
-                    "bcc_count": len(g_bcc),
-                    "rows": detailed_rows,
-                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                }
+                    st.session_state["last_blast_result"] = {
+                        "total": len(email_list_for_send),
+                        "success": success_count,
+                        "failed": fail_count,
+                        "cc_count": len(g_cc),
+                        "bcc_count": len(g_bcc),
+                        "rows": detailed_rows,
+                        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    }
     elif not recipients_data:
         st.info("请先上传Excel文件")
     else:

@@ -43,7 +43,12 @@ import textwrap
 import pandas as pd
 import plotly.express as px
 import json, threading, time
-from datetime import datetime, timedelta as _timedelta
+from datetime import datetime, timedelta as _timedelta, timezone as _tz, timedelta as _td_
+# ⚠️ 中国时区：Streamlit Cloud 服务器在 UTC，所有时间操作必须统一用 UTC+8
+TZ_CN = _tz(_td_(hours=8))
+def now_cn() -> datetime:
+    """返回北京时间（naive datetime 即 datetime 对象不带 tzinfo，但值是北京当地时间）"""
+    return datetime.now(tz=TZ_CN).replace(tzinfo=None)
 from io import BytesIO
 from st_aggrid import AgGrid, GridUpdateMode, DataReturnMode
 from st_aggrid.grid_options_builder import GridOptionsBuilder
@@ -163,7 +168,7 @@ class ScheduledSender:
                 if r.get("id") == job_id:
                     r = dict(r)
                     r["status"] = "cancelled"
-                    r["cancelled_at"] = datetime.now().isoformat()
+                    r["cancelled_at"] = now_cn().isoformat()
                 rows.append(r)
             self._write_all(rows)
 
@@ -226,7 +231,7 @@ class ScheduledSender:
             updated["success_count"] = success_count
             updated["fail_count"] = fail_count
             updated["total"] = total
-            updated["finished_at"] = datetime.now().isoformat()
+            updated["finished_at"] = now_cn().isoformat()
             self.upsert(updated)
 
             if row.get("draft_id"):
@@ -237,7 +242,7 @@ class ScheduledSender:
                     for d in drafts:
                         if d["id"] == row["draft_id"]:
                             d["status"] = "sent"
-                            d["sent_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            d["sent_at"] = now_cn().strftime("%Y-%m-%d %H:%M:%S")
                             d["last_run_summary"] = f"成功{success_count}封，失败{fail_count}封"
                             break
                     if "save_drafts" in globals() and callable(globals()["save_drafts"]):
@@ -248,14 +253,14 @@ class ScheduledSender:
             updated = dict(row)
             updated["status"] = "failed"
             updated["error"] = f"{type(e).__name__}: {e}"[:500]
-            updated["finished_at"] = datetime.now().isoformat()
+            updated["finished_at"] = now_cn().isoformat()
             self.upsert(updated)
 
     def tick(self):
         """每次页面 rerun 都触发一次：扫队列 → 到点就开线程发送"""
         with self._global_lock:
             rows = self._read_all()
-            now = datetime.now()
+            now = now_cn()
             changed = False
             for idx, r in enumerate(rows):
                 status = r.get("status") or "pending"
@@ -764,7 +769,7 @@ def show_data_import():
                     st.download_button(
                         label="下载导入的数据",
                         data=uploaded_file.getvalue(),
-                        file_name=f"导入数据_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        file_name=f"导入数据_{now_cn().strftime('%Y%m%d_%H%M%S')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
             except Exception as e:
@@ -832,7 +837,7 @@ def show_reports(data):
         st.download_button(
             label="下载报表",
             data=buffer,
-            file_name=f"{report_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            file_name=f"{report_type}_{now_cn().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
@@ -1324,7 +1329,7 @@ def show_email_generator():
                 st.download_button(
                     label="📥 下载邮件结果",
                     data=excel_buffer,
-                    file_name=f"JAX邮件生成结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"JAX邮件生成结果_{now_cn().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
@@ -1540,7 +1545,7 @@ def show_email_generator():
                                 "cc_count": len(eg_g_cc),
                                 "bcc_count": len(eg_g_bcc),
                                 "rows": detailed_rows,
-                                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "time": now_cn().strftime("%Y-%m-%d %H:%M:%S"),
                             }
                 elif not recipient_emails.strip():
                     st.warning("请填写收件人邮箱列表")
@@ -2317,7 +2322,7 @@ def show_email_blast():
             with draft_col2:
                 if st.button("💾 保存为草稿", key="mb_save_draft"):
                     draft_data = {
-                        "name": draft_name or f"草稿_{datetime.now().strftime('%m-%d %H:%M')}",
+                        "name": draft_name or f"草稿_{now_cn().strftime('%m-%d %H:%M')}",
                         "subject_template": subject_template,
                         "body_template": body_template,
                         "sender_email": st.session_state.get("email_smtp_user", ""),
@@ -2641,9 +2646,9 @@ def show_email_blast():
 
                     job = {
                         "id": "job_" + uuid.uuid4().hex[:12],
-                        "scheduled_at": scheduled_time.isoformat() if (enable_schedule and scheduled_time) else datetime.now().isoformat(),
+                        "scheduled_at": scheduled_time.isoformat() if (enable_schedule and scheduled_time) else now_cn().isoformat(),
                         "status": "pending",
-                        "created_at": datetime.now().isoformat(),
+                        "created_at": now_cn().isoformat(),
                         "smtp_user": smtp_user,
                         "smtp_password": smtp_password,
                         "sender_name": sender_name,
@@ -2664,7 +2669,7 @@ def show_email_blast():
                     _SCHED_SENDER.tick()
 
                     if enable_schedule and scheduled_time:
-                        wait_now = (scheduled_time - datetime.now()).total_seconds()
+                        wait_now = (scheduled_time - now_cn()).total_seconds()
                         if wait_now > 0:
                             wd, rem = divmod(int(wait_now), 86400)
                             wh, wm = divmod(rem // 60, 60)
@@ -2704,7 +2709,7 @@ def show_email_blast():
                     st_at = datetime.fromisoformat(j["scheduled_at"])
                     st_at_str = st_at.strftime("%m-%d %H:%M")
                     if status in ("pending", "scheduled"):
-                        wait = (st_at - datetime.now()).total_seconds()
+                        wait = (st_at - now_cn()).total_seconds()
                         if wait > 0:
                             wd, rem = divmod(int(wait), 86400)
                             wh, wm = divmod(rem // 60, 60)

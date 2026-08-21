@@ -1956,6 +1956,10 @@ def show_email_blast():
             st.session_state["mb_bcc_text"] = global_bcc_text
         with st.expander("⏰ 定时发送 / 分批发送", expanded=False):
             enable_schedule = st.checkbox("启用定时发送", value=False, key="mb_enable_schedule")
+            enable_batch = False
+            scheduled_time = None
+            batch_size = 0
+            batch_interval = 0
             if enable_schedule:
                 from datetime import datetime as _dt, timedelta as _td
                 import datetime as _dt_mod
@@ -1980,14 +1984,10 @@ def show_email_blast():
                         num_batches = (total_recipients + batch_size - 1) // batch_size
                         st.info(f"📊 共 {total_recipients} 人，分 {num_batches} 批，每批 {batch_size} 人，间隔 {batch_interval} 分钟")
                         st.caption(f"第一批 {scheduled_time.strftime('%H:%M')} 发送，最后一批约 {(scheduled_time + _td(minutes=batch_interval * (num_batches - 1))).strftime('%H:%M')} 发送")
-                    scheduled_time = scheduled_time  # keep ref
                 else:
                     batch_size = 0
                     batch_interval = 0
             else:
-                scheduled_time = None
-                batch_size = 0
-                batch_interval = 0
                 st.caption("当前为立即发送模式")
 
         # ===== 草稿箱快捷保存 =====

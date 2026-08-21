@@ -1634,7 +1634,25 @@ def show_email_blast():
         with st.spinner("正在读取Excel文件..."):
             try:
                 df = pd.read_excel(uploaded_file)
+                # ===== 防御：去掉重复列名 + 强制所有单元格为标量（避免merged cell/公式返回Series） =====
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = ["_".join([str(c) for c in col if str(c) != ""]).strip("_") for col in df.columns.values]
                 df.columns = [str(c).strip() for c in df.columns]
+                # 重名列去重（保留首次出现）
+                seen_cols = {}
+                keep_idx = []
+                for i, col in enumerate(df.columns):
+                    if col not in seen_cols:
+                        seen_cols[col] = True
+                        keep_idx.append(i)
+                df = df.iloc[:, keep_idx].copy()
+                # 强制转标量字符串
+                for col in df.columns:
+                    try:
+                        df[col] = df[col].apply(lambda v: (v.item() if hasattr(v, "item") and not isinstance(v, str)
+                                                              else v) if pd.notna(v) else v)
+                    except Exception:
+                        pass
                 st.success(f"读取成功！共 {len(df)} 行数据，列：{', '.join(df.columns)}")
 
                 name_col = None
@@ -1763,22 +1781,40 @@ def show_email_blast():
                             key="mb_recipients_grid",
                         )
 
-                        try:
-                            grid_raw = grid_response.get("data")
-                            # 防御：某些AgGrid版本 data 可能返回list[str]而不是list[dict]
-                            if isinstance(grid_raw, list) and grid_raw:
-                                if all(isinstance(x, dict) for x in grid_raw):
-                                    new_df = pd.DataFrame(grid_raw)
-                                else:
-                                    new_df = df_editable.copy()
-                            else:
-                                new_df = pd.DataFrame(grid_raw) if grid_raw is not None else df_editable.copy()
-                        except Exception:
-                            new_df = df_editable.copy()
+                        # ===== 强类型防御：AgGrid 不同版本返回值不一样（dict / DataFrame / 自定义对象） =====
+                        new_df = df_editable.copy()
+                        selected_rows = []
+                        if isinstance(grid_response, dict):
+                            try:
+                                grid_raw = grid_response.get("data")
+                                if isinstance(grid_raw, pd.DataFrame):
+                                    new_df = grid_raw.copy()
+                                elif isinstance(grid_raw, list):
+                                    if grid_raw and all(isinstance(x, dict) for x in grid_raw):
+                                        new_df = pd.DataFrame(grid_raw)
+                                    # else: grid_raw 是 list[str] 之类，保持 fallback
+                                elif grid_raw is not None:
+                                    try:
+                                        candidate = pd.DataFrame(grid_raw)
+                                        if not candidate.empty:
+                                            new_df = candidate
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                new_df = df_editable.copy()
 
-                        # 删除选中行（防御：过滤非dict元素）
-                        selected_rows_raw = grid_response.get("selected_rows", []) or []
-                        selected_rows = [r for r in selected_rows_raw if isinstance(r, dict)]
+                            # 安全读取 selected_rows，无论 .get() 返回什么，只保留 list[dict]
+                            try:
+                                sel = grid_response.get("selected_rows")
+                                if sel is None:
+                                    selected_rows = []
+                                elif isinstance(sel, list):
+                                    selected_rows = [r for r in sel if isinstance(r, dict)]
+                                # 如果是 DataFrame / Series：转 dict list
+                                elif isinstance(sel, pd.DataFrame):
+                                    selected_rows = sel.to_dict(orient="records")
+                            except Exception:
+                                selected_rows = []
 
                         if len(selected_rows) > 0 and st.button(f"🗑️ 删除选中的 {len(selected_rows)} 行", key="mb_del_selected"):
                             selected_emails = []

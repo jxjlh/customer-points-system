@@ -176,8 +176,22 @@ class ScheduledSender:
         return self._read_all()
 
     def _execute(self, row):
+        import traceback as _tb
+        job_id = row.get("id", "?")
         try:
-            from modules.email_sender import send_bulk_emails as _sbe
+            try:
+                from modules.email_sender import send_bulk_emails as _sbe
+            except Exception as imp_e:
+                # 路径导入失败时的兜底：尝试绝对/脚本根目录
+                import sys as _sys
+                here = os.path.dirname(os.path.abspath(__file__))
+                if here not in _sys.path:
+                    _sys.path.insert(0, here)
+                parent = os.path.dirname(here)
+                if parent not in _sys.path:
+                    _sys.path.insert(0, parent)
+                from modules.email_sender import send_bulk_emails as _sbe
+
             smtp_user = row.get("smtp_user"); smtp_password = row.get("smtp_password")
             sender_name = row.get("sender_name", "")
             email_list = row.get("email_list") or []
@@ -185,7 +199,16 @@ class ScheduledSender:
             att_refs = row.get("global_attachments_refs") or []
             global_attachments = None
             if att_refs:
-                global_attachments = [(base64.b64decode(b64data), name) for name, b64data in att_refs]
+                global_attachments = []
+                for name, b64data in att_refs:
+                    try:
+                        global_attachments.append((base64.b64decode(b64data), str(name)))
+                    except Exception as dec_e:
+                        # 坏的 base64 记录错误并跳过
+                        self.upsert({
+                            "id": job_id,
+                            "last_attach_error": f"附件 {name} base64 解码失败：{dec_e}",
+                        })
             g_cc = row.get("global_cc") or []
             g_bcc = row.get("global_bcc") or []
             is_html = bool(row.get("is_html", False))
@@ -198,26 +221,102 @@ class ScheduledSender:
             else:
                 batches = [email_list]
 
+            # 展开批次为「原始 email_list 的全局下标」方便写 current_index
+            # 这样每一封的 current_index 都是 1-based 的总序号
+            flattened = []
+            global_offset = 0
+            for b in batches:
+                per_batch = []
+                for j, item in enumerate(b):
+                    per_batch.append((global_offset + 1, item))  # (1-based idx, item)
+                    global_offset += 1
+                flattened.append(per_batch)
+
             success_count = 0; fail_count = 0
-            for bi, batch in enumerate(batches):
-                for i, item in enumerate(batch):
+            sent_list = list(row.get("sent_list") or [])
+
+            for bi, batch_items in enumerate(flattened):
+                for seq, item in batch_items:
+                    # === 发送前：立刻落盘 current_* 让 UI 看到 ===
+                    current_update = {
+                        "id": job_id,
+                        "current_index": seq,
+                        "current_total": len(email_list),
+                        "current_name": str(item.get("name", "") or ""),
+                        "current_email": str(item.get("email", "") or ""),
+                        "current_subject": str(item.get("subject", "") or ""),
+                        "current_batch": f"{bi+1}/{len(flattened)}" if enable_batch else "",
+                    }
+                    try: self.upsert(current_update)
+                    except Exception: pass
+
+                    # === 真实调用，抓所有异常 ===
+                    single_note = ""
+                    elapsed_str = ""
+                    attempts_str = ""
+                    sbe_exc = None
                     try:
+                        _t0 = time.time()
                         r = _sbe(
                             smtp_user=smtp_user, smtp_password=smtp_password,
                             email_list=[item], sender_name=sender_name,
                             delay_seconds=0, dry_run=False,
                             global_attachments=global_attachments,
                             global_cc=g_cc, global_bcc=g_bcc, is_html=is_html,
+                            scheduled_send_time=None,  # 定时发送已经在调度器层等过了
                         )
+                        elapsed_str = f"{time.time()-_t0:.1f}s"
                         if r.get("success_count", 0) > 0:
+                            one_status = "success"
+                            rr = (r.get("results") or [])
+                            if rr and rr[0].get("elapsed_seconds"):
+                                elapsed_str = f"{rr[0]['elapsed_seconds']:.1f}s"
+                                if rr[0].get("attempts", 1) > 1:
+                                    attempts_str = f"（重试{rr[0]['attempts']-1}次）"
+                            single_note = f"耗时 {elapsed_str}{attempts_str}"
                             success_count += 1
                         else:
+                            one_status = "failed"
+                            rr = (r.get("results") or [])
+                            if rr:
+                                single_note = str(rr[0].get("message") or rr[0].get("error") or "")[:400]
+                            else:
+                                single_note = str(r.get("message", "send_bulk_emails 返回成功数为 0"))[:400]
                             fail_count += 1
                     except Exception as ie:
+                        one_status = "failed"
                         fail_count += 1
-                    if i < len(batch) - 1 and delay_seconds > 0:
+                        sbe_exc = ie
+                        single_note = f"{type(ie).__name__}: {ie}\n{_tb.format_exc(limit=3)}"[:600]
+
+                    sent_list.append({
+                        "index": seq,
+                        "status": one_status,
+                        "name": str(item.get("name","") or ""),
+                        "email": str(item.get("email","") or ""),
+                        "subject": str(item.get("subject","") or ""),
+                        "note": single_note,
+                    })
+                    # === 每发完一封立刻落盘已发送明细 + 当前序号 ===
+                    try:
+                        self.upsert({
+                            "id": job_id,
+                            "sent_list": sent_list,
+                            "success_count": success_count,
+                            "fail_count": fail_count,
+                            "last_error_at": now_cn().isoformat() if one_status == "failed" else None,
+                        })
+                    except Exception:
+                        pass
+
+                    # 每封之间 delay
+                    n_items_in_batch = len(batch_items)
+                    pos_within = next(p for p,(s,_) in enumerate(batch_items) if s==seq)  # 找到当前在 batch 内的位置
+                    if pos_within < n_items_in_batch - 1 and delay_seconds > 0:
                         time.sleep(delay_seconds)
-                if bi < len(batches) - 1 and batch_interval > 0:
+
+                # 批次之间间隔
+                if bi < len(flattened) - 1 and batch_interval > 0:
                     time.sleep(batch_interval * 60)
 
             updated = dict(row)
@@ -232,28 +331,47 @@ class ScheduledSender:
             updated["fail_count"] = fail_count
             updated["total"] = total
             updated["finished_at"] = now_cn().isoformat()
+            updated["sent_list"] = sent_list
+            updated["current_index"] = None
+            updated["current_name"] = ""
+            updated["current_email"] = ""
+            updated["current_subject"] = ""
             self.upsert(updated)
 
+            # 草稿状态更新（保持不变，省略容错）
             if row.get("draft_id"):
                 try:
-                    drafts = load_drafts() if callable(globals().get("load_drafts", lambda: None)) else []
-                    if not drafts and "load_drafts" in globals():
+                    if "load_drafts" in globals() and callable(globals()["load_drafts"]):
                         drafts = load_drafts()
-                    for d in drafts:
-                        if d["id"] == row["draft_id"]:
-                            d["status"] = "sent"
-                            d["sent_at"] = now_cn().strftime("%Y-%m-%d %H:%M:%S")
-                            d["last_run_summary"] = f"成功{success_count}封，失败{fail_count}封"
-                            break
-                    if "save_drafts" in globals() and callable(globals()["save_drafts"]):
-                        save_drafts(drafts)
+                        for d in drafts:
+                            if d.get("id") == row["draft_id"]:
+                                d["status"] = "sent"
+                                d["sent_at"] = now_cn().strftime("%Y-%m-%d %H:%M:%S")
+                                d["last_run_summary"] = f"成功{success_count}封，失败{fail_count}封"
+                                break
+                        if "save_drafts" in globals() and callable(globals()["save_drafts"]):
+                            save_drafts(drafts)
                 except Exception:
                     pass
         except Exception as e:
             updated = dict(row)
             updated["status"] = "failed"
-            updated["error"] = f"{type(e).__name__}: {e}"[:500]
+            updated["error"] = f"{type(e).__name__}: {e}\n{_tb.format_exc(limit=5)}"[:1200]
             updated["finished_at"] = now_cn().isoformat()
+            # 保留已发送过程中落盘的 sent_list（能看到失败在哪一封）
+            try:
+                # 从磁盘重新读取，避免把之前 sent_list 覆写丢
+                latest = None
+                for rr in self._read_all():
+                    if rr.get("id") == row.get("id"):
+                        latest = rr
+                        break
+                if latest and latest.get("sent_list"):
+                    updated["sent_list"] = latest["sent_list"]
+                    updated["success_count"] = latest.get("success_count", 0)
+                    updated["fail_count"] = latest.get("fail_count", 0)
+            except Exception:
+                pass
             self.upsert(updated)
 
     def tick(self):
@@ -2879,8 +2997,11 @@ def show_email_blast():
         if not jobs_sorted:
             st.caption("暂无排期任务。填好参数后点「🚀 发送」按钮就会出现在这里。")
         else:
+            # ============ 每个任务一行：DataFrame 总览 + 下面逐行 expander 详情 ============
             show_rows = []
+            detail_jobs = []  # 存下来后面渲染逐行 expander
             for j in jobs_sorted[:50]:
+                detail_jobs.append(j)
                 status = j.get("status") or "pending"
                 icon = {
                     "pending": "⏳", "scheduled": "⏳", "running": "🚀",
@@ -2908,16 +3029,22 @@ def show_email_blast():
                 total = int(j.get("total") or 0)
                 succ = int(j.get("success_count") or 0)
                 fail = int(j.get("fail_count") or 0)
+                cur_idx = int(j.get("current_index") or 0)
                 detail = ""
                 if status in ("done", "failed", "partial"):
                     detail = f" · {succ}成功/{fail}失败/共{total}"
                 elif status == "running":
-                    detail = f" · 共{total}封 · 发送中..."
+                    if cur_idx > 0:
+                        cur_email = str(j.get("current_email") or "")[:35]
+                        cur_name = str(j.get("current_name") or "")[:12]
+                        detail = f" · 第 {cur_idx}/{total} 封·{cur_name}＜{cur_email}＞·发送中..."
+                    else:
+                        detail = f" · 共{total}封 · 发送中..."
                 elif status == "pending":
                     detail = f" · 待发送 {total} 封"
                 elif status == "expired":
                     detail = " · " + (j.get("error") or "")
-                err_txt = f" · {j['error'][:80]}" if j.get("error") and status in ("failed",) else ""
+                err_txt = f" · {str(j.get('error',''))[:80]}" if j.get("error") and status in ("failed",) else ""
                 show_rows.append({
                     "状态": f"{icon} {status}",
                     "发送时间": f"{st_at_str}{eta_str}",
@@ -2925,7 +3052,86 @@ def show_email_blast():
                     "ID": j["id"],
                 })
             st.dataframe(pd.DataFrame(show_rows), use_container_width=True, hide_index=True)
-            st.caption("💡 列表每 20 秒自动刷新。取消仍未发送的任务请在下方输入任务 ID：")
+            st.caption("💡 列表每 5 秒自动刷新。下方可逐行展开查看每封邮件的失败原因：")
+
+            # ---- 每行 expander：逐封 sent_list + 顶层 error ----
+            for j in detail_jobs:
+                jid = j.get("id", "?")
+                status = j.get("status") or "pending"
+                total = int(j.get("total") or 0)
+                succ = int(j.get("success_count") or 0)
+                fail = int(j.get("fail_count") or 0)
+                try:
+                    st_at = datetime.fromisoformat(j.get("scheduled_at", ""))
+                    st_at_str = st_at.strftime("%m-%d %H:%M")
+                except Exception:
+                    st_at_str = str(j.get("scheduled_at", "-"))
+                icon = {"pending":"⏳","scheduled":"⏳","running":"🚀","done":"✅","failed":"❌",
+                        "partial":"⚠️","cancelled":"🚫","expired":"⌛"}.get(status,"❓")
+                title = f"{icon} {jid}　｜　{st_at_str}　｜　{status}　｜　✅ {succ} / ❌ {fail} / 共 {total}"
+                with st.expander(title, expanded=(status in ("failed","partial","expired"))):
+                    # 顶层执行错误
+                    top_err = j.get("error")
+                    if top_err:
+                        st.error("💥 顶层错误：\n```\n" + str(top_err) + "\n```")
+                    # 附件解码错误
+                    if j.get("last_attach_error"):
+                        st.warning("📎 附件错误：" + str(j["last_attach_error"]))
+                    # 没到时间 / running 中提示
+                    if status == "running":
+                        ci = int(j.get("current_index") or 0)
+                        if ci > 0:
+                            st.info(
+                                f"🚀 当前正在发送第 {ci}/{j.get('current_total') or total} 封\n\n"
+                                f"· 👤 {j.get('current_name','')}　📧 `{j.get('current_email','')}`\n\n"
+                                f"· 🏷️ {str(j.get('current_subject',''))[:90]}"
+                            )
+                    # sent_list 明细
+                    sl = j.get("sent_list") or []
+                    if sl:
+                        rows = []
+                        for s in sl:
+                            status_txt = str(s.get("status",""))
+                            ok = status_txt.lower() in ("success","成功","ok","done")
+                            icon2 = "✅" if ok else "❌"
+                            note = str(s.get("note") or "")
+                            if len(note) > 600: note = note[:600] + "…"
+                            rows.append({
+                                "#": s.get("index","-"),
+                                "结果": f"{icon2} {status_txt}",
+                                "姓名": s.get("name",""),
+                                "邮箱": s.get("email",""),
+                                "主题": (str(s.get("subject",""))[:60] + ("…" if len(str(s.get("subject","")))>60 else "")),
+                                "详情/原因": note,
+                            })
+                        if rows:
+                            st.markdown("**📋 每封邮件结果（可滚动查看错误原因）**")
+                            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                    elif status in ("failed","partial","done"):
+                        st.caption("该任务没有逐封明细（可能是旧版本执行，现在新任务已全部记录）")
+
+                    # SMTP/连接错误 → 给用户一个可操作的建议
+                    if status in ("failed","partial"):
+                        # 扫所有失败的 note，找关键词给建议
+                        all_notes = " ".join([str(s.get("note","")) for s in sl]) + " " + str(top_err or "")
+                        sug = []
+                        kws = [
+                            ("Name or service not known", "❓ DNS 解析失败 → 检查 SMTP 主机/手动覆盖为 smtp.qiye.163.com 等"),
+                            ("[Errno -2]", "❓ DNS 解析失败 → 手动填写 SMTP 主机"),
+                            ("Connection refused", "🚫 连接被拒绝 → 检查端口（465=SSL,587=TLS,25=不加密）+ 是否勾选 SSL"),
+                            ("timed out", "⏱️ 连接超时 → 检查网络/端口开放情况；Streamlit Cloud 可能会封 25 端口（建议 465/587）"),
+                            ("SSL", "🔐 SSL 异常 → 端口 465 勾选 SSL；587 通常不勾选"),
+                            ("535", "🔑 535 授权失败 → 用「客户端授权码」不是邮箱登录密码；QQ 企业邮箱去官网申请授权码"),
+                            ("550", "🚫 550 拒收/频控 → 降低发送频率：delay 5~10s，每批 10 人，批间隔 30 分钟+"),
+                            ("421", "🚦 421 服务端限流 → 提高 delay + 分批 + 批间隔 1~2 小时"),
+                            ("Authentication failed", "🔑 鉴权失败 → 账号/授权码错误或 SMTP 主机不对"),
+                            ("SMTP AUTH extension not supported", "⚠️ 服务器不支持 AUTH → 检查 SMTP 端口是否正确（465/587）"),
+                        ]
+                        for kw, tip in kws:
+                            if kw in all_notes: sug.append(tip)
+                        if sug:
+                            st.info("💡 建议排查：\n\n" + "\n\n".join(f"- {x}" for x in sug))
+            st.divider()
             col_cancel1, col_cancel2 = st.columns([3, 1])
             with col_cancel1:
                 cancel_id = st.text_input("输入要取消的任务 ID", key="mb_cancel_job_id", placeholder="如 job_abcdef123456")

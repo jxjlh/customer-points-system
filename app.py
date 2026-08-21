@@ -255,6 +255,16 @@ def show_home(config):
             "session_value": "📨 邮件群发",
             "help": "点击进入邮件群发模块",
             "emojis": "📨,✨,🚀,💫,🎉,📋"
+        },
+        {
+            "icon": "💾",
+            "title": "草稿箱",
+            "desc": "邮件草稿管理 · 定时发送 · 编辑重发",
+            "color_class": "card-orange",
+            "key": "btn-draft-box",
+            "session_value": "💾 草稿箱",
+            "help": "点击进入草稿箱模块",
+            "emojis": "💾,✨,📝,⏰,📤,🎉"
         }
     ]
     
@@ -1400,6 +1410,66 @@ def _render_template_with_cn(text: str, variables: dict) -> str:
     return re.sub(r'\{\{\s*([^{}]+?)\s*\}\}', _repl, text)
 
 
+def show_draft_box():
+    """草稿箱页面：查看/编辑/删除/定时发送草稿"""
+    from modules.draft_store import list_drafts, load_draft, delete_draft, save_draft, update_draft_status
+
+    st.title("💾 草稿箱")
+    st.markdown("管理已保存的邮件草稿，支持编辑、定时发送、删除。")
+
+    drafts = list_drafts()
+
+    if not drafts:
+        st.info("📭 草稿箱为空。请在「邮件群发」页面保存草稿后回到这里查看。")
+        st.caption("💡 在邮件群发页面 → 「💾 草稿箱」expander → 输入名称 → 保存为草稿")
+        return
+
+    st.success(f"📂 共有 {len(drafts)} 个草稿")
+
+    for d in drafts:
+        status_icon = "⏰" if d.get("status") == "scheduled" else ("✅" if d.get("status") == "sent" else "📝")
+        status_label = {"draft": "草稿", "scheduled": "已排期", "sent": "已发送"}.get(d.get("status", "draft"), "草稿")
+
+        with st.expander(f"{status_icon} {d.get('name', '未命名')} — {status_label} — {d.get('updated_at', '')[:16]}"):
+            # 草稿信息
+            info_col1, info_col2 = st.columns(2)
+            with info_col1:
+                st.markdown(f"**主题模板：** {d.get('subject_template', '（无）')[:60]}")
+                st.markdown(f"**发件邮箱：** {d.get('sender_email', '（未设置）')}")
+                st.markdown(f"**创建时间：** {d.get('created_at', '')}")
+            with info_col2:
+                st.markdown(f"**定时发送：** {d.get('scheduled_time', '无')}")
+                if d.get("batch_size", 0) > 0:
+                    st.markdown(f"**分批：** 每批{d['batch_size']}人，间隔{d.get('batch_interval', 0)}分钟")
+                st.markdown(f"**HTML格式：** {'是' if d.get('use_html') else '否'}（字号{d.get('font_size', 14)}px）")
+
+            st.text_area("正文模板", value=d.get("body_template", ""), height=150,
+                         key=f"draft_body_{d['id']}", disabled=True)
+
+            st.markdown(f"**抄送：** {d.get('cc', '无')}　|　**密抄：** {d.get('bcc', '无')}")
+
+            # 操作按钮
+            btn_col1, btn_col2, btn_col3 = st.columns(3)
+            with btn_col1:
+                if st.button("📤 加载到邮件群发", key=f"draft_load_{d['id']}", use_container_width=True):
+                    st.session_state["mb_subject"] = d.get("subject_template", "")
+                    st.session_state["mb_body"] = d.get("body_template", "")
+                    st.session_state["mb_cc_text"] = d.get("cc", "")
+                    st.session_state["mb_bcc_text"] = d.get("bcc", "")
+                    st.session_state["selected_main"] = "📨 邮件群发"
+                    st.success("已加载！正在跳转到邮件群发页面...")
+                    st.rerun()
+            with btn_col2:
+                if st.button("⏰ 标记为已排期", key=f"draft_sched_{d['id']}", use_container_width=True):
+                    update_draft_status(d["id"], "scheduled")
+                    st.success(f"草稿「{d.get('name')}」已标记为已排期")
+                    st.rerun()
+            with btn_col3:
+                if st.button("🗑️ 删除", key=f"draft_del_{d['id']}", use_container_width=True):
+                    delete_draft(d["id"])
+                    st.rerun()
+
+
 def show_email_blast():
     from modules.email_sender import test_smtp_connection, send_bulk_emails, guess_smtp_config, list_smtp_candidates
 
@@ -1603,8 +1673,82 @@ def show_email_blast():
     if "{{" in subject_template or "{{" in body_template:
         st.caption("💡 可用变量: {{姓氏}} {{姓名}} {{名字}} {{邮箱}} 以及Excel中的任意列名")
 
-    # 字体大小/颜色/样式控制
-    with st.expander("🎨 字体与样式设置", expanded=False):
+    # ===== 讯飞星火AI 助手 =====
+    with st.expander("🤖 星火AI助手（润色/改写）", expanded=False):
+        st.caption("接入讯飞星火Spark Lite，可对邮件正文进行智能润色、改写")
+        ai_col1, ai_col2 = st.columns([1, 2])
+        with ai_col1:
+            ai_action = st.selectbox("操作", ["润色优化", "改写正文", "生成主题建议"],
+                                     key="mb_ai_action")
+        with ai_col2:
+            if ai_action == "改写正文":
+                ai_instruction = st.text_input("改写指令", value="更简短",
+                                                key="mb_ai_instruction",
+                                                placeholder="如：更正式、更简短、更亲切")
+            elif ai_action == "生成主题建议":
+                ai_topic = st.text_input("邮件内容/关键词", value="",
+                                         key="mb_ai_topic",
+                                         placeholder="如：新品发布通知")
+        if st.button("✨ 执行AI", key="mb_ai_run", type="primary"):
+            try:
+                from modules.spark_ai import polish_email, rewrite_email, generate_email_subject
+                with st.spinner("星火AI思考中..."):
+                    if ai_action == "润色优化":
+                        result = polish_email(body_template)
+                        st.session_state["mb_body"] = result
+                        st.text_area("润色结果", value=result, height=200, key="mb_ai_result")
+                        st.success("✅ 润色完成！点击下方「应用结果」按钮更新正文")
+                        if st.button("📝 应用结果到正文", key="mb_ai_apply"):
+                            st.session_state["mb_body"] = result
+                            st.rerun()
+                    elif ai_action == "改写正文":
+                        result = rewrite_email(body_template, ai_instruction)
+                        st.session_state["mb_body"] = result
+                        st.text_area("改写结果", value=result, height=200, key="mb_ai_result2")
+                        st.success("✅ 改写完成！点击下方「应用结果」按钮更新正文")
+                        if st.button("📝 应用结果到正文", key="mb_ai_apply2"):
+                            st.session_state["mb_body"] = result
+                            st.rerun()
+                    elif ai_action == "生成主题建议":
+                        result = generate_email_subject(ai_topic)
+                        st.info("主题建议：\n" + result)
+            except Exception as e:
+                st.error(f"AI助手出错: {e}")
+                with st.expander("详细错误"):
+                    st.code(traceback.format_exc())
+
+    # ===== 富文本格式刷（选中文字加粗/调色/改字号） =====
+    with st.expander("🎨 富文本格式刷（选中文字单独设置样式）", expanded=False):
+        st.caption("在下方输入要单独设置格式的文字片段，选择样式后，系统会生成带样式的HTML标签插入到正文中")
+        rt_col1, rt_col2, rt_col3, rt_col4 = st.columns(4)
+        with rt_col1:
+            rt_text = st.text_input("要格式化的文字", key="mb_rt_text", placeholder="如：限时优惠")
+        with rt_col2:
+            rt_bold = st.checkbox("加粗", value=True, key="mb_rt_bold")
+        with rt_col3:
+            rt_color = st.color_picker("文字颜色", value="#FF0000", key="mb_rt_color")
+        with rt_col4:
+            rt_size = st.number_input("字号(px)", min_value=10, max_value=48, value=18, step=1, key="mb_rt_size")
+        rt_bg = st.color_picker("背景色（可选）", value="#FFFFFF00", key="mb_rt_bg")
+        if st.button("📋 生成带样式片段", key="mb_rt_gen") and rt_text:
+            style_parts = []
+            if rt_bold:
+                style_parts.append("font-weight:bold")
+            style_parts.append(f"color:{rt_color}")
+            style_parts.append(f"font-size:{rt_size}px")
+            if rt_bg and rt_bg != "#FFFFFF00":
+                style_parts.append(f"background-color:{rt_bg}")
+            styled = f'<span style="{";".join(style_parts)}">{rt_text}</span>'
+            st.code(styled, language="html")
+            st.caption("复制上方代码，粘贴到正文中（需勾选「以HTML富文本格式发送」）")
+            # 直接插入到正文末尾
+            if st.button("➕ 插入到正文末尾", key="mb_rt_insert"):
+                st.session_state["mb_body"] = body_template + "\n" + styled
+                st.success("已插入！")
+                st.rerun()
+
+    # 字体大小/颜色/样式控制（全局）
+    with st.expander("🎨 全局字体与样式设置", expanded=False):
         font_col1, font_col2, font_col3, font_col4 = st.columns(4)
         with font_col1:
             font_size = st.number_input("字体大小(px)", min_value=10, max_value=32, value=14, step=1, key="mb_font_size")
@@ -1645,7 +1789,7 @@ def show_email_blast():
             )
             st.session_state["mb_cc_text"] = global_cc_text
             st.session_state["mb_bcc_text"] = global_bcc_text
-        with st.expander("⏰ 定时发送", expanded=False):
+        with st.expander("⏰ 定时发送 / 分批发送", expanded=False):
             enable_schedule = st.checkbox("启用定时发送", value=False, key="mb_enable_schedule")
             if enable_schedule:
                 from datetime import datetime as _dt, timedelta as _td
@@ -1656,9 +1800,83 @@ def show_email_blast():
                 sched_time = st.time_input("发送时间", value=(_dt.now() + _td(minutes=10)).time(), key="mb_sched_time")
                 scheduled_time = _dt.combine(sched_date, sched_time)
                 st.caption(f"将在 {scheduled_time.strftime('%Y-%m-%d %H:%M')} 自动开始发送")
+
+                # 分批定时发送
+                st.markdown("---")
+                enable_batch = st.checkbox("🔄 启用分批发送（大量收件人时推荐）", value=False, key="mb_enable_batch")
+                if enable_batch:
+                    batch_col1, batch_col2 = st.columns(2)
+                    with batch_col1:
+                        batch_size = st.number_input("每批数量", min_value=1, max_value=500, value=10, step=1, key="mb_batch_size")
+                    with batch_col2:
+                        batch_interval = st.number_input("每批间隔（分钟）", min_value=1, max_value=1440, value=30, step=5, key="mb_batch_interval")
+                    total_recipients = len(recipients_data) if recipients_data else 0
+                    if total_recipients > 0:
+                        num_batches = (total_recipients + batch_size - 1) // batch_size
+                        st.info(f"📊 共 {total_recipients} 人，分 {num_batches} 批，每批 {batch_size} 人，间隔 {batch_interval} 分钟")
+                        st.caption(f"第一批 {scheduled_time.strftime('%H:%M')} 发送，最后一批约 {(scheduled_time + _td(minutes=batch_interval * (num_batches - 1))).strftime('%H:%M')} 发送")
+                    scheduled_time = scheduled_time  # keep ref
+                else:
+                    batch_size = 0
+                    batch_interval = 0
             else:
                 scheduled_time = None
+                batch_size = 0
+                batch_interval = 0
                 st.caption("当前为立即发送模式")
+
+        # ===== 草稿箱快捷保存 =====
+        with st.expander("💾 草稿箱", expanded=False):
+            from modules.draft_store import save_draft, list_drafts, load_draft, delete_draft
+            draft_col1, draft_col2 = st.columns([2, 1])
+            with draft_col1:
+                draft_name = st.text_input("草稿名称", value="", key="mb_draft_name", placeholder="如：9月新品通知")
+            with draft_col2:
+                if st.button("💾 保存为草稿", key="mb_save_draft"):
+                    draft_data = {
+                        "name": draft_name or f"草稿_{datetime.now().strftime('%m-%d %H:%M')}",
+                        "subject_template": subject_template,
+                        "body_template": body_template,
+                        "sender_email": st.session_state.get("email_smtp_user", ""),
+                        "sender_password": st.session_state.get("email_smtp_password", ""),
+                        "sender_name": st.session_state.get("email_sender_name", ""),
+                        "cc": st.session_state.get("mb_cc_text", ""),
+                        "bcc": st.session_state.get("mb_bcc_text", ""),
+                        "scheduled_time": scheduled_time.strftime("%Y-%m-%d %H:%M:%S") if scheduled_time else None,
+                        "batch_size": batch_size,
+                        "batch_interval": batch_interval,
+                        "font_size": st.session_state.get("mb_font_size", 14),
+                        "font_color": st.session_state.get("mb_font_color", "#333333"),
+                        "use_html": st.session_state.get("mb_use_html", False),
+                        "status": "draft",
+                    }
+                    did = save_draft(draft_data)
+                    st.success(f"✅ 草稿已保存：{draft_data['name']}（ID: {did}）")
+
+            # 列出已保存草稿
+            existing_drafts = list_drafts()
+            if existing_drafts:
+                st.markdown("---")
+                st.caption(f"已有 {len(existing_drafts)} 个草稿")
+                for d in existing_drafts[:10]:
+                    d_col1, d_col2, d_col3 = st.columns([3, 1, 1])
+                    with d_col1:
+                        status_icon = "⏰" if d.get("status") == "scheduled" else ("✅" if d.get("status") == "sent" else "📝")
+                        st.text(f"{status_icon} {d.get('name', '未命名')} ({d.get('updated_at', '')[:16]})")
+                    with d_col2:
+                        if st.button("📂 加载", key=f"mb_load_draft_{d['id']}"):
+                            loaded = load_draft(d["id"])
+                            if loaded:
+                                st.session_state["mb_subject"] = loaded.get("subject_template", "")
+                                st.session_state["mb_body"] = loaded.get("body_template", "")
+                                st.session_state["mb_cc_text"] = loaded.get("cc", "")
+                                st.session_state["mb_bcc_text"] = loaded.get("bcc", "")
+                                st.success(f"已加载草稿：{loaded.get('name', '')}")
+                                st.rerun()
+                    with d_col3:
+                        if st.button("🗑️", key=f"mb_del_draft_{d['id']}"):
+                            delete_draft(d["id"])
+                            st.rerun()
     with col2:
         attachment_files = st.file_uploader(
             "📎 添加附件（每封邮件都会带上，支持多文件）",
@@ -1756,6 +1974,9 @@ def show_email_blast():
             info_parts.append(f"HTML富文本({font_size}px)")
         if enable_schedule and scheduled_time:
             info_parts.append(f"定时 {scheduled_time.strftime('%H:%M')}")
+        if enable_batch and batch_size > 0:
+            num_batches = (len(email_list_for_send) + batch_size - 1) // batch_size
+            info_parts.append(f"分{num_batches}批×{batch_size}人/间隔{batch_interval}分钟")
         st.info("，".join(info_parts))
         if g_cc or g_bcc:
             st.caption("  · ".join([
@@ -1873,56 +2094,83 @@ def show_email_blast():
                         countdown.empty()
                         st.info(f"⏰ 到达指定时间 {scheduled_time.strftime('%H:%M')}，开始发送...")
 
+                # 分批发送逻辑
+                if enable_batch and batch_size > 0 and len(email_list_for_send) > batch_size:
+                    batches = [email_list_for_send[i:i + batch_size] for i in range(0, len(email_list_for_send), batch_size)]
+                    num_batches = len(batches)
+                else:
+                    batches = [email_list_for_send]
+                    num_batches = 1
+
                 progress = st.progress(0, text=f"准备发送 0 / {len(email_list_for_send)}")
                 status_text = st.empty()
                 results_log_container = st.container()
                 success_count = 0
                 fail_count = 0
                 detailed_rows = []
+                total_sent = 0
 
-                for i, item in enumerate(email_list_for_send):
-                    status_text.write(f"📤 发送中 [{i+1}/{len(email_list_for_send)}] {item['name']} <{item['email']}> ...")
-                    single_result = {"status": "error", "message": "", "success_count": 0, "failed_count": 0}
-                    try:
-                        single_result = send_bulk_emails(
-                            smtp_user=smtp_user, smtp_password=smtp_password,
-                            email_list=[item], sender_name=sender_name,
-                            dry_run=False, delay_seconds=0,
-                            global_attachments=global_attachments,
-                            global_cc=g_cc, global_bcc=g_bcc,
-                            is_html=use_html,
-                            scheduled_send_time=scheduled_time if (enable_schedule and i == 0) else None,
-                        )
-                    except Exception as outer_e:
-                        single_result = {"status": "error", "success_count": 0, "failed_count": 1,
-                                         "results": [{"status": "error", "message": f"未捕获异常：{outer_e}"}]}
-                    if single_result.get("success_count", 0) > 0:
-                        success_count += 1
-                        status_icon, status_txt = "✅", "成功"
-                        note = ""
-                        rr = single_result.get("results", [])
-                        if rr and rr[0].get("elapsed_seconds"):
-                            note = f"耗时 {rr[0]['elapsed_seconds']}s"
-                            if rr[0].get("attempts", 1) > 1:
-                                note += f"（重试{rr[0]['attempts']-1}次）"
-                    else:
-                        fail_count += 1
-                        status_icon, status_txt = "❌", "失败"
-                        rr = single_result.get("results", [])
-                        if rr:
-                            note = rr[0].get("message", str(single_result))
+                for batch_idx, batch in enumerate(batches):
+                    if num_batches > 1:
+                        st.info(f"📦 正在发送第 {batch_idx + 1}/{num_batches} 批（{len(batch)} 封）")
+
+                    for i, item in enumerate(batch):
+                        global_idx = total_sent
+                        status_text.write(f"📤 发送中 [{global_idx+1}/{len(email_list_for_send)}] {item['name']} <{item['email']}> ...")
+                        single_result = {"status": "error", "message": "", "success_count": 0, "failed_count": 0}
+                        try:
+                            single_result = send_bulk_emails(
+                                smtp_user=smtp_user, smtp_password=smtp_password,
+                                email_list=[item], sender_name=sender_name,
+                                dry_run=False, delay_seconds=0,
+                                global_attachments=global_attachments,
+                                global_cc=g_cc, global_bcc=g_bcc,
+                                is_html=use_html,
+                                scheduled_send_time=scheduled_time if (enable_schedule and global_idx == 0) else None,
+                            )
+                        except Exception as outer_e:
+                            single_result = {"status": "error", "success_count": 0, "failed_count": 1,
+                                             "results": [{"status": "error", "message": f"未捕获异常：{outer_e}"}]}
+                        if single_result.get("success_count", 0) > 0:
+                            success_count += 1
+                            status_icon, status_txt = "✅", "成功"
+                            note = ""
+                            rr = single_result.get("results", [])
+                            if rr and rr[0].get("elapsed_seconds"):
+                                note = f"耗时 {rr[0]['elapsed_seconds']}s"
+                                if rr[0].get("attempts", 1) > 1:
+                                    note += f"（重试{rr[0]['attempts']-1}次）"
                         else:
-                            note = single_result.get("message", "未知错误")
-                    detailed_rows.append({
-                        "#": i + 1, "姓名": item.get("name", ""), "邮箱": item["email"],
-                        "主题": item.get("subject", ""),
-                        "状态": status_txt, "详情": note,
-                    })
-                    progress.progress((i + 1) / len(email_list_for_send),
-                                      text=f"已发送 {i+1} / {len(email_list_for_send)}　成功 {success_count}　失败 {fail_count}")
-                    if i < len(email_list_for_send) - 1 and delay_seconds > 0:
-                        import time
-                        time.sleep(delay_seconds)
+                            fail_count += 1
+                            status_icon, status_txt = "❌", "失败"
+                            rr = single_result.get("results", [])
+                            if rr:
+                                note = rr[0].get("message", str(single_result))
+                            else:
+                                note = single_result.get("message", "未知错误")
+                        batch_label = f"第{batch_idx+1}批" if num_batches > 1 else ""
+                        detailed_rows.append({
+                            "#": global_idx + 1, "姓名": item.get("name", ""), "邮箱": item["email"],
+                            "主题": item.get("subject", ""),
+                            "状态": status_txt, "详情": note,
+                            "批次": batch_label,
+                        })
+                        total_sent += 1
+                        progress.progress(total_sent / len(email_list_for_send),
+                                          text=f"已发送 {total_sent} / {len(email_list_for_send)}　成功 {success_count}　失败 {fail_count}")
+                        if i < len(batch) - 1 and delay_seconds > 0:
+                            import time
+                            time.sleep(delay_seconds)
+
+                    # 批次间隔等待
+                    if batch_idx < num_batches - 1 and num_batches > 1:
+                        wait_text = st.empty()
+                        for remaining in range(batch_interval * 60, 0, -5):
+                            w_mins, w_secs = divmod(remaining, 60)
+                            wait_text.info(f"⏳ 批次间隔等待：{w_mins:02d}:{w_secs:02d}（第{batch_idx+2}批发送即将开始）")
+                            import time
+                            time.sleep(min(5, remaining))
+                        wait_text.empty()
 
                 status_text.empty()
                 summary = [f"成功 {success_count} 封，失败 {fail_count} 封（共 {len(email_list_for_send)} 封）"]
@@ -2335,6 +2583,9 @@ def _main_inner():
 
         elif selected_main == '📨 邮件群发':
             show_email_blast()
+
+        elif selected_main == '💾 草稿箱':
+            show_draft_box()
 
         elif selected_main == '👑 用户管理':
             show_user_management(config)

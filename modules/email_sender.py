@@ -46,7 +46,10 @@ def guess_smtp_config(email_address: str) -> tuple:
     }
     if domain in known_corp_domains:
         return known_corp_domains[domain]
-    return (f"smtp.{domain}", 465, True)
+    # 未知域名 → 默认网易企业邮箱（避免 smtp.{domain} DNS 解析失败）
+    if not domain or "." not in domain:
+        return ("smtp.qiye.163.com", 465, True)
+    return ("smtp.qiye.163.com", 465, True)
 
 
 def list_smtp_candidates(email_address: str) -> list:

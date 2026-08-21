@@ -1365,58 +1365,46 @@ def show_email_generator():
     4. 配置SMTP后可直接批量发送邮件
     """))
 
-    with st.expander("🔐 SMTP邮箱配置", expanded=False):
-        cfg_col1, cfg_col2, cfg_col3 = st.columns(3)
+    with st.expander("🔐 邮箱配置（邮箱 + 授权码）", expanded=False):
+        cfg_col1, cfg_col2, cfg_col3 = st.columns([3, 3, 1])
         with cfg_col1:
-            smtp_user = st.text_input("邮箱地址", value=st.session_state.get("email_smtp_user", "1392039316@qq.com"), key="eg_smtp_user")
+            smtp_user = st.text_input("邮箱地址", value=st.session_state.get("email_smtp_user", ""), key="eg_smtp_user", placeholder="如 huiyin.guo@ibiologistics.com")
         with cfg_col2:
-            smtp_password = st.text_input("SMTP授权码", type="password", value=st.session_state.get("email_smtp_password", "dtepljmsauzgjbfa"), key="eg_smtp_password")
+            smtp_password = st.text_input("授权码", type="password", value=st.session_state.get("email_smtp_password", ""), key="eg_smtp_password", placeholder="邮箱后台获取的SMTP授权码")
         with cfg_col3:
-            sender_name = st.text_input("发件人名称", value=st.session_state.get("email_sender_name", "Cindy 张茹"), key="eg_sender_name")
+            st.write("")
+            test_ok = st.button("🔌 测试", key="eg_test_conn")
 
-        host, port, ssl_flag = ("", 465, True)
-        if smtp_user:
+        host, port, ssl_flag = ("smtp.qiye.163.com", 465, True)
+        if smtp_user and "@" in smtp_user:
             host, port, ssl_flag = guess_smtp_config(smtp_user)
-            st.caption(f"自动识别SMTP: {host}:{port} {'(SSL)' if ssl_flag else '(STARTTLS)'}")
+            st.caption(f"📧 SMTP: {host}:{port} {'(SSL)' if ssl_flag else '(STARTTLS)'}")
 
-        with st.expander("🛠️ 高级：手动覆盖SMTP服务器", expanded=False):
-            override_col1, override_col2, override_col3 = st.columns(3)
-            with override_col1:
-                manual_host = st.text_input("SMTP主机（留空用自动识别）", value=st.session_state.get("eg_smtp_host", ""), key="eg_manual_host", placeholder="例如 smtp.qiye.163.com")
-            with override_col2:
-                manual_port_input = st.text_input("端口（留空用自动识别）", value=str(st.session_state.get("eg_smtp_port", "") or ""), key="eg_manual_port", placeholder="例如 465")
-            with override_col3:
-                manual_ssl = st.checkbox("使用SSL（465/994）", value=st.session_state.get("eg_smtp_ssl", True), key="eg_manual_ssl")
-            candidates = list_smtp_candidates(smtp_user) if smtp_user else []
-            if len(candidates) > 1:
-                st.caption("常见候选（企业域名不确定时可尝试）：" + "；".join([f"{c[3]} {c[0]}:{c[1]}" for c in candidates[1:]]))
+        eff_host = host
+        eff_port = port
+        eff_ssl = ssl_flag
+        manual_host = ""
+        manual_port_input = ""
+        manual_ssl = ssl_flag
+        sender_name = ""
 
-        eff_host = manual_host.strip() or host
-        try:
-            eff_port = int(str(manual_port_input).strip()) if str(manual_port_input).strip() else port
-        except Exception:
-            eff_port = port
-        eff_ssl = manual_ssl
-
-        test_col1, test_col2 = st.columns([1, 3])
-        with test_col1:
-            if st.button("🔌 测试连接", key="eg_test_conn"):
+        if test_ok:
+            if not smtp_user or not smtp_password:
+                st.warning("请先输入邮箱地址和授权码")
+            else:
                 with st.spinner("测试SMTP连接..."):
                     conn_result = test_smtp_connection(smtp_user, smtp_password, eff_host, eff_port)
                     if conn_result["status"] == "success":
                         st.success(f"✅ 连接成功！{conn_result['smtp_host']}:{conn_result['smtp_port']} ({conn_result['elapsed_seconds']}s)")
                     else:
-                        st.error(f"❌ 连接失败: {conn_result.get('message', '未知错误')}")
-                        candidates = list_smtp_candidates(smtp_user)
-                        if len(candidates) > 1:
-                            st.info(f"💡 自动识别未命中，请在「高级」里手动指定。常见候选：" + "；".join([f"{c[3]} {c[0]}:{c[1]}" for c in candidates[1:]]))
+                        st.error(f"❌ {conn_result.get('message', '未知错误')}")
 
         st.session_state["email_smtp_user"] = smtp_user
         st.session_state["email_smtp_password"] = smtp_password
-        st.session_state["email_sender_name"] = sender_name
-        st.session_state["eg_smtp_host"] = manual_host
-        st.session_state["eg_smtp_port"] = str(manual_port_input or "")
-        st.session_state["eg_smtp_ssl"] = manual_ssl
+        st.session_state["email_sender_name"] = ""
+        st.session_state["eg_smtp_host"] = ""
+        st.session_state["eg_smtp_port"] = ""
+        st.session_state["eg_smtp_ssl"] = True
         st.session_state["eg_smtp_eff_host"] = eff_host
         st.session_state["eg_smtp_eff_port"] = eff_port
         st.session_state["eg_smtp_eff_ssl"] = eff_ssl
@@ -1853,120 +1841,47 @@ def show_email_blast():
     3. 演练预览确认后，一键批量发送
     """))
 
-    with st.expander("🔐 SMTP邮箱配置", expanded=True):
-        # 多发件邮箱保存与切换
-        if "saved_senders" not in st.session_state:
-            st.session_state["saved_senders"] = []
-        saved = st.session_state["saved_senders"]
-
-        if len(saved) > 0:
-            sender_col1, sender_col2 = st.columns([3, 1])
-            with sender_col1:
-                sender_options = ["（直接输入）"] + [f"{s['name']} ({s['user']})" for s in saved]
-                selected_idx = st.selectbox("🏷️ 选择发件邮箱", range(len(sender_options)),
-                                           format_func=lambda i: sender_options[i], key="mb_sender_select")
-            with sender_col2:
-                if selected_idx > 0 and st.button("🗑️ 删除此邮箱", key="mb_del_sender"):
-                    del saved[selected_idx - 1]
-                    st.session_state["saved_senders"] = saved
-                    st.rerun()
-        else:
-            selected_idx = 0
-
-        # 如果选中了已保存的邮箱，自动填充
-        if selected_idx > 0 and selected_idx <= len(saved):
-            s = saved[selected_idx - 1]
-            default_user = s["user"]
-            default_password = s["password"]
-            default_name = s["name"]
-            default_host = s.get("host", "")
-            default_port = s.get("port", "")
-            default_ssl = s.get("ssl", True)
-        else:
-            default_user = st.session_state.get("email_smtp_user", "1392039316@qq.com")
-            default_password = st.session_state.get("email_smtp_password", "dtepljmsauzgjbfa")
-            default_name = st.session_state.get("email_sender_name", "Cindy 张茹")
-            default_host = st.session_state.get("mb_smtp_host", "")
-            default_port = st.session_state.get("mb_smtp_port", "")
-            default_ssl = st.session_state.get("mb_smtp_ssl", True)
-
-        cfg_col1, cfg_col2, cfg_col3 = st.columns(3)
+    with st.expander("🔐 邮箱配置（邮箱 + 授权码）", expanded=True):
+        cfg_col1, cfg_col2, cfg_col3 = st.columns([3, 3, 1])
         with cfg_col1:
-            smtp_user = st.text_input("邮箱地址", value=default_user, key="mb_smtp_user")
+            smtp_user = st.text_input("邮箱地址", value=st.session_state.get("email_smtp_user", ""), key="mb_smtp_user", placeholder="如 huiyin.guo@ibiologistics.com")
         with cfg_col2:
-            smtp_password = st.text_input("SMTP授权码", type="password", value=default_password, key="mb_smtp_password")
+            smtp_password = st.text_input("授权码", type="password", value=st.session_state.get("email_smtp_password", ""), key="mb_smtp_password", placeholder="邮箱后台获取的SMTP授权码")
         with cfg_col3:
-            sender_name = st.text_input("发件人名称", value=default_name, key="mb_sender_name")
+            st.write("")
+            test_ok = st.button("🔌 测试", key="mb_test_conn")
 
-        # 保存当前邮箱配置
-        save_col1, save_col2 = st.columns(2)
-        with save_col1:
-            if st.button("💾 保存当前邮箱配置", key="mb_save_sender"):
-                exists = False
-                for s in saved:
-                    if s["user"] == smtp_user:
-                        s["password"] = smtp_password
-                        s["name"] = sender_name
-                        s["host"] = st.session_state.get("mb_manual_host", "")
-                        s["port"] = st.session_state.get("mb_manual_port", "")
-                        s["ssl"] = st.session_state.get("mb_manual_ssl", True)
-                        exists = True
-                        break
-                if not exists and smtp_user:
-                    saved.append({"user": smtp_user, "password": smtp_password, "name": sender_name,
-                                  "host": st.session_state.get("mb_manual_host", ""),
-                                  "port": st.session_state.get("mb_manual_port", ""),
-                                  "ssl": st.session_state.get("mb_manual_ssl", True)})
-                st.session_state["saved_senders"] = saved
-                st.success(f"已保存「{sender_name}」({smtp_user})，共 {len(saved)} 个邮箱配置")
-        with save_col2:
-            if st.button("📋 查看已保存邮箱", key="mb_list_senders"):
-                if saved:
-                    st.write(pd.DataFrame([{"邮箱": s["user"], "名称": s["name"]} for s in saved]), use_container_width=True)
-                else:
-                    st.info("还没有保存的邮箱配置")
-
-        host, port, ssl_flag = ("", 465, True)
-        if smtp_user:
+        # 自动识别 SMTP 服务器
+        host, port, ssl_flag = ("smtp.qiye.163.com", 465, True)
+        if smtp_user and "@" in smtp_user:
             host, port, ssl_flag = guess_smtp_config(smtp_user)
-            st.caption(f"自动识别SMTP: {host}:{port} {'(SSL)' if ssl_flag else '(STARTTLS)'}")
+            st.caption(f"📧 SMTP: {host}:{port} {'(SSL)' if ssl_flag else '(STARTTLS)'}")
 
-        with st.expander("🛠️ 高级：手动覆盖SMTP服务器", expanded=False):
-            override_col1, override_col2, override_col3 = st.columns(3)
-            with override_col1:
-                manual_host = st.text_input("SMTP主机（留空用自动识别）", value=default_host, key="mb_manual_host", placeholder="例如 smtp.qiye.163.com")
-            with override_col2:
-                manual_port_input = st.text_input("端口（留空用自动识别）", value=str(default_port or ""), key="mb_manual_port", placeholder="例如 465")
-            with override_col3:
-                manual_ssl = st.checkbox("使用SSL（465/994）", value=default_ssl, key="mb_manual_ssl")
-            candidates = list_smtp_candidates(smtp_user) if smtp_user else []
-            if len(candidates) > 1:
-                st.caption("常见候选（企业域名不确定时可尝试）：" + "；".join([f"{c[3]} {c[0]}:{c[1]}" for c in candidates[1:]]))
+        eff_host = host
+        eff_port = port
+        eff_ssl = ssl_flag
+        manual_host = ""
+        manual_port_input = ""
+        manual_ssl = ssl_flag
+        sender_name = ""
 
-        eff_host = manual_host.strip() or host
-        try:
-            eff_port = int(str(manual_port_input).strip()) if str(manual_port_input).strip() else port
-        except Exception:
-            eff_port = port
-        eff_ssl = manual_ssl
-
-        if st.button("🔌 测试连接", key="mb_test_conn"):
-            with st.spinner("测试SMTP连接..."):
-                conn_result = test_smtp_connection(smtp_user, smtp_password, eff_host, eff_port)
-                if conn_result["status"] == "success":
-                    st.success(f"✅ 连接成功！{conn_result['smtp_host']}:{conn_result['smtp_port']} ({conn_result['elapsed_seconds']}s)")
-                else:
-                    st.error(f"❌ 连接失败: {conn_result.get('message', '未知错误')}")
-                    candidates = list_smtp_candidates(smtp_user)
-                    if len(candidates) > 1:
-                        st.info(f"💡 自动识别未命中，请在「高级」里手动指定。常见候选：" + "；".join([f"{c[3]} {c[0]}:{c[1]}" for c in candidates[1:]]))
+        if test_ok:
+            if not smtp_user or not smtp_password:
+                st.warning("请先输入邮箱地址和授权码")
+            else:
+                with st.spinner("测试SMTP连接..."):
+                    conn_result = test_smtp_connection(smtp_user, smtp_password, eff_host, eff_port)
+                    if conn_result["status"] == "success":
+                        st.success(f"✅ 连接成功！{conn_result['smtp_host']}:{conn_result['smtp_port']} ({conn_result['elapsed_seconds']}s)")
+                    else:
+                        st.error(f"❌ {conn_result.get('message', '未知错误')}")
 
         st.session_state["email_smtp_user"] = smtp_user
         st.session_state["email_smtp_password"] = smtp_password
-        st.session_state["email_sender_name"] = sender_name
-        st.session_state["mb_smtp_host"] = manual_host
-        st.session_state["mb_smtp_port"] = str(manual_port_input or "")
-        st.session_state["mb_smtp_ssl"] = manual_ssl
+        st.session_state["email_sender_name"] = ""
+        st.session_state["mb_smtp_host"] = ""
+        st.session_state["mb_smtp_port"] = ""
+        st.session_state["mb_smtp_ssl"] = True
         st.session_state["mb_smtp_eff_host"] = eff_host
         st.session_state["mb_smtp_eff_port"] = eff_port
         st.session_state["mb_smtp_eff_ssl"] = eff_ssl

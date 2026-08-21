@@ -1374,6 +1374,7 @@ def show_email_generator():
         with cfg_col3:
             sender_name = st.text_input("发件人名称", value=st.session_state.get("email_sender_name", "Cindy 张茹"), key="eg_sender_name")
 
+        host, port, ssl_flag = ("", 465, True)
         if smtp_user:
             host, port, ssl_flag = guess_smtp_config(smtp_user)
             st.caption(f"自动识别SMTP: {host}:{port} {'(SSL)' if ssl_flag else '(STARTTLS)'}")
@@ -1925,6 +1926,7 @@ def show_email_blast():
                 else:
                     st.info("还没有保存的邮箱配置")
 
+        host, port, ssl_flag = ("", 465, True)
         if smtp_user:
             host, port, ssl_flag = guess_smtp_config(smtp_user)
             st.caption(f"自动识别SMTP: {host}:{port} {'(SSL)' if ssl_flag else '(STARTTLS)'}")

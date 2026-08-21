@@ -32,6 +32,7 @@ def guess_smtp_config(email_address: str) -> tuple:
         "139.com": ("smtp.139.com", 465, True),
         "aliyun.com": ("smtp.aliyun.com", 465, True),
         "exmail.qq.com": ("smtp.exmail.qq.com", 465, True),
+        "qiye.163.com": ("smtp.qiye.163.com", 465, True),
     }
     if domain in presets:
         return presets[domain]
@@ -72,6 +73,7 @@ def test_smtp_connection(smtp_user, smtp_password, smtp_host=None, smtp_port=Non
     if smtp_port:
         port = int(smtp_port)
 
+    # 主连接尝试
     start = time.time()
     try:
         if use_ssl:
@@ -86,7 +88,35 @@ def test_smtp_connection(smtp_user, smtp_password, smtp_host=None, smtp_port=Non
         return {"status": "success", "smtp_host": host, "smtp_port": port, "use_ssl": use_ssl, "elapsed_seconds": elapsed}
     except Exception as e:
         elapsed = round(time.time() - start, 2)
-        return {"status": "error", "message": str(e), "smtp_host": host, "smtp_port": port, "elapsed_seconds": elapsed}
+        err_msg = str(e)
+
+        # DNS 解析失败 → 自动尝试常见企业邮箱候选
+        if "Name or service not known" in err_msg or "Errno -2" in err_msg or "Name or address not known" in err_msg:
+            candidates = list_smtp_candidates(smtp_user) if smtp_user else []
+            tried = [host]
+            for cand_host, cand_port, cand_ssl, cand_name in candidates[1:]:  # 跳过第一个（已试过）
+                if cand_host in tried:
+                    continue
+                tried.append(cand_host)
+                try:
+                    if cand_ssl:
+                        ctx2 = ssl.create_default_context()
+                        server2 = smtplib.SMTP_SSL(cand_host, cand_port, context=ctx2, timeout=15)
+                    else:
+                        server2 = smtplib.SMTP(cand_host, cand_port, timeout=15)
+                        server2.starttls()
+                    server2.login(smtp_user, smtp_password)
+                    server2.quit()
+                    elapsed2 = round(time.time() - start, 2)
+                    return {"status": "success", "smtp_host": cand_host, "smtp_port": cand_port,
+                            "use_ssl": cand_ssl, "elapsed_seconds": elapsed2,
+                            "note": f"自动尝试 {cand_name} 候选成功"}
+                except Exception as e2:
+                    err_msg += f"\n尝试 {cand_name} ({cand_host}:{cand_port}) 也失败：{e2}"
+
+        return {"status": "error",
+                "message": f"连接 {host}:{port} 失败：{err_msg}",
+                "smtp_host": host, "smtp_port": port, "elapsed_seconds": elapsed}
 
 
 def _encode_filename_rfc2231(filename: str) -> str:

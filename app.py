@@ -1059,7 +1059,7 @@ def show_email_generator():
 
         test_col1, test_col2 = st.columns([1, 3])
         with test_col1:
-            if st.button("🔌 测试连接", key="eg_test_conn", use_container_width=True):
+            if st.button("🔌 测试连接", key="eg_test_conn"):
                 with st.spinner("测试SMTP连接..."):
                     conn_result = test_smtp_connection(smtp_user, smtp_password, eff_host, eff_port)
                     if conn_result["status"] == "success":
@@ -1225,7 +1225,7 @@ def show_email_generator():
                             st.text(item['body'][:500] + ("..." if len(item['body']) > 500 else ""))
                             st.divider()
 
-                    if st.button("🚀 " + ("演练预览" if dry_run else "立即发送"), key="eg_send", type="primary", use_container_width=True):
+                    if st.button("🚀 " + ("演练预览" if dry_run else "立即发送"), key="eg_send", type="primary"):
                         if not smtp_user or not smtp_password:
                             st.error("请先在上方配置SMTP邮箱信息")
                         elif dry_run:
@@ -1477,7 +1477,7 @@ def show_draft_box():
             # 操作按钮
             btn_col1, btn_col2, btn_col3 = st.columns(3)
             with btn_col1:
-                if st.button("📤 加载到邮件群发", key=f"draft_load_{d['id']}", use_container_width=True):
+                if st.button("📤 加载到邮件群发", key=f"draft_load_{d['id']}"):
                     st.session_state["mb_subject"] = d.get("subject_template", "")
                     st.session_state["mb_body"] = d.get("body_template", "")
                     st.session_state["mb_cc_text"] = d.get("cc", "")
@@ -1486,12 +1486,12 @@ def show_draft_box():
                     st.success("已加载！正在跳转到邮件群发页面...")
                     st.rerun()
             with btn_col2:
-                if st.button("⏰ 标记为已排期", key=f"draft_sched_{d['id']}", use_container_width=True):
+                if st.button("⏰ 标记为已排期", key=f"draft_sched_{d['id']}"):
                     update_draft_status(d["id"], "scheduled")
                     st.success(f"草稿「{d.get('name')}」已标记为已排期")
                     st.rerun()
             with btn_col3:
-                if st.button("🗑️ 删除", key=f"draft_del_{d['id']}", use_container_width=True):
+                if st.button("🗑️ 删除", key=f"draft_del_{d['id']}"):
                     delete_draft(d["id"])
                     st.rerun()
 
@@ -1557,7 +1557,7 @@ def show_email_blast():
         # 保存当前邮箱配置
         save_col1, save_col2 = st.columns(2)
         with save_col1:
-            if st.button("💾 保存当前邮箱配置", key="mb_save_sender", use_container_width=True):
+            if st.button("💾 保存当前邮箱配置", key="mb_save_sender"):
                 exists = False
                 for s in saved:
                     if s["user"] == smtp_user:
@@ -1576,7 +1576,7 @@ def show_email_blast():
                 st.session_state["saved_senders"] = saved
                 st.success(f"已保存「{sender_name}」({smtp_user})，共 {len(saved)} 个邮箱配置")
         with save_col2:
-            if st.button("📋 查看已保存邮箱", key="mb_list_senders", use_container_width=True):
+            if st.button("📋 查看已保存邮箱", key="mb_list_senders"):
                 if saved:
                     st.write(pd.DataFrame([{"邮箱": s["user"], "名称": s["name"]} for s in saved]), use_container_width=True)
                 else:
@@ -1605,7 +1605,7 @@ def show_email_blast():
             eff_port = port
         eff_ssl = manual_ssl
 
-        if st.button("🔌 测试连接", key="mb_test_conn", use_container_width=True):
+        if st.button("🔌 测试连接", key="mb_test_conn"):
             with st.spinner("测试SMTP连接..."):
                 conn_result = test_smtp_connection(smtp_user, smtp_password, eff_host, eff_port)
                 if conn_result["status"] == "success":
@@ -1742,7 +1742,7 @@ def show_email_blast():
                         with add_col2:
                             add_email = st.text_input("邮箱", key="mb_add_email", placeholder="如：zhangsan@example.com")
                         with add_col3:
-                            if st.button("➕ 添加", key="mb_add_row", use_container_width=True):
+                            if st.button("➕ 添加", key="mb_add_row"):
                                 if add_email.strip():
                                     new_entry = {
                                         "email": add_email.strip(),
@@ -2326,7 +2326,7 @@ def show_email_blast():
             if wait_seconds > 0:
                 send_button_label = f"⏰ 定时发送 ({scheduled_time.strftime('%m-%d %H:%M')})"
 
-        if st.button("🚀 " + send_button_label, key="mb_send", type="primary", use_container_width=True):
+        if st.button("🚀 " + send_button_label, key="mb_send", type="primary"):
             if not smtp_user or not smtp_password:
                 st.error("请先在上方配置SMTP邮箱信息")
             else:
@@ -2578,7 +2578,7 @@ def show_invoice_registration():
     
     dry_run = st.checkbox("试运行（不实际下载）", value=False)
 
-    if st.button("开始下载发票", key="btn-fetch-invoices", type="primary", use_container_width=True):
+    if st.button("开始下载发票", key="btn-fetch-invoices", type="primary"):
         db_manager = get_db_manager()
         invoice_fetcher = InvoiceFetcher(config, db_manager=db_manager)
 
@@ -2744,7 +2744,7 @@ def _main_inner():
             new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符")
             confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码")
             
-            if st.button("注册新账号", key="btn_register", use_container_width=True, type="primary"):
+            if st.button("注册新账号", key="btn_register", type="primary"):
                 if not new_username or not new_email or not new_password:
                     st.error("请填写所有必填字段")
                 elif new_password != confirm_password:
@@ -2791,11 +2791,11 @@ def _main_inner():
             col_btns = st.columns([1, 1])
             with col_btns[0]:
                 if selected_main != '🏠 首页':
-                    if st.button("← 返回首页", key="btn-back", use_container_width=True):
+                    if st.button("← 返回首页", key="btn-back"):
                         st.session_state['selected_main'] = '🏠 首页'
                         st.rerun()
             with col_btns[1]:
-                if st.button("退出登录", key="btn-logout", use_container_width=True):
+                if st.button("退出登录", key="btn-logout"):
                     for key in list(st.session_state.keys()):
                         del st.session_state[key]
                     st.rerun()
@@ -2820,11 +2820,11 @@ def _main_inner():
 
                 with sub_cols[i]:
                     if is_active:
-                        if st.button(icon, key=btn_key, use_container_width=True, type="primary"):
+                        if st.button(icon, key=btn_key, type="primary"):
                             st.session_state['selected_sub'] = icon
                             st.rerun()
                     else:
-                        if st.button(icon, key=btn_key, use_container_width=True):
+                        if st.button(icon, key=btn_key):
                             st.session_state['selected_sub'] = icon
                             st.rerun()
 

@@ -2261,15 +2261,17 @@ def show_email_blast():
             batch_interval = 0
             if enable_schedule:
                 from datetime import datetime as _dt, timedelta as _td
-                min_date = _dt.now().date()
-                default_date = _dt.now().date()
+                # ⚠️ 所有默认值/比较统一用北京时间（Streamlit Cloud 在 UTC）
+                cn_now = now_cn()
+                min_date = cn_now.date()
+                default_date = cn_now.date()
                 sched_date = st.date_input("发送日期", value=default_date, min_value=min_date, key="mb_sched_date")
-                default_t = (_dt.now() + _td(minutes=10)).time()
+                default_t = (cn_now + _td(minutes=10)).time()
                 sched_time = st.time_input("发送时间", value=default_t, key="mb_sched_time")
                 scheduled_time = _dt.combine(sched_date, sched_time)
 
                 # ========== 关键修复：防误设 + 自动顺延 ==========
-                wait_now = (scheduled_time - _dt.now()).total_seconds()
+                wait_now = (scheduled_time - cn_now).total_seconds()
                 if wait_now < 0 and wait_now > -60:
                     # 几乎等于现在，不改
                     pass

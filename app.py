@@ -2265,6 +2265,8 @@ def show_email_blast():
                 cn_now = now_cn()
                 min_date = cn_now.date()
                 default_date = cn_now.date()
+                # 🔍 调试：显示北京时间，防止时区导致的8小时误解
+                st.caption(f"🕐 当前系统识别的北京时间：**{cn_now.strftime('%Y-%m-%d %H:%M')}**（如果不对，请立刻刷新页面清理缓存）")
                 sched_date = st.date_input("发送日期", value=default_date, min_value=min_date, key="mb_sched_date")
                 default_t = (cn_now + _td(minutes=10)).time()
                 sched_time = st.time_input("发送时间", value=default_t, key="mb_sched_time")
@@ -2273,14 +2275,12 @@ def show_email_blast():
                 # ========== 关键修复：防误设 + 自动顺延 ==========
                 wait_now = (scheduled_time - cn_now).total_seconds()
                 if wait_now < 0 and wait_now > -60:
-                    # 几乎等于现在，不改
                     pass
                 elif wait_now < 0:
-                    # 今天选的时间已经过去了 → 自动顺延到明天
                     scheduled_time = scheduled_time + _timedelta(days=1)
                     sched_date = scheduled_time.date()
-                    st.warning(f"ℹ️ 所选今日 {sched_time} 已过，自动顺延为明日 {scheduled_time.strftime('%m-%d %H:%M')}")
-                    wait_now = (scheduled_time - _dt.now()).total_seconds()
+                    st.warning(f"ℹ️ 所选今日 {sched_time} 已过（北京已到 {cn_now.strftime('%H:%M')}），自动顺延为明日 {scheduled_time.strftime('%m-%d %H:%M')}")
+                    wait_now = (scheduled_time - cn_now).total_seconds()
 
                 # ===== 可视化倒计时：显示"距发送 X 天 Y 小时 Z 分" =====
                 wait_abs = int(abs(wait_now))

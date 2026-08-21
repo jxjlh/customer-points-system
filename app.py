@@ -1707,10 +1707,105 @@ def show_email_blast():
 
                 if recipients_data:
                     preview_cols = [c for c in ["name", "email", "surname", "given_name"] if c in recipients_data[0]]
-                    preview_df_all = pd.DataFrame([{k: r.get(k, "") for k in preview_cols} for r in recipients_data])
-                    with st.expander(f"📋 查看全部 {len(recipients_data)} 条收件人数据", expanded=True):
-                        st.dataframe(preview_df_all, use_container_width=True, hide_index=True, height=min(400, 35 + len(preview_df_all) * 35))
-                    st.caption(f"共 {len(recipients_data)} 条数据")
+
+                    # ===== 收件人可编辑表格（支持删除行+手动新增） =====
+                    df_editable = pd.DataFrame(
+                        [{k: r.get(k, "") for k in preview_cols} for r in recipients_data]
+                    )
+                    df_editable.insert(0, "勾选发送", True)
+                    df_editable.insert(1, "序号", range(1, len(df_editable) + 1))
+
+                    with st.expander(f"📋 查看/编辑全部 {len(df_editable)} 条收件人数据（支持增删）", expanded=True):
+                        # 顶部：手动新增收件人
+                        st.markdown("**➕ 手动新增收件人**")
+                        add_col1, add_col2, add_col3 = st.columns([3, 3, 1])
+                        with add_col1:
+                            add_name = st.text_input("姓名", key="mb_add_name", placeholder="如：张三")
+                        with add_col2:
+                            add_email = st.text_input("邮箱", key="mb_add_email", placeholder="如：zhangsan@example.com")
+                        with add_col3:
+                            if st.button("➕ 添加", key="mb_add_row", use_container_width=True):
+                                if add_email.strip():
+                                    new_entry = {
+                                        "email": add_email.strip(),
+                                        "name": add_name.strip(),
+                                        "surname": _extract_surname(add_name.strip()),
+                                    }
+                                    new_entry["given_name"] = (add_name.strip()[len(new_entry["surname"]):]
+                                                              if add_name.strip() and new_entry["surname"] else add_name.strip())
+                                    recipients_data.append(new_entry)
+                                    st.success(f"✅ 已添加：{new_entry['name'] or '-'} <{new_entry['email']}>")
+                                    st.rerun()
+                                else:
+                                    st.warning("请先填写邮箱")
+
+                        st.markdown("**📝 收件人列表编辑（勾选列=是否发送，姓名/邮箱双击可改，点击列首可排序筛选）**")
+
+                        # 用 AgGrid 可编辑 + 选中行删除
+                        gb = GridOptionsBuilder.from_dataframe(df_editable)
+                        gb.configure_default_column(editable=True, resizable=True)
+                        gb.configure_column("勾选发送", editable=True, width=90,
+                                            cellEditor="agCheckboxCellEditor")
+                        gb.configure_column("序号", editable=False, width=70, pinned=True)
+                        gb.configure_column("name", header_name="姓名", width=140)
+                        gb.configure_column("email", header_name="邮箱", width=260)
+                        gb.configure_column("surname", header_name="姓", width=70)
+                        gb.configure_column("given_name", header_name="名字", width=100)
+                        gb.configure_selection(selection_mode="multiple", use_checkbox=False)
+                        grid_response = AgGrid(
+                            df_editable,
+                            gridOptions=gb.build(),
+                            update_mode=GridUpdateMode.MODEL_CHANGED,
+                            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+                            fit_columns_on_grid_load=True,
+                            height=min(500, 80 + len(df_editable) * 35),
+                            theme="streamlit",
+                            key="mb_recipients_grid",
+                        )
+
+                        new_df = pd.DataFrame(grid_response["data"])
+
+                        # 删除选中行
+                        selected_rows = grid_response.get("selected_rows", [])
+                        if len(selected_rows) > 0 and st.button(f"🗑️ 删除选中的 {len(selected_rows)} 行", key="mb_del_selected"):
+                            selected_emails = [r.get("email") for r in selected_rows if r.get("email")]
+                            before = len(recipients_data)
+                            recipients_data = [r for r in recipients_data if r.get("email") not in selected_emails]
+                            removed = before - len(recipients_data)
+                            st.success(f"✅ 已删除 {removed} 条")
+                            st.rerun()
+
+                        # 把编辑后的姓名/邮箱同步回 recipients_data，并按"勾选发送"过滤
+                        updated_count = 0
+                        enabled_indices = set()
+                        # 按邮箱作为关联键，把表格编辑后的值同步回 recipients_data
+                        if "email" in new_df.columns and "name" in new_df.columns:
+                            email_to_edited = {}
+                            for _, row in new_df.iterrows():
+                                e = str(row.get("email", "")).strip()
+                                if not e:
+                                    continue
+                                email_to_edited[e] = {
+                                    "name": str(row.get("name", "")).strip(),
+                                    "checked": bool(row.get("勾选发送", True)),
+                                }
+                            for r in recipients_data:
+                                e = r.get("email", "")
+                                if e in email_to_edited:
+                                    new_name = email_to_edited[e]["name"]
+                                    if new_name and new_name != r.get("name", ""):
+                                        r["name"] = new_name
+                                        r["surname"] = _extract_surname(new_name)
+                                        r["given_name"] = new_name[len(r["surname"]):] if new_name and r["surname"] else new_name
+                                        updated_count += 1
+                                    if email_to_edited[e]["checked"]:
+                                        enabled_indices.add(id(r))
+
+                        # 过滤：只保留被勾选中的（如果用户动了勾选列）
+                        if any(not v["checked"] for v in email_to_edited.values()):
+                            recipients_data = [r for r in recipients_data if id(r) in enabled_indices]
+
+                        st.caption(f"共 {len(recipients_data)} 条数据　|　编辑同步：{updated_count} 条姓名已更新　|　将发送：{len(recipients_data)} 封")
                 else:
                     st.warning("未找到有效收件人，请确认Excel包含邮箱列")
 
@@ -2017,6 +2112,25 @@ def show_email_blast():
                 email_list_for_send = email_list_all[int(start_idx)-1:int(end_idx)]
             else:
                 email_list_for_send = list(email_list_all)
+
+        # ===== 单封邮件勾选（是否发送） =====
+        st.markdown("#### ☑️ 单封邮件是否发送")
+        per_mail_toggle = st.checkbox("启用单封选择（下方预览区可勾选）", value=False, key="mb_per_mail_toggle")
+        if per_mail_toggle:
+            # 默认全部勾选；用户可以在下面预览区逐封取消勾选
+            send_flags = st.session_state.setdefault("mb_send_flags", {})
+            for idx, item in enumerate(email_list_all):
+                key = f"mb_mail_flag_{idx}"
+                send_flags[idx] = st.checkbox(
+                    f"发送　第 {idx+1} 封：{item.get('name') or '-'} <{item.get('email','')}>　｜　{item.get('subject','')[:50]}",
+                    value=send_flags.get(idx, True),
+                    key=key,
+                )
+            st.session_state["mb_send_flags"] = send_flags
+            # 过滤
+            selected_idx_list = [i for i, v in send_flags.items() if v and i < len(email_list_all)]
+            email_list_for_send = [email_list_all[i] for i in selected_idx_list]
+            st.caption(f"☑️ 已勾选 {len(email_list_for_send)} / 共 {len(email_list_all)} 封")
 
         # 把 Streamlit UploadedFile 转成 (bytes, filename) 列表供后端附加
         global_attachments = None

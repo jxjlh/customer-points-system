@@ -1763,14 +1763,37 @@ def show_email_blast():
                             key="mb_recipients_grid",
                         )
 
-                        new_df = pd.DataFrame(grid_response["data"])
+                        try:
+                            grid_raw = grid_response.get("data")
+                            # 防御：某些AgGrid版本 data 可能返回list[str]而不是list[dict]
+                            if isinstance(grid_raw, list) and grid_raw:
+                                if all(isinstance(x, dict) for x in grid_raw):
+                                    new_df = pd.DataFrame(grid_raw)
+                                else:
+                                    new_df = df_editable.copy()
+                            else:
+                                new_df = pd.DataFrame(grid_raw) if grid_raw is not None else df_editable.copy()
+                        except Exception:
+                            new_df = df_editable.copy()
 
-                        # 删除选中行
-                        selected_rows = grid_response.get("selected_rows", [])
+                        # 删除选中行（防御：过滤非dict元素）
+                        selected_rows_raw = grid_response.get("selected_rows", []) or []
+                        selected_rows = [r for r in selected_rows_raw if isinstance(r, dict)]
+
                         if len(selected_rows) > 0 and st.button(f"🗑️ 删除选中的 {len(selected_rows)} 行", key="mb_del_selected"):
-                            selected_emails = [r.get("email") for r in selected_rows if r.get("email")]
+                            selected_emails = []
+                            for r in selected_rows:
+                                if not isinstance(r, dict):
+                                    continue
+                                val = r.get("email")
+                                if val is None:
+                                    continue
+                                selected_emails.append(str(val).strip())
                             before = len(recipients_data)
-                            recipients_data = [r for r in recipients_data if r.get("email") not in selected_emails]
+                            recipients_data = [
+                                r for r in recipients_data
+                                if isinstance(r, dict) and str(r.get("email", "")).strip() not in selected_emails
+                            ]
                             removed = before - len(recipients_data)
                             st.success(f"✅ 已删除 {removed} 条")
                             st.rerun()
@@ -1778,31 +1801,46 @@ def show_email_blast():
                         # 把编辑后的姓名/邮箱同步回 recipients_data，并按"勾选发送"过滤
                         updated_count = 0
                         enabled_indices = set()
+                        email_to_edited = {}
                         # 按邮箱作为关联键，把表格编辑后的值同步回 recipients_data
-                        if "email" in new_df.columns and "name" in new_df.columns:
-                            email_to_edited = {}
+                        if isinstance(new_df, pd.DataFrame) and "email" in new_df.columns and "name" in new_df.columns:
                             for _, row in new_df.iterrows():
                                 e = str(row.get("email", "")).strip()
                                 if not e:
                                     continue
+                                raw_checked = row.get("勾选发送", True)
+                                # 防御：raw_checked 可能是 numpy.bool_ / str / int
+                                if isinstance(raw_checked, str):
+                                    if raw_checked.strip() == "":
+                                        checked = True
+                                    else:
+                                        checked = raw_checked.strip().lower() in ("true", "1", "yes", "on")
+                                else:
+                                    try:
+                                        checked = bool(raw_checked)
+                                    except Exception:
+                                        checked = True
                                 email_to_edited[e] = {
                                     "name": str(row.get("name", "")).strip(),
-                                    "checked": bool(row.get("勾选发送", True)),
+                                    "checked": checked,
                                 }
                             for r in recipients_data:
-                                e = r.get("email", "")
+                                if not isinstance(r, dict):
+                                    continue
+                                e = str(r.get("email", "")).strip()
                                 if e in email_to_edited:
                                     new_name = email_to_edited[e]["name"]
-                                    if new_name and new_name != r.get("name", ""):
+                                    if new_name and new_name != str(r.get("name", "")).strip():
                                         r["name"] = new_name
                                         r["surname"] = _extract_surname(new_name)
-                                        r["given_name"] = new_name[len(r["surname"]):] if new_name and r["surname"] else new_name
+                                        r["given_name"] = (new_name[len(r["surname"]):]
+                                                          if new_name and r["surname"] else new_name)
                                         updated_count += 1
                                     if email_to_edited[e]["checked"]:
                                         enabled_indices.add(id(r))
 
                         # 过滤：只保留被勾选中的（如果用户动了勾选列）
-                        if any(not v["checked"] for v in email_to_edited.values()):
+                        if email_to_edited and any(not v["checked"] for v in email_to_edited.values()):
                             recipients_data = [r for r in recipients_data if id(r) in enabled_indices]
 
                         st.caption(f"共 {len(recipients_data)} 条数据　|　编辑同步：{updated_count} 条姓名已更新　|　将发送：{len(recipients_data)} 封")

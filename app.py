@@ -1635,34 +1635,74 @@ def show_email_blast():
             try:
                 df = pd.read_excel(uploaded_file)
                 df.columns = [str(c).strip() for c in df.columns]
-                st.success(f"读取成功！共 {len(df)} 行数据")
+                st.success(f"读取成功！共 {len(df)} 行数据，列：{', '.join(df.columns)}")
 
                 name_col = None
                 email_col = None
                 for col in df.columns:
                     col_lower = str(col).lower()
-                    if col in ("姓名", "客户", "名称", "联系人") or col_lower in ("name", "customer", "contact"):
+                    # 模糊匹配姓名列：列名中含有「姓名/客户/联系人/名称」或英文 name/customer/contact
+                    if (any(kw in col for kw in ("姓名", "客户", "联系人", "名称", "客户姓名")) or
+                        any(kw in col_lower for kw in ("name", "customer", "contact"))):
                         if name_col is None:
                             name_col = col
-                    if col in ("邮箱", "邮件", "email", "e-mail", "mail") or any(kw in col_lower for kw in ["email", "邮箱", "邮件"]):
+                    # 邮箱模糊匹配：列名含「邮箱/邮件」或 email
+                    if (col in ("邮箱", "邮件", "email", "e-mail", "mail") or
+                        any(kw in col_lower for kw in ["email", "邮箱", "邮件"])):
                         if email_col is None:
                             email_col = col
+                # 如果还是没找到姓名列， fallback：取第一列
+                if name_col is None and len(df.columns) > 0:
+                    name_col = df.columns[0]
+                # 如果还是没找到邮箱列， fallback：取第二列
+                if email_col is None and len(df.columns) > 1:
+                    email_col = df.columns[1]
 
-                if name_col:
-                    st.caption(f"自动识别姓名字段: {name_col}")
-                if email_col:
-                    st.caption(f"自动识别邮箱字段: {email_col}")
+                st.info(f"姓名字段：{name_col or '（未找到）'}　｜　邮箱字段：{email_col or '（未找到）'}")
+                # 手动选择列（让用户能覆盖自动识别）
+                col_override1, col_override2 = st.columns(2)
+                with col_override1:
+                    name_col = st.selectbox(
+                        "📝 确认姓名字段", df.columns.tolist(),
+                        index=df.columns.tolist().index(name_col) if name_col in df.columns.tolist() else 0,
+                        key="mb_name_col",
+                    )
+                with col_override2:
+                    email_col = st.selectbox(
+                        "📧 确认邮箱字段", df.columns.tolist(),
+                        index=df.columns.tolist().index(email_col) if email_col in df.columns.tolist() else 0,
+                        key="mb_email_col",
+                    )
 
                 recipients_data = []
                 for _, row in df.iterrows():
-                    name = str(row.get(name_col, "")).strip() if name_col else ""
-                    email = str(row.get(email_col, "")).strip() if email_col else ""
+                    raw_name = row.get(name_col) if name_col else ""
+                    raw_email = row.get(email_col) if email_col else ""
+
+                    # 清洗姓名
+                    if pd.isna(raw_name):
+                        raw_name = ""
+                    name = str(raw_name).strip()
+                    if name.lower() in ("nan", "none", ""):
+                        name = ""
+
+                    # 清洗邮箱
+                    if pd.isna(raw_email):
+                        raw_email = ""
+                    email = str(raw_email).strip().replace(" ", "").replace("\u3000", "")
+                    if email.lower() in ("nan", "none", ""):
+                        email = ""
+
                     if email:
                         entry = {"email": email, "name": name}
                         entry["surname"] = _extract_surname(name)
                         entry["given_name"] = name[len(entry["surname"]):] if name and entry["surname"] else name
                         for col in df.columns:
-                            entry[str(col)] = str(row[col]).strip() if pd.notna(row[col]) else ""
+                            val = row[col]
+                            if pd.notna(val):
+                                entry[str(col)] = str(val).strip()
+                            else:
+                                entry[str(col)] = ""
                         recipients_data.append(entry)
 
                 if recipients_data:

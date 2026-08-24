@@ -417,17 +417,25 @@ except Exception: pass
 
 # 前端自动刷新（每 20s 触发一次 rerun，保证 tick() 能跑到）
 def enable_auto_tick_refresh(interval_seconds: int = 20):
-    """插入 <iframe> 技巧：其实 Streamlit 有 st_autorefresh，但没有装的话用 meta refresh 兜底"""
+    """仅在有待执行的定时任务时才自动刷新，避免页面频繁重载导致崩溃"""
     try:
+        # 检查是否有 pending/running 的定时任务
+        has_active = False
+        try:
+            jobs = _SCHED_SENDER.list_jobs()
+            for j in jobs:
+                if j.get("status") in ("pending", "running"):
+                    has_active = True
+                    break
+        except Exception:
+            pass
+        if not has_active:
+            return False  # 没有待执行任务，不刷新
+
         from streamlit_autorefresh import st_autorefresh
         st_autorefresh(interval=interval_seconds * 1000, key="schedule_tick_refresh", debounce=False)
         return True
     except Exception:
-        # 兜底：用 meta http-equiv refresh（会整页刷新，体验一般但稳）
-        st.markdown(
-            f'<meta http-equiv="refresh" content="{interval_seconds}" />',
-            unsafe_allow_html=True,
-        )
         return False
 
 

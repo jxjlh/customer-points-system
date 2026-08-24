@@ -1121,7 +1121,19 @@ def format_date_email(date_value):
         # 用正则提取所有连续数字
         numbers = re.findall(r'\d+', clean_str)
         
-        # 尝试标准格式
+        # 优先处理 M/D + 中文后缀的格式（如 "8/5 下午17：00前"），避免 pd.to_datetime 失败
+        if '/' in clean_str:
+            slash_parts = clean_str.split('/')
+            if len(slash_parts) >= 2:
+                left_nums = re.findall(r'\d+', slash_parts[0])
+                right_nums = re.findall(r'\d+', slash_parts[1])
+                if left_nums and right_nums:
+                    month_val = int(left_nums[0])
+                    day_val = int(right_nums[0])
+                    if 1 <= month_val <= 12 and 1 <= day_val <= 31:
+                        return f"{month_val}月{day_val}日"
+        
+        # 尝试标准格式（YYYY-MM-DD 等）
         if '-' in clean_str or '/' in clean_str:
             try:
                 date_obj = pd.to_datetime(clean_str)

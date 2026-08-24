@@ -1159,8 +1159,7 @@ def format_date_email(date_value):
 
 def build_strain_list(group_df):
     """构建小鼠列表文本
-    首行以'您订购的JAX小鼠# {货号}'开头，后续条目用'；'分隔，不再重复前缀
-    返回字符串列表，第一个元素带完整前缀，后续元素只含条目内容
+    货号相同只在开头写一次，货号不同则每条都带自己的货号
     """
     if "货号" not in group_df.columns:
         group_df["货号"] = ""
@@ -1176,7 +1175,8 @@ def build_strain_list(group_df):
     group_keys = ["货号", "基因型", "性别"]
     grouped = group_df.groupby(group_keys, dropna=False)
 
-    lines = []
+    # 第一遍：收集所有分组数据
+    entries = []
     for key_tuple, group in grouped:
         stock = str(key_tuple[0]).strip() if key_tuple[0] is not None else ""
         if stock.lower() in ("nan", "none", ""):
@@ -1205,12 +1205,26 @@ def build_strain_list(group_df):
             sex_text = sex
 
         age_text = f"{age}周" if age else ""
+        entry_body = f"基因型：{genotype} -性别：{sex_text} -发货周龄：{age_text} -数量：{qty}"
+        entries.append({"stock": stock, "body": entry_body})
 
-        entry = f"基因型：{genotype} -性别：{sex_text} -发货周龄：{age_text} -数量：{qty}"
-        if not lines:
-            lines.append(f"您订购的JAX小鼠# {stock},{entry}")
+    # 判断货号是否唯一
+    unique_stocks = list(dict.fromkeys(e["stock"] for e in entries))
+    single_stock = len(unique_stocks) == 1
+
+    # 第二遍：组装输出
+    lines = []
+    for i, e in enumerate(entries):
+        if i == 0:
+            if single_stock:
+                lines.append(f"您订购的JAX小鼠# {e['stock']},{e['body']}")
+            else:
+                lines.append(f"您订购的JAX小鼠# {e['stock']},{e['body']}")
         else:
-            lines.append(f"{stock},{entry}")
+            if single_stock:
+                lines.append(f"{e['body']}")
+            else:
+                lines.append(f"{e['stock']},{e['body']}")
 
     return lines
 

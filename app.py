@@ -1159,10 +1159,9 @@ def format_date_email(date_value):
 
 def build_strain_list(group_df):
     """构建小鼠列表文本
-    新格式：您订购的JAX小鼠# {货号},基因型：{基因型} -性别：{性别} -发货周龄：{周龄} -数量：{数量}
-    返回字符串列表，每个元素代表一组小鼠
+    首行以'您订购的JAX小鼠# {货号}'开头，后续条目用'；'分隔，不再重复前缀
+    返回字符串列表，第一个元素带完整前缀，后续元素只含条目内容
     """
-    # 确保必要列存在
     if "货号" not in group_df.columns:
         group_df["货号"] = ""
     if "基因型" not in group_df.columns:
@@ -1174,7 +1173,6 @@ def build_strain_list(group_df):
     if "数量" not in group_df.columns:
         group_df["数量"] = 1
 
-    # 分组：货号+基因型+性别相同则合并数量
     group_keys = ["货号", "基因型", "性别"]
     grouped = group_df.groupby(group_keys, dropna=False)
 
@@ -1188,20 +1186,17 @@ def build_strain_list(group_df):
             genotype = ""
         sex = str(key_tuple[2]).strip() if key_tuple[2] is not None else ""
 
-        # 数量合并
         qty_vals = pd.to_numeric(group["数量"], errors='coerce')
         qty = qty_vals.sum()
         if pd.isna(qty) or qty == 0:
             qty = len(group)
         qty = int(qty) if float(qty).is_integer() else qty
 
-        # 年龄取第一条
         first_row = group.iloc[0]
         age = str(first_row["年龄"]).strip() if pd.notna(first_row["年龄"]) else ""
         if age.lower() in ("nan", "none"):
             age = ""
 
-        # 性别转换
         if sex.upper() in ("F", "FEMALE") or sex == "雌":
             sex_text = "雌"
         elif sex.upper() in ("M", "MALE") or sex == "雄":
@@ -1209,32 +1204,26 @@ def build_strain_list(group_df):
         else:
             sex_text = sex
 
-        # 周龄
         age_text = f"{age}周" if age else ""
 
-        line = f"您订购的JAX小鼠# {stock},基因型：{genotype} -性别：{sex_text} -发货周龄：{age_text} -数量：{qty}"
-        lines.append(line)
+        entry = f"基因型：{genotype} -性别：{sex_text} -发货周龄：{age_text} -数量：{qty}"
+        if not lines:
+            lines.append(f"您订购的JAX小鼠# {stock},{entry}")
+        else:
+            lines.append(f"{stock},{entry}")
 
     return lines
 
 
 def render_mail(surname, strain_lines, receive_date, delivery_address):
     """生成邮件正文
-    每组小鼠一行，最后一行连接"预计将在..."配送信息
+    首行以'您订购的JAX小鼠#'开头，后续条目用'；'连接
     """
     if not strain_lines:
-        strain_lines = ["（未找到小鼠信息）"]
+        strain_lines = ["您订购的JAX小鼠# （未找到小鼠信息）"]
 
-    if len(strain_lines) == 1:
-        strain_text = strain_lines[0] + f" ，预计将在{receive_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？"
-    else:
-        parts = []
-        for i, line in enumerate(strain_lines):
-            if i < len(strain_lines) - 1:
-                parts.append(line + "。")
-            else:
-                parts.append(line + f" ，预计将在{receive_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？")
-        strain_text = "\n".join(parts)
+    strain_text = "；".join(strain_lines)
+    strain_text += f" ，预计将在{receive_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？"
 
     mail_body = f"""尊敬的{surname}老师：
 

@@ -1220,6 +1220,59 @@ def show_invoice_registration():
         pass
 
 
+_ICON_USER = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#2563EB" xmlns="http://www.w3.org/2000/svg"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'
+_ICON_SYNC = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#2563EB" xmlns="http://www.w3.org/2000/svg"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>'
+_ICON_SHIELD = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#2563EB" xmlns="http://www.w3.org/2000/svg"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>'
+
+
+def _login_brand_html() -> str:
+    import base64
+    from pathlib import Path
+    ill_path = Path(__file__).resolve().parent / "assets" / "login_illustration_white.jpg"
+    ill_tag = ""
+    if ill_path.exists():
+        b64 = base64.b64encode(ill_path.read_bytes()).decode()
+        ill_tag = f'<img src="data:image/jpeg;base64,{b64}" alt="澄天小助手">'
+    return f"""
+    <div class="login-brand-panel">
+      <div>
+        <div class="login-brand-header">
+          <svg width="46" height="46" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="loginLogoGrad" x1="8" y1="4" x2="38" y2="42" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#57A6FF"/>
+                <stop offset="1" stop-color="#1667E0"/>
+              </linearGradient>
+            </defs>
+            <circle cx="23" cy="23" r="14.5" stroke="url(#loginLogoGrad)" stroke-width="13" fill="none" stroke-dasharray="68 23.1" stroke-dashoffset="79.6"/>
+            <circle cx="23" cy="23" r="14.5" stroke="#0B4BBF" stroke-width="13" fill="none" stroke-dasharray="11.5 79.6"/>
+          </svg>
+          <div class="login-brand-name">澄天小助手</div>
+        </div>
+        <div class="login-brand-tagline">让客户管理更简单 · 让数据创造更大价值</div>
+      </div>
+      <div class="login-brand-illustration">{ill_tag}</div>
+      <div class="login-brand-features">
+        <div class="login-brand-feature">
+          <div class="login-feature-icon">{_ICON_USER}</div>
+          <div class="login-feature-title">智能分析</div>
+          <div class="login-feature-desc">数据驱动决策</div>
+        </div>
+        <div class="login-brand-feature">
+          <div class="login-feature-icon">{_ICON_SYNC}</div>
+          <div class="login-feature-title">高效管理</div>
+          <div class="login-feature-desc">提升工作效率</div>
+        </div>
+        <div class="login-brand-feature">
+          <div class="login-feature-icon">{_ICON_SHIELD}</div>
+          <div class="login-feature-title">安全可靠</div>
+          <div class="login-feature-desc">企业级数据安全</div>
+        </div>
+      </div>
+    </div>
+    """
+
+
 def main():
     st.set_page_config(
         page_title="澄天小助手",
@@ -1252,45 +1305,7 @@ def main():
         col_brand, col_form = st.columns([11, 9], gap="small")
 
         with col_brand:
-            st.markdown("""
-            <div class="login-brand-panel">
-              <div class="login-brand-header">
-                <div class="login-brand-logo">C</div>
-                <div class="login-brand-name">澄天小助手</div>
-              </div>
-              <div class="login-brand-tagline">让客户管理更简单 · 让数据创造更大价值</div>
-              <div class="login-brand-illustration">
-                <div class="login-illustration-laptop">💻</div>
-                <div class="login-illustration-icon login-ill-1">📊</div>
-                <div class="login-illustration-icon login-ill-2">📧</div>
-                <div class="login-illustration-icon login-ill-3">👥</div>
-                <div class="login-illustration-icon login-ill-4">📈</div>
-              </div>
-              <div class="login-brand-features">
-                <div class="login-brand-feature">
-                  <div class="login-brand-feature-icon">📊</div>
-                  <div>
-                    <div class="login-feature-title">智能分析</div>
-                    <div class="login-feature-desc">数据驱动决策</div>
-                  </div>
-                </div>
-                <div class="login-brand-feature">
-                  <div class="login-brand-feature-icon">⚡</div>
-                  <div>
-                    <div class="login-feature-title">高效管理</div>
-                    <div class="login-feature-desc">提升工作效率</div>
-                  </div>
-                </div>
-                <div class="login-brand-feature">
-                  <div class="login-brand-feature-icon">🛡️</div>
-                  <div>
-                    <div class="login-feature-title">安全可靠</div>
-                    <div class="login-feature-desc">企业级数据安全</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(_login_brand_html(), unsafe_allow_html=True)
 
         with col_form:
             with st.container(border=True):
@@ -1298,13 +1313,15 @@ def main():
 
                 with login_tab:
                     st.markdown('<div class="login-form-title">欢迎登录澄天小助手</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="login-form-subtitle">请输入您的账号信息</div>', unsafe_allow_html=True)
 
-                    login_username = st.text_input("用户名", placeholder="请输入用户名/邮箱/手机号等", key="login_username")
-                    login_password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password")
+                    login_username = st.text_input("用户名", placeholder="请输入用户名/邮箱/手机号码", key="login_username", label_visibility="collapsed")
+                    login_password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password", label_visibility="collapsed")
 
-                    remember = st.checkbox("记住账号", key="login_remember")
-                    st.markdown('<div style="text-align:right;font-size:13px;margin-top:-32px;margin-right:4px;"><a href="#" style="color:#3b82f6;text-decoration:none;">忘记密码？</a></div>', unsafe_allow_html=True)
+                    remember_col, forgot_col = st.columns([1, 1])
+                    with remember_col:
+                        remember = st.checkbox("记住账号", key="login_remember")
+                    with forgot_col:
+                        st.markdown('<div class="login-forgot"><a href="#">忘记密码?</a></div>', unsafe_allow_html=True)
 
                     if st.button("登录", key="btn_login", use_container_width=True, type="primary"):
                         if login_username and login_password:
@@ -1328,25 +1345,21 @@ def main():
                     st.markdown('<div class="login-divider">其他登录方式</div>', unsafe_allow_html=True)
                     st.markdown("""
                     <div class="login-wecom-btn">
-                      <span style="font-size:18px;">💬</span>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8.5 3C4.9 3 2 5.6 2 8.8c0 1.8.9 3.4 2.4 4.5l-.6 2 2.2-1.1c.6.2 1.3.3 2 .3h.3A6.3 6.3 0 0 1 8 12.5C8 9 11 6.2 14.7 6.2h.3C14.4 4.3 11.7 3 8.5 3Z" fill="#2563EB"/>
+                        <path d="M22 12.5c0-2.7-2.5-4.9-5.5-4.9S11 9.8 11 12.5s2.5 4.9 5.5 4.9c.6 0 1.2-.1 1.7-.3l1.9 1-.5-1.7c1.4-.9 2.4-2.3 2.4-3.9Z" fill="#0EA5E9"/>
+                      </svg>
                       <span>企业微信登录</span>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    st.markdown("""
-                    <div class="login-footer">
-                      © 2024 澄天生物科技有限公司 版权所有
                     </div>
                     """, unsafe_allow_html=True)
 
                 with register_tab:
                     st.markdown('<div class="login-form-title">创建新账号</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="login-form-subtitle">填写信息即可注册</div>', unsafe_allow_html=True)
 
-                    new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名")
-                    new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址")
-                    new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符")
-                    confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码")
+                    new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名", label_visibility="collapsed")
+                    new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址", label_visibility="collapsed")
+                    new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符", label_visibility="collapsed")
+                    confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码", label_visibility="collapsed")
 
                     if st.button("注册新账号", key="btn_register", use_container_width=True, type="primary"):
                         if not new_username or not new_email or not new_password:
@@ -1369,6 +1382,8 @@ def main():
                                 yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
 
                             st.success("🎉 注册成功！请切换到登录页面登录")
+
+        st.markdown('<div class="login-footer">© 2024 澄天生物科技有限公司 · 版权所有</div>', unsafe_allow_html=True)
 
         return
     

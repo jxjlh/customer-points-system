@@ -6,7 +6,8 @@ from typing import Dict, List
 
 
 def show_quotation():
-    st.title("📋 报价助手")
+    st.markdown('<div class="page-title">报价助手</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">自动查询价格并生成报价单</div>', unsafe_allow_html=True)
 
     # 获取数据库管理器
     db_manager = None

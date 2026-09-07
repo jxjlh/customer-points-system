@@ -1,96 +1,135 @@
 """
-澄天小助手 - 极简主题（普通、干净、接近 Streamlit 默认）
-
-设计原则：
-- 不覆盖 .stApp / [data-testid=stAppViewContainer] 背景，保持 Streamlit 原生白底
-- 尽量用 Streamlit 原生按钮/输入框/表格样式，只在必须适配现有功能时加最轻量 CSS
-- 去掉所有「霓虹/玻璃态/发光/网格背景/浮动动画/自定义字体」的装饰效果
-- 保持向后兼容：class 名（home-card-container / home-card / login-container / card-blue 等）不变，
-  这样 app.py / home_cards.py / video_editor.py 里的引用无需改名
+澄天小助手 - 现代企业 SaaS 主题
+基于参考图设计的浅色主题：蓝色主色调(#2563EB)，白底卡片，浅灰背景
 """
 import textwrap
+import html
 
 
 def apply_theme():
-    """应用全局主题样式（极简）"""
+    """应用全局主题样式"""
     import streamlit as st
     st.markdown(_get_global_css(), unsafe_allow_html=True)
 
 
 def render_home_cards():
-    """首页卡片 CSS + Emoji Burst 点击特效"""
+    """首页卡片 CSS"""
     import streamlit as st
-    import streamlit.components.v1 as components
     st.markdown(_get_home_cards_css(), unsafe_allow_html=True)
-    
-    # 检查是否需要触发 Emoji Burst
-    burst_triggered = st.session_state.get("_emoji_burst_triggered")
-    if burst_triggered:
-        # 显示 Emoji Burst 动画
-        html_content = _get_emoji_burst_animation(burst_triggered)
-        # 使用 st.markdown 渲染一个覆盖层
-        st.markdown(f"""
-        <div style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:999999;pointer-events:none;overflow:hidden;">
-            {html_content}
-        </div>
-        """, unsafe_allow_html=True)
-        # 清除触发标记
-        st.session_state.pop("_emoji_burst_triggered", None)
-
-
-def trigger_emoji_burst(emojis: str = "🎉,✨,😄,🔥,💥,⭐,💖,🤩,👍,🥳"):
-    """设置 session state 以触发 Emoji Burst 动画"""
-    import streamlit as st
-    st.session_state["_emoji_burst_triggered"] = emojis
 
 
 def render_metric_cards():
-    """指标卡片样式：不额外美化，空实现即可保留 Streamlit 原生"""
-    # 故意留空：极简模式不再重写 stMetric 外观，保持 Streamlit 默认样式
-    pass
+    """KPI 指标卡片 CSS"""
+    import streamlit as st
+    st.markdown(_get_kpi_css(), unsafe_allow_html=True)
 
 
 def render_page_transition():
-    """页面切换动画：极简模式下关闭动画，避免卡顿和视觉装饰"""
-    # 故意留空：不注入入场/过渡动画
+    """页面切换动画：不注入动画"""
     pass
 
 
 def apply_all_styles():
     """一次性应用所有样式"""
     import streamlit as st
-    css = _get_global_css() + _get_home_cards_css()
+    css = _get_global_css() + _get_sidebar_css() + _get_home_cards_css() + _get_kpi_css() + _get_misc_css()
     st.markdown(css, unsafe_allow_html=True)
 
 
-def _get_global_css() -> str:
-    """
-    全局 CSS（极简）。
+def apply_login_styles():
+    """登录页专用样式：分屏布局"""
+    import streamlit as st
+    css = _get_global_css() + _get_login_css()
+    st.markdown(css, unsafe_allow_html=True)
 
-    保留的必要性样式：
-    - 隐藏 Streamlit 的页脚（不是为了美观，而是版权文字干扰页面内容）
-    - 隐藏登录路由时的侧边栏（配合 app.py 里 [data-testid=stSidebar] display:none 使用）
-    - 给自定义的 .login-container 一个简单的居中宽度，让登录页不会撑满整个屏幕
-    - 让 app.py 里的 .sub-nav-container 能横向排列子导航按钮
-    """
+
+def apply_app_styles():
+    """应用页面样式（侧边栏 + 卡片等）"""
+    import streamlit as st
+    css = _get_global_css() + _get_sidebar_css() + _get_home_cards_css() + _get_kpi_css() + _get_misc_css()
+    st.markdown(css, unsafe_allow_html=True)
+
+
+def render_home_card(icon: str, title: str, desc: str, color_class: str = "card-blue") -> str:
+    """渲染单个首页卡片的 HTML"""
+    icon_safe = html.escape(str(icon))
+    title_safe = html.escape(str(title))
+    desc_safe = html.escape(str(desc))
+    color_safe = html.escape(str(color_class), quote=True)
+    return textwrap.dedent(
+        f"""
+        <div class="home-card {color_safe}" onclick="this.querySelector('button').click()">
+          <div class="home-card-icon">{icon_safe}</div>
+          <div class="home-card-title">{title_safe}</div>
+          <div class="home-card-desc">{desc_safe}</div>
+          <span class="home-card-arrow">点击进入 →</span>
+        </div>
+        """
+    ).strip() + "\n"
+
+
+def render_kpi_card(icon: str, value, label: str, trend=None, trend_up=True, color="blue") -> str:
+    """渲染单个 KPI 指标卡片 HTML"""
+    icon_safe = html.escape(str(icon))
+    value_safe = str(value)
+    label_safe = html.escape(str(label))
+    color_map = {
+        "blue": ("#dbeafe", "#2563eb"),
+        "green": ("#d1fae5", "#059669"),
+        "orange": ("#ffedd5", "#ea580c"),
+        "purple": ("#ede9fe", "#7c3aed"),
+        "teal": ("#ccfbf1", "#0d9488"),
+        "indigo": ("#e0e7ff", "#4f46e5"),
+        "cyan": ("#cffafe", "#0891b2"),
+        "pink": ("#fce7f3", "#db2777"),
+    }
+    bg, fg = color_map.get(color, color_map["blue"])
+    trend_html = ""
+    if trend is not None:
+        trend_class = "trend-up" if trend_up else "trend-down"
+        arrow = "↑" if trend_up else "↓"
+        trend_html = f'<span class="kpi-trend {trend_class}">{arrow} {trend}% 较上月</span>'
+    return textwrap.dedent(
+        f"""
+        <div class="kpi-card">
+          <div class="kpi-icon" style="background:{bg};color:{fg};">{icon_safe}</div>
+          <div class="kpi-value">{value_safe}</div>
+          <div class="kpi-label">{label_safe}</div>
+          {trend_html}
+        </div>
+        """
+    ).strip() + "\n"
+
+
+def render_kpi_grid(cards_html_list) -> str:
+    """渲染 KPI 卡片网格"""
+    inner = "".join(cards_html_list)
+    return f'<div class="kpi-grid">{inner}</div>'
+
+
+# ---------------------------------------------------------------------------
+# CSS getters
+# ---------------------------------------------------------------------------
+
+def _get_global_css() -> str:
     return """
     <style>
-    /* 只隐藏无用的页脚/顶部三滴水菜单；不改变 Streamlit 原生白底背景 */
+    /* 页面背景：浅灰 */
+    [data-testid="stAppViewContainer"] {
+        background: #f8fafc;
+    }
+    /* 主内容区宽度 */
+    [data-testid="stMainBlockContainer"] {
+        max-width: 1400px;
+        padding-top: 2rem;
+    }
+    /* 隐藏页脚 */
     footer {visibility: hidden;}
-
-    /* 登录路由时，侧边栏不再显示。其他路由用 Streamlit 默认。 */
-    [data-testid="stSidebar"].no-show {
-        display: none;
-    }
-
-    /* 登录容器：简单居中，不再使用渐变/发光边框 */
-    .login-container {
-        max-width: 460px;
-        margin: 40px auto;
-        padding: 16px;
-    }
-
-    /* 子导航：横向排布 + 圆角 + 轻边框，不用发光/渐变 */
+    /* 隐藏顶部三滴水菜单 */
+    [data-testid="stMainMenu"] {visibility: hidden;}
+    /* 隐藏首页卡片下方的隐藏按钮 */
+    .hidden-home-card-button button {display: none !important;}
+    /* 子导航横向排布 */
     .sub-nav-container {
         display: flex;
         flex-wrap: wrap;
@@ -101,225 +140,492 @@ def _get_global_css() -> str:
         border-radius: 8px;
         background: #ffffff;
     }
+    /* 通用标题样式 */
+    .page-title {
+        font-size: 22px;
+        font-weight: 700;
+        color: #111827;
+        margin-bottom: 4px;
+    }
+    .page-subtitle {
+        font-size: 14px;
+        color: #6b7280;
+        margin-bottom: 20px;
+    }
+    </style>
+    """
 
-    /* 首页卡片下方由 home_cards.py 生成了同名隐藏 button，
-       用来驱动卡片点击后的 rerun 路由。
-       彻底隐藏整个容器及其内部所有元素。 */
-    .hidden-home-card-button {
-        display: none !important;
-        width: 0 !important;
-        height: 0 !important;
+
+def _get_sidebar_css() -> str:
+    return """
+    <style>
+    /* 侧边栏整体 */
+    section[data-testid="stSidebar"] {
+        background: #ffffff;
+        border-right: 1px solid #e5e7eb;
+    }
+    section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+        gap: 0;
+        padding-top: 0;
+    }
+
+    /* 侧边栏 Logo 区域 */
+    .sidebar-logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 20px 16px 16px;
+        border-bottom: 1px solid #f3f4f6;
+        margin-bottom: 8px;
+    }
+    .sidebar-logo-text {
+        font-size: 18px;
+        font-weight: 700;
+        color: #111827;
+    }
+    .sidebar-logo-sub {
+        font-size: 11px;
+        color: #9ca3af;
+        letter-spacing: 1px;
+    }
+
+    /* 侧边栏导航按钮 */
+    .nav-item button,
+    .nav-item-active button {
+        width: 100% !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        padding: 10px 12px !important;
+        border: none !important;
+        background: transparent !important;
+        color: #4b5563 !important;
+        font-size: 14px !important;
+        border-radius: 8px !important;
+        border-left: 3px solid transparent !important;
+        margin-bottom: 2px !important;
+        height: auto !important;
+        min-height: 40px !important;
+        white-space: nowrap !important;
         overflow: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
+        text-overflow: ellipsis !important;
+    }
+    .nav-item button:hover {
+        background: #f3f4f6 !important;
+        border-color: #d1d5db !important;
+        color: #111827 !important;
+    }
+    .nav-item-active button {
+        background: #eff6ff !important;
+        color: #2563eb !important;
+        border-left: 3px solid #2563eb !important;
+        font-weight: 600 !important;
+    }
+
+    /* 侧边栏用户信息区域 */
+    .sidebar-user {
+        padding: 16px 12px;
+        border-top: 1px solid #f3f4f6;
+        margin-top: 8px;
+    }
+    .sidebar-user-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+    .sidebar-user-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #2563eb;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: 600;
+    }
+    .sidebar-user-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: #111827;
+    }
+    .sidebar-user-role {
+        font-size: 11px;
+        color: #9ca3af;
+    }
+    </style>
+    """
+
+
+def _get_login_css() -> str:
+    return """
+    <style>
+    /* 登录页：全宽无内边距 */
+    [data-testid="stMainBlockContainer"] {
+        max-width: 100% !important;
+        padding: 0 !important;
+    }
+    [data-testid="stMainBlockContainer"] > div {
+        padding: 0 !important;
+    }
+    /* 列间距消除 */
+    [data-testid="stHorizontalBlock"] {
+        gap: 0 !important;
+    }
+    [data-testid="stColumn"] {
+        min-height: 100vh;
+    }
+
+    /* 左侧品牌面板 */
+    .login-brand-panel {
+        background: linear-gradient(135deg, #2563EB 0%, #1E40AF 50%, #1E3A8A 100%);
+        min-height: 100vh;
+        padding: 60px 48px;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .login-brand-title {
+        font-size: 28px;
+        font-weight: 700;
+        margin-bottom: 8px;
+    }
+    .login-brand-tagline {
+        font-size: 15px;
+        opacity: 0.9;
+        margin-bottom: 48px;
+        line-height: 1.6;
+    }
+    .login-brand-features {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+    .login-brand-feature {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 14px;
+        opacity: 0.95;
+    }
+    .login-brand-feature-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background: rgba(255,255,255,0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+    }
+
+    /* 右侧表单面板 */
+    .login-form-panel {
+        background: #ffffff;
+        min-height: 100vh;
+        padding: 60px 48px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .login-form-inner {
+        max-width: 400px;
+        width: 100%;
+    }
+
+    /* 登录页底部版权 */
+    .login-footer {
+        text-align: center;
+        font-size: 12px;
+        color: #9ca3af;
+        margin-top: 40px;
     }
     </style>
     """
 
 
 def _get_home_cards_css() -> str:
-    """
-    首页模块卡片 CSS - 直接美化 st.button 为卡片样式。
-    """
     return """
     <style>
-    /* 首页卡片按钮样式 */
-    div[data-testid="stButton"] {
-        margin-top: 0 !important;
-        margin-bottom: 8px !important;
+    .home-card-container {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin: 16px 0 24px;
+    }
+    @media (max-width: 1024px) {
+        .home-card-container {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+    @media (max-width: 640px) {
+        .home-card-container {
+            grid-template-columns: 1fr;
+        }
+    }
+    .home-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 24px 20px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .home-card:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        transform: translateY(-2px);
+        border-color: #d1d5db;
+    }
+    .home-card-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        margin-bottom: 16px;
+    }
+    .home-card-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #111827;
+        margin: 0 0 6px;
+    }
+    .home-card-desc {
+        font-size: 13px;
+        color: #6b7280;
+        line-height: 1.5;
+        margin-bottom: 12px;
+    }
+    .home-card-arrow {
+        display: inline-block;
+        color: #2563eb;
+        font-size: 13px;
+        font-weight: 500;
+        transition: transform 0.15s ease;
+    }
+    .home-card:hover .home-card-arrow {
+        transform: translateX(4px);
+    }
+    /* 各颜色 class：图标背景色 */
+    .card-blue   .home-card-icon { background: #dbeafe; color: #2563eb; }
+    .card-indigo .home-card-icon { background: #e0e7ff; color: #4f46e5; }
+    .card-green  .home-card-icon { background: #d1fae5; color: #059669; }
+    .card-orange .home-card-icon { background: #ffedd5; color: #ea580c; }
+    .card-purple .home-card-icon { background: #ede9fe; color: #7c3aed; }
+    .card-pink   .home-card-icon { background: #fce7f3; color: #db2777; }
+    .card-cyan   .home-card-icon { background: #cffafe; color: #0891b2; }
+    .card-teal   .home-card-icon { background: #ccfbf1; color: #0d9488; }
+
+    /* 首页头部问候区域 */
+    .home-greeting {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 24px;
+    }
+    .home-greeting-text h2 {
+        font-size: 24px;
+        font-weight: 700;
+        color: #111827;
+        margin: 0 0 4px;
+    }
+    .home-system-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: #6b7280;
+    }
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #22c55e;
+        display: inline-block;
+    }
+    </style>
+    """
+
+
+def _get_kpi_css() -> str:
+    return """
+    <style>
+    .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        margin: 16px 0 24px;
+    }
+    @media (max-width: 1024px) {
+        .kpi-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+    .kpi-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .kpi-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        margin-bottom: 12px;
+    }
+    .kpi-value {
+        font-size: 24px;
+        font-weight: 700;
+        color: #111827;
+        line-height: 1.2;
+    }
+    .kpi-label {
+        font-size: 13px;
+        color: #6b7280;
+        margin-top: 4px;
+    }
+    .kpi-trend {
+        font-size: 12px;
+        margin-top: 8px;
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-weight: 500;
+    }
+    .trend-up {
+        color: #16a34a;
+        background: #dcfce7;
+    }
+    .trend-down {
+        color: #dc2626;
+        background: #fee2e2;
     }
 
-    div[data-testid="stButton"] button,
-    div[data-testid="stButton"] button[data-testid="stBaseButton-secondary"] {
-        background: #ffffff !important;
+    /* 日期筛选栏 */
+    .date-filter-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+        padding: 12px 16px;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+    }
+    .date-filter-label {
+        font-size: 14px;
+        color: #4b5563;
+        font-weight: 500;
+    }
+
+    /* 图表卡片容器 */
+    .chart-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .chart-card-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #111827;
+        margin-bottom: 16px;
+    }
+    </style>
+    """
+
+
+def _get_misc_css() -> str:
+    return """
+    <style>
+    /* 客户管理：搜索筛选栏 */
+    .search-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 16px;
+        padding: 16px;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+    }
+
+    /* 详情面板 */
+    .detail-panel {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .detail-panel-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: #111827;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #f3f4f6;
+    }
+    .detail-section {
+        margin-bottom: 20px;
+    }
+    .detail-section-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #6b7280;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .detail-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 6px;
+        font-size: 14px;
+    }
+    .detail-label {
+        color: #6b7280;
+    }
+    .detail-value {
+        color: #111827;
+        font-weight: 500;
+    }
+    .detail-tag {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        margin-right: 4px;
+        margin-bottom: 4px;
+    }
+    .tag-blue { background: #dbeafe; color: #2563eb; }
+    .tag-green { background: #d1fae5; color: #059669; }
+    .tag-orange { background: #ffedd5; color: #ea580c; }
+    .tag-purple { background: #ede9fe; color: #7c3aed; }
+
+    /* Streamlit 标签按钮（子导航）样式 */
+    .sub-nav-container button {
         border: 1px solid #e5e7eb !important;
-        border-radius: 10px !important;
-        padding: 20px 16px !important;
-        min-height: 100px !important;
-        height: auto !important;
-        cursor: pointer !important;
-        width: 100% !important;
-        color: #374151 !important;
-        font-size: 14px !important;
-        font-weight: 500 !important;
-        line-height: 1.4 !important;
-        transition: all 0.2s ease !important;
-        border-left: 4px solid #3b82f6 !important;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
-        text-align: center !important;
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: center !important;
-        justify-content: center !important;
-        gap: 6px !important;
+        border-radius: 6px !important;
+        padding: 6px 12px !important;
+        font-size: 13px !important;
     }
-
-    div[data-testid="stButton"] button:hover,
-    div[data-testid="stButton"] button:focus {
-        background: #f0f4ff !important;
-        border-color: #3b82f6 !important;
-        transform: translateY(-2px) !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
-    }
-
-    /* 按钮文字和图标 */
-    div[data-testid="stButton"] p {
-        margin: 0 !important;
-        padding: 0 !important;
-        font-size: 14px !important;
-        color: #374151 !important;
-        line-height: 1.4 !important;
-        text-align: center !important;
-    }
-
-    /* 不同卡片颜色 - 通过 nth-child 模拟 */
-    div[data-testid="stButton"]:nth-child(6n+1) button { border-left-color: #3b82f6 !important; }
-    div[data-testid="stButton"]:nth-child(6n+2) button { border-left-color: #10b981 !important; }
-    div[data-testid="stButton"]:nth-child(6n+3) button { border-left-color: #f97316 !important; }
-    div[data-testid="stButton"]:nth-child(6n+4) button { border-left-color: #8b5cf6 !important; }
-    div[data-testid="stButton"]:nth-child(6n+5) button { border-left-color: #0ea5e9 !important; }
-    div[data-testid="stButton"]:nth-child(6n+6) button { border-left-color: #ec4899 !important; }
-
-    /* Tooltip 隐藏 */
-    div[data-testid="stTooltipIcon"] {
-        display: none !important;
+    .sub-nav-container button[kind="primary"] {
+        background: #2563eb !important;
+        color: white !important;
+        border-color: #2563eb !important;
     }
     </style>
     """
-
-
-def _get_emoji_burst_animation(emojis_str: str) -> str:
-    """生成 Emoji Burst 动画 HTML（使用 CSS 动画）"""
-    import math
-    emojis_list = [e.strip() for e in emojis_str.split(",") if e.strip()]
-    
-    emojis_html = []
-    for i in range(25):
-        emoji = emojis_list[i % len(emojis_list)]
-        angle = (360 * i) / 25
-        distance = 100 + (i % 5) * 30
-        x = int(distance * math.cos(math.radians(angle)))
-        y = int(distance * math.sin(math.radians(angle)))
-        size = 20 + (i % 4) * 5
-        rot = (i * 30) % 360
-        
-        emojis_html.append(
-            f'<div class="emoji-burst-item" style="--tx:{x}px;--ty:{y}px;--rot:{rot}deg;font-size:{size}px;">{emoji}</div>'
-        )
-    
-    return f"""
-    <style>
-        .emoji-burst-item {{
-            position: absolute;
-            left: 50%;
-            top: 50%;
-            pointer-events: none;
-            animation: emojiBurst 1.2s ease-out forwards;
-        }}
-        @keyframes emojiBurst {{
-            0% {{
-                transform: translate(-50%, -50%) scale(0.3);
-                opacity: 1;
-            }}
-            100% {{
-                transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1.2) rotate(var(--rot));
-                opacity: 0;
-            }}
-        }}
-    </style>
-    {''.join(emojis_html)}
-    """
-
-
-def _get_emoji_burst_js() -> str:
-    """注入 Emoji Burst 点击特效 JavaScript - 在 iframe 中运行但作用于父页面"""
-    return """
-    <script>
-    (function() {
-        const emojis = ['🎉','✨','😄','🔥','💥','⭐','💖','🤩','👍','🥳','🎊','😎','🚀','💫','🌟','💎','📊','📧','🧾','📋','🎬','📦','👑'];
-        
-        // 获取父窗口（Streamlit 主页面）
-        const targetWindow = window.parent || window;
-        const targetDocument = targetWindow.document;
-        
-        function createEmojiBurst(x, y) {
-            const burstCount = 15 + Math.floor(Math.random() * 10);
-            const container = targetDocument.createElement('div');
-            container.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;pointer-events:none;z-index:2147483647;';
-            targetDocument.body.appendChild(container);
-            
-            for (let i = 0; i < burstCount; i++) {
-                const emoji = targetDocument.createElement('div');
-                emoji.textContent = emojis[Math.floor(Math.random() * emojis.length)];
-                const angle = (Math.PI * 2 * i) / burstCount + Math.random() * 0.5;
-                const power = 80 + Math.random() * 100;
-                const vx = Math.cos(angle) * power;
-                const vy = Math.sin(angle) * power - 50;
-                
-                const size = 20 + Math.random() * 16;
-                emoji.style.cssText = 'position:absolute;font-size:' + size + 'px;left:' + x + 'px;top:' + y + 'px;pointer-events:none;will-change:transform,opacity;transition:transform 1s ease-out,opacity 1s ease-out;';
-                
-                container.appendChild(emoji);
-                
-                requestAnimationFrame(function() {
-                    emoji.style.transform = 'translate(' + vx + 'px,' + (vy + 150) + 'px) rotate(' + (Math.random() * 720 - 360) + 'deg)';
-                    emoji.style.opacity = '0';
-                });
-                
-                setTimeout(function() {
-                    emoji.remove();
-                }, 1100);
-            }
-            
-            setTimeout(function() {
-                container.remove();
-            }, 1200);
-        }
-        
-        function initBurst() {
-            const buttons = targetDocument.querySelectorAll('div[data-testid="stButton"] button');
-            buttons.forEach(function(btn) {
-                if (btn.dataset.burstInitialized) return;
-                btn.dataset.burstInitialized = 'true';
-                btn.addEventListener('click', function(e) {
-                    const rect = btn.getBoundingClientRect();
-                    const x = rect.left + rect.width / 2;
-                    const y = rect.top + rect.height / 2;
-                    createEmojiBurst(x, y);
-                });
-            });
-        }
-        
-        // 立即初始化 + 定时检测新按钮
-        setTimeout(initBurst, 100);
-        setInterval(initBurst, 500);
-        
-        // 监听 DOM 变化
-        if (targetDocument.body) {
-            const observer = new MutationObserver(function() {
-                initBurst();
-            });
-            observer.observe(targetDocument.body, { childList: true, subtree: true });
-        }
-    })();
-    </script>
-    """
-
-
-def render_home_card(icon: str, title: str, desc: str, color_class: str = "card-blue", card_key: str = "") -> str:
-    """
-    渲染单个首页卡片的 HTML（图标+标题）。
-    """
-    import html
-    icon_safe = html.escape(str(icon))
-    title_safe = html.escape(str(title))
-    color_safe = html.escape(str(color_class), quote=True)
-    key_safe = html.escape(str(card_key), quote=True)
-    return textwrap.dedent(
-        f"""
-        <div class="home-card {color_safe}" data-key="{key_safe}">
-          <div class="home-card-icon">{icon_safe}</div>
-          <div class="home-card-title">{title_safe}</div>
-        </div>
-        """
-    ).strip() + "\n"

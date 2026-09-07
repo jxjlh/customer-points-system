@@ -16,3 +16,16 @@ cookie:
   name: streamlit_auth_cookie
 preauthorized:
   emails: []
+# 企业微信扫码登录配置（企业微信管理后台 -> 应用管理 -> 自建应用）
+# 1. corp_id: 企业信息页中的企业ID
+# 2. agent_id / secret: 自建应用的 AgentId 和 Secret
+# 3. 需在应用的"网页授权及JS-SDK"中配置本应用的可信域名
+# 4. 用户绑定：用户名与企业微信 userid 一致可自动匹配，
+#    或在用户名下添加 wecom_userid 字段，例如：
+#    JAX.iBio:
+#      wecom_userid: "ZhangSan"
+wecom:
+  enabled: false
+  corp_id: ""
+  agent_id: ""
+  secret: ""

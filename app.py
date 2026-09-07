@@ -24,6 +24,13 @@ from modules.invoice_fetcher import InvoiceFetcher
 from modules.quotation_ui import show_quotation
 from modules.db_manager import get_db_manager
 from modules.video_editor import show_video_editor
+from modules.wecom import (
+    get_wecom_config,
+    is_configured,
+    build_oauth_url_prefix,
+    exchange_auth_code,
+    match_local_user,
+)
 from logo_base64 import get_logo_html, get_avatar_html, get_logo_data_url, get_avatar_data_url
 
 DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
@@ -1302,6 +1309,43 @@ def main():
         # 隐藏侧边栏
         st.markdown('<style>[data-testid="stSidebar"]{display:none !important;}</style>', unsafe_allow_html=True)
 
+        wecom_cfg = get_wecom_config(config)
+
+        # 企业微信授权回调：扫码后企业微信带 auth_code 跳回本应用
+        _wecom_code = st.query_params.get("auth_code")
+        if _wecom_code:
+            for _k in ("auth_code", "state"):
+                if _k in st.query_params:
+                    del st.query_params[_k]
+            if wecom_cfg["enabled"] and is_configured(wecom_cfg):
+                _userid, _err = exchange_auth_code(wecom_cfg, _wecom_code)
+                if _err:
+                    st.session_state["wecom_message"] = ("error", _err)
+                else:
+                    _local_user = match_local_user(config, _userid)
+                    if _local_user:
+                        st.session_state["authentication_status"] = True
+                        st.session_state["username"] = _local_user
+                        st.session_state["name"] = config["credentials"]["usernames"][_local_user].get("name", _local_user)
+                        st.rerun()
+                    else:
+                        st.session_state["wecom_message"] = ("error", f"企业微信成员 {_userid} 未绑定系统用户，请联系管理员在用户配置中添加 wecom_userid")
+            else:
+                st.session_state["wecom_message"] = ("error", "企业微信登录未启用，请先在 config.yaml 的 wecom 段完成配置")
+
+        # 点击企业微信登录后跳转授权页（redirect_uri 由浏览器端拼接当前地址）
+        if st.session_state.pop("wecom_redirect", False):
+            _oauth_prefix = build_oauth_url_prefix(wecom_cfg)
+            st.markdown(
+                f"""<script>
+                (function() {{
+                    var redirect = encodeURIComponent(window.location.origin + window.location.pathname);
+                    window.location.href = "{_oauth_prefix}" + redirect + "&state=ct_login";
+                }})();
+                </script>""",
+                unsafe_allow_html=True,
+            )
+
         col_brand, col_form = st.columns([11, 9], gap="small")
 
         with col_brand:
@@ -1343,15 +1387,16 @@ def main():
                             st.warning("请输入用户名和密码")
 
                     st.markdown('<div class="login-divider">其他登录方式</div>', unsafe_allow_html=True)
-                    st.markdown("""
-                    <div class="login-wecom-btn">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M8.5 3C4.9 3 2 5.6 2 8.8c0 1.8.9 3.4 2.4 4.5l-.6 2 2.2-1.1c.6.2 1.3.3 2 .3h.3A6.3 6.3 0 0 1 8 12.5C8 9 11 6.2 14.7 6.2h.3C14.4 4.3 11.7 3 8.5 3Z" fill="#2563EB"/>
-                        <path d="M22 12.5c0-2.7-2.5-4.9-5.5-4.9S11 9.8 11 12.5s2.5 4.9 5.5 4.9c.6 0 1.2-.1 1.7-.3l1.9 1-.5-1.7c1.4-.9 2.4-2.3 2.4-3.9Z" fill="#0EA5E9"/>
-                      </svg>
-                      <span>企业微信登录</span>
-                    </div>
-                    """, unsafe_allow_html=True)
+
+                    if st.button("企业微信登录", key="wecom_login", use_container_width=True):
+                        if not wecom_cfg["enabled"] or not is_configured(wecom_cfg):
+                            st.session_state["wecom_message"] = (
+                                "info",
+                                "企业微信登录未启用：请在 config.yaml 的 wecom 段配置 enabled: true、corp_id、agent_id、secret 后重启应用",
+                            )
+                        else:
+                            st.session_state["wecom_redirect"] = True
+                        st.rerun()
 
                 with register_tab:
                     st.markdown('<div class="login-form-title">创建新账号</div>', unsafe_allow_html=True)

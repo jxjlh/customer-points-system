@@ -329,7 +329,7 @@ def _get_login_css() -> str:
         object-fit: contain;
         mix-blend-mode: multiply;
     }
-    /* 特性区：整体收进白色卡片，避免文字与渐变底色重叠、字段分散 */
+    /* 特性区：整体收进白色卡片，避免文字与渐变底色重叠、字段分散；整体上移 */
     .login-brand-features {
         display: flex;
         gap: 32px;
@@ -338,6 +338,7 @@ def _get_login_css() -> str:
         border: 1px solid rgba(37, 99, 235, 0.10);
         border-radius: 12px;
         box-shadow: 0 4px 14px rgba(31, 86, 201, 0.06);
+        margin-bottom: 7vh;
     }
     .login-brand-feature {
         flex: none;
@@ -532,24 +533,29 @@ def _get_login_css() -> str:
         background: #E8EDF3;
     }
 
-    /* 企业微信登录按钮 */
-    .login-wecom-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        height: 42px;
-        border: 1px solid #DCE3EB;
-        border-radius: 6px;
-        background: #ffffff;
-        color: #334155;
-        font-size: 13px;
-        cursor: pointer;
-        width: 100%;
+    /* 企业微信登录按钮（真实 st.button，key=wecom_login） */
+    [data-testid="stVerticalBlockBorderWrapper"] .st-key-wecom_login button {
+        height: 42px !important;
+        width: 100% !important;
+        border: 1px solid #DCE3EB !important;
+        border-radius: 6px !important;
+        background: #ffffff !important;
+        color: #2563EB !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
     }
-    .login-wecom-btn:hover {
-        background: #F7FAFD;
-        border-color: #C9D6E8;
+    [data-testid="stVerticalBlockBorderWrapper"] .st-key-wecom_login button:hover {
+        background: #F7FAFD !important;
+        border-color: #C9D6E8 !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] .st-key-wecom_login button::before {
+        content: "";
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        margin-right: 6px;
+        vertical-align: -3px;
+        background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M8.5 3C4.9 3 2 5.6 2 8.8c0 1.8.9 3.4 2.4 4.5l-.6 2 2.2-1.1c.6.2 1.3.3 2 .3h.3A6.3 6.3 0 0 1 8 12.5C8 9 11 6.2 14.7 6.2h.3C14.4 4.3 11.7 3 8.5 3Z' fill='%232563EB'/%3E%3Cpath d='M22 12.5c0-2.7-2.5-4.9-5.5-4.9S11 9.8 11 12.5s2.5 4.9 5.5 4.9c.6 0 1.2-.1 1.7-.3l1.9 1-.5-1.7c1.4-.9 2.4-2.3 2.4-3.9Z' fill='%230EA5E9'/%3E%3C/svg%3E") no-repeat center / contain;
     }
 
     /* 登录页底部版权 */

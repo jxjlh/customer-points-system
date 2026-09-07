@@ -261,108 +261,27 @@ def _get_sidebar_css() -> str:
 def _get_login_css() -> str:
     return """
     <style>
-    /* 登录页：全宽无内边距 */
+    /* 页面背景：浅蓝灰 */
+    [data-testid="stAppViewContainer"] {
+        background: #F0F5FF;
+    }
     [data-testid="stMainBlockContainer"] {
-        max-width: 100% !important;
-        padding: 0 !important;
-    }
-    [data-testid="stMainBlockContainer"] > div {
-        padding: 0 !important;
-    }
-    /* 列间距消除 */
-    [data-testid="stHorizontalBlock"] {
-        gap: 0 !important;
-    }
-    [data-testid="stColumn"] {
-        min-height: 100vh;
-    }
-
-    /* 左侧品牌面板 */
-    .login-brand-panel {
-        background: linear-gradient(135deg, #2563EB 0%, #1E40AF 50%, #1E3A8A 100%);
-        min-height: 100vh;
-        padding: 60px 48px;
-        color: white;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }
-    .login-brand-logo {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 16px;
-    }
-    .login-brand-logo-icon {
-        font-size: 36px;
-    }
-    .login-brand-title {
-        font-size: 28px;
-        font-weight: 700;
-        margin-bottom: 8px;
-    }
-    .login-brand-tagline {
-        font-size: 15px;
-        opacity: 0.9;
-        margin-bottom: 48px;
-        line-height: 1.6;
-    }
-    .login-brand-illustration {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin: 24px 0;
-    }
-    .login-brand-illustration-icon {
-        font-size: 80px;
-        opacity: 0.85;
-    }
-    .login-brand-features {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-    }
-    .login-brand-feature {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        font-size: 14px;
-        opacity: 0.95;
-    }
-    .login-brand-feature-icon {
-        width: 36px;
-        height: 36px;
-        border-radius: 8px;
-        background: rgba(255,255,255,0.15);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 18px;
-    }
-
-    /* 右侧表单列背景 */
-    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:last-child {
-        background: #f9fafb;
-        min-height: 100vh;
-    }
-
-    /* 右侧列内部垂直块 */
-    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:last-child
-    [data-testid="stVerticalBlock"] {
-        padding: 60px 24px;
-        justify-content: center;
-    }
-
-    /* 带边框容器 = 登录卡片 */
-    [data-testid="stVerticalBlockBorderWrapper"] {
-        background: #ffffff !important;
-        border: 1px solid #f3f4f6 !important;
-        border-radius: 16px !important;
-        box-shadow: 0 4px 24px rgba(0,0,0,0.06) !important;
-        padding: 40px 36px !important;
         max-width: 420px !important;
         margin: 0 auto !important;
+        padding-top: 0 !important;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    /* 登录卡片 = 带边框容器 */
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.06) !important;
+        padding: 40px 36px !important;
     }
 
     /* 登录卡片内输入框 */
@@ -488,17 +407,13 @@ def _get_login_css() -> str:
         border-color: #d1d5db;
     }
 
-    /* 登录页底部协议 */
+    /* 登录页底部版权 */
     .login-footer {
         text-align: center;
         font-size: 12px;
         color: #9ca3af;
         margin-top: 24px;
         line-height: 1.6;
-    }
-    .login-footer a {
-        color: #2563eb;
-        text-decoration: none;
     }
     </style>
     """

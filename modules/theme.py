@@ -287,6 +287,15 @@ def _get_login_css() -> str:
         flex-direction: column;
         justify-content: center;
     }
+    .login-brand-logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+    .login-brand-logo-icon {
+        font-size: 36px;
+    }
     .login-brand-title {
         font-size: 28px;
         font-weight: 700;
@@ -297,6 +306,17 @@ def _get_login_css() -> str:
         opacity: 0.9;
         margin-bottom: 48px;
         line-height: 1.6;
+    }
+    .login-brand-illustration {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 24px 0;
+    }
+    .login-brand-illustration-icon {
+        font-size: 80px;
+        opacity: 0.85;
     }
     .login-brand-features {
         display: flex;
@@ -323,25 +343,171 @@ def _get_login_css() -> str:
 
     /* 右侧表单面板 */
     .login-form-panel {
-        background: #ffffff;
+        background: #f9fafb;
         min-height: 100vh;
-        padding: 60px 48px;
+        padding: 60px 24px;
         display: flex;
         flex-direction: column;
         justify-content: center;
+        align-items: center;
     }
-    .login-form-inner {
-        max-width: 400px;
+    .login-form-card {
+        background: #ffffff;
+        border-radius: 16px;
+        padding: 40px 36px;
         width: 100%;
+        max-width: 420px;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+        border: 1px solid #f3f4f6;
+    }
+    .login-form-title {
+        font-size: 20px;
+        font-weight: 700;
+        color: #111827;
+        text-align: center;
+        margin-bottom: 8px;
+    }
+    .login-form-subtitle {
+        font-size: 14px;
+        color: #6b7280;
+        text-align: center;
+        margin-bottom: 28px;
     }
 
-    /* 登录页底部版权 */
+    /* 登录页 Streamlit 输入框样式覆盖 */
+    .login-form-panel .stTextInput > div > div > input {
+        border: 1px solid #e5e7eb !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
+        color: #111827 !important;
+        padding: 10px 14px !important;
+        font-size: 14px !important;
+        height: 44px !important;
+    }
+    .login-form-panel .stTextInput > div > div > input:focus {
+        border-color: #2563eb !important;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
+    }
+    .login-form-panel .stTextInput label {
+        font-size: 13px !important;
+        color: #4b5563 !important;
+        font-weight: 500 !important;
+        margin-bottom: 4px !important;
+    }
+    .login-form-panel [data-testid="stWidgetLabel"] {
+        font-size: 13px !important;
+        color: #4b5563 !important;
+        font-weight: 500 !important;
+        margin-bottom: 4px !important;
+    }
+
+    /* 登录页按钮 */
+    .login-form-panel button[kind="primary"] {
+        background: #2563eb !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-size: 15px !important;
+        font-weight: 600 !important;
+        height: 44px !important;
+        width: 100% !important;
+    }
+    .login-form-panel button[kind="primary"]:hover {
+        background: #1d4ed8 !important;
+    }
+    .login-form-panel button[kind="secondary"] {
+        border: 1px solid #e5e7eb !important;
+        border-radius: 8px !important;
+        font-size: 14px !important;
+        height: 44px !important;
+        color: #4b5563 !important;
+        background: #ffffff !important;
+    }
+
+    /* 登录页 Tabs */
+    .login-form-panel .stTabs [data-baseweb="tab-list"] {
+        gap: 0;
+        border-bottom: 1px solid #e5e7eb;
+        margin-bottom: 24px;
+    }
+    .login-form-panel .stTabs [data-baseweb="tab"] {
+        padding: 8px 16px;
+        font-size: 14px;
+        font-weight: 500;
+        color: #6b7280;
+    }
+    .login-form-panel .stTabs [aria-selected="true"] {
+        color: #2563eb !important;
+    }
+    .login-form-panel .stTabs [data-baseweb="tab-border"] {
+        border-bottom: 2px solid #2563eb !important;
+    }
+
+    /* 登录页选项行 */
+    .login-options-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 12px 0 24px;
+        font-size: 13px;
+    }
+
+    /* 分隔线 */
+    .login-divider {
+        text-align: center;
+        margin: 24px 0;
+        color: #9ca3af;
+        font-size: 12px;
+        position: relative;
+    }
+    .login-divider::before,
+    .login-divider::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        width: 40%;
+        height: 1px;
+        background: #e5e7eb;
+    }
+    .login-divider::before { left: 0; }
+    .login-divider::after { right: 0; }
+
+    /* 企业微信登录按钮 */
+    .login-wecom-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #4b5563;
+        font-size: 14px;
+        cursor: pointer;
+        width: 100%;
+    }
+    .login-wecom-btn:hover {
+        background: #f9fafb;
+        border-color: #d1d5db;
+    }
+
+    /* 登录页底部协议 */
     .login-footer {
         text-align: center;
         font-size: 12px;
         color: #9ca3af;
-        margin-top: 40px;
+        margin-top: 24px;
+        line-height: 1.6;
     }
+    .login-footer a {
+        color: #2563eb;
+        text-decoration: none;
+    }
+
+    /* 隐藏登录页 Streamlit 默认元素 */
+    .login-form-panel [data-testid="stFormSubmitButton"] { display: none !important; }
+    .login-form-panel .stAlert { font-size: 13px; }
     </style>
     """
 

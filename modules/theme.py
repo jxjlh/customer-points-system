@@ -261,17 +261,136 @@ def _get_sidebar_css() -> str:
 def _get_login_css() -> str:
     return """
     <style>
-    /* 页面背景：浅蓝灰 */
+    /* 登录页：全宽无边距 */
     [data-testid="stAppViewContainer"] {
-        background: #F0F5FF;
+        background: #f0f5ff;
     }
     [data-testid="stMainBlockContainer"] {
-        max-width: 420px !important;
-        margin: 0 auto !important;
-        padding-top: 0 !important;
+        max-width: 100% !important;
+        padding: 0 !important;
+    }
+    [data-testid="stMainBlockContainer"] > div {
+        padding: 0 !important;
+    }
+
+    /* 两列布局：消除间距 */
+    [data-testid="stHorizontalBlock"] {
+        gap: 0 !important;
+    }
+    [data-testid="stColumn"] {
         min-height: 100vh;
+    }
+
+    /* ---- 左侧品牌面板 ---- */
+    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:first-child {
+        background: linear-gradient(135deg, #2563EB 0%, #1E40AF 50%, #1E3A8A 100%);
+    }
+    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:first-child
+    [data-testid="stVerticalBlock"] {
+        padding: 48px 40px;
+        justify-content: center;
+    }
+
+    .login-brand-panel {
+        color: white;
         display: flex;
         flex-direction: column;
+        height: 100%;
+        min-height: 80vh;
+    }
+    .login-brand-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .login-brand-logo {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: white;
+        color: #2563eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        font-weight: 700;
+    }
+    .login-brand-name {
+        font-size: 24px;
+        font-weight: 700;
+    }
+    .login-brand-tagline {
+        font-size: 14px;
+        opacity: 0.85;
+        margin-bottom: 32px;
+    }
+
+    /* 插画区 */
+    .login-brand-illustration {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        margin: 24px 0;
+        min-height: 200px;
+    }
+    .login-illustration-laptop {
+        font-size: 72px;
+    }
+    .login-illustration-icon {
+        position: absolute;
+        font-size: 28px;
+        background: rgba(255,255,255,0.15);
+        border-radius: 10px;
+        padding: 8px 10px;
+        backdrop-filter: blur(4px);
+    }
+    .login-ill-1 { top: 15%; left: 15%; }
+    .login-ill-2 { top: 20%; right: 15%; }
+    .login-ill-3 { bottom: 20%; left: 20%; }
+    .login-ill-4 { bottom: 15%; right: 20%; }
+
+    /* 特性列表 */
+    .login-brand-features {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        margin-top: 24px;
+    }
+    .login-brand-feature {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .login-brand-feature-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        flex-shrink: 0;
+    }
+    .login-feature-title {
+        font-size: 14px;
+        font-weight: 600;
+    }
+    .login-feature-desc {
+        font-size: 12px;
+        opacity: 0.8;
+    }
+
+    /* ---- 右侧表单区 ---- */
+    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:last-child {
+        background: #f0f5ff;
+    }
+    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:last-child
+    [data-testid="stVerticalBlock"] {
+        padding: 48px 24px;
         justify-content: center;
     }
 
@@ -281,7 +400,9 @@ def _get_login_css() -> str:
         border: 1px solid #e5e7eb !important;
         border-radius: 12px !important;
         box-shadow: 0 4px 24px rgba(0,0,0,0.06) !important;
-        padding: 40px 36px !important;
+        padding: 36px 32px !important;
+        max-width: 400px !important;
+        margin: 0 auto !important;
     }
 
     /* 登录卡片内输入框 */

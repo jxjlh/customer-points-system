@@ -386,20 +386,25 @@ def _get_login_css() -> str:
 
     /* ---- 右侧表单区（仅顶层最后一个列） ---- */
     [data-testid="stMainBlockContainer"] > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {
-        background: #f0f5ff;
+        background: #E2E8F0;
     }
     [data-testid="stMainBlockContainer"] > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child
     > [data-testid="stVerticalBlock"] {
         padding: 48px 24px;
         justify-content: center;
     }
+    /* 强制右侧所有文字为深色 */
+    [data-testid="stMainBlockContainer"] > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child,
+    [data-testid="stMainBlockContainer"] > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child * {
+        color: #0F172A !important;
+    }
 
     /* 登录卡片 = 带边框容器 */
     [data-testid="stVerticalBlockBorderWrapper"] {
         background: #ffffff !important;
-        border: 1px solid #e5e7eb !important;
+        border: 2px solid #CBD5E1 !important;
         border-radius: 12px !important;
-        box-shadow: 0 4px 24px rgba(0,0,0,0.06) !important;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.12) !important;
         padding: 36px 32px !important;
         max-width: 400px !important;
         margin: 0 auto !important;
@@ -408,25 +413,30 @@ def _get_login_css() -> str:
     /* 登录卡片内输入框 */
     [data-testid="stVerticalBlockBorderWrapper"] input[type="text"],
     [data-testid="stVerticalBlockBorderWrapper"] input[type="password"] {
-        border: 1px solid #e5e7eb !important;
+        border: 2px solid #94A3B8 !important;
         border-radius: 8px !important;
-        background: #ffffff !important;
-        color: #111827 !important;
+        background: #F8FAFC !important;
+        color: #0F172A !important;
         padding: 10px 14px !important;
         font-size: 14px !important;
         height: 44px !important;
-        -webkit-text-fill-color: #111827 !important;
+        -webkit-text-fill-color: #0F172A !important;
+        caret-color: #2563eb !important;
     }
     [data-testid="stVerticalBlockBorderWrapper"] input[type="text"]:focus,
     [data-testid="stVerticalBlockBorderWrapper"] input[type="password"]:focus {
         border-color: #2563eb !important;
-        box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.15) !important;
         background: #ffffff !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] input::placeholder {
+        color: #64748B !important;
+        -webkit-text-fill-color: #64748B !important;
     }
     [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stWidgetLabel"] {
         font-size: 13px !important;
-        color: #4b5563 !important;
-        font-weight: 500 !important;
+        color: #1E293B !important;
+        font-weight: 600 !important;
         margin-bottom: 4px !important;
     }
 
@@ -445,49 +455,53 @@ def _get_login_css() -> str:
         background: #1d4ed8 !important;
     }
     [data-testid="stVerticalBlockBorderWrapper"] button[kind="secondary"] {
-        border: 1px solid #e5e7eb !important;
+        border: 2px solid #94A3B8 !important;
         border-radius: 8px !important;
         font-size: 14px !important;
         height: 44px !important;
-        color: #4b5563 !important;
+        color: #1E293B !important;
         background: #ffffff !important;
     }
 
     /* 登录卡片内 Tabs */
     [data-testid="stVerticalBlockBorderWrapper"] [data-baseweb="tab-list"] {
         gap: 0;
-        border-bottom: 1px solid #e5e7eb;
+        border-bottom: 2px solid #CBD5E1;
         margin-bottom: 24px;
     }
     [data-testid="stVerticalBlockBorderWrapper"] [data-baseweb="tab"] {
         padding: 8px 16px;
         font-size: 14px;
-        font-weight: 500;
-        color: #6b7280;
+        font-weight: 600;
+        color: #475569;
     }
     [data-testid="stVerticalBlockBorderWrapper"] [aria-selected="true"] {
         color: #2563eb !important;
     }
     [data-testid="stVerticalBlockBorderWrapper"] [data-baseweb="tab-border"] {
-        border-bottom: 2px solid #2563eb !important;
+        border-bottom: 3px solid #2563eb !important;
     }
 
     /* 登录卡片内复选框 */
     [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCheckbox"] {
         font-size: 13px;
+        color: #1E293B !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCheckbox"] label {
+        color: #1E293B !important;
     }
 
     /* 表单标题/副标题 */
     .login-form-title {
         font-size: 20px;
         font-weight: 700;
-        color: #111827;
+        color: #0F172A;
         text-align: center;
         margin-bottom: 8px;
     }
     .login-form-subtitle {
         font-size: 14px;
-        color: #6b7280;
+        color: #475569;
         text-align: center;
         margin-bottom: 28px;
     }

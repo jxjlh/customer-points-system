@@ -273,20 +273,20 @@ def _get_login_css() -> str:
         padding: 0 !important;
     }
 
-    /* 两列布局：消除间距 */
-    [data-testid="stHorizontalBlock"] {
+    /* 两列布局：消除间距，只影响顶层 */
+    [data-testid="stMainBlockContainer"] > div > [data-testid="stHorizontalBlock"] {
         gap: 0 !important;
     }
-    [data-testid="stColumn"] {
+    [data-testid="stMainBlockContainer"] > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
         min-height: 100vh;
     }
 
-    /* ---- 左侧品牌面板 ---- */
-    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:first-child {
+    /* ---- 左侧品牌面板（仅顶层第一个列） ---- */
+    [data-testid="stMainBlockContainer"] > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {
         background: linear-gradient(135deg, #2563EB 0%, #1E40AF 50%, #1E3A8A 100%);
     }
-    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:first-child
-    [data-testid="stVerticalBlock"] {
+    [data-testid="stMainBlockContainer"] > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child
+    > [data-testid="stVerticalBlock"] {
         padding: 48px 40px;
         justify-content: center;
     }
@@ -384,23 +384,14 @@ def _get_login_css() -> str:
         opacity: 0.8;
     }
 
-    /* ---- 右侧表单区 ---- */
-    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:last-child {
+    /* ---- 右侧表单区（仅顶层最后一个列） ---- */
+    [data-testid="stMainBlockContainer"] > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {
         background: #f0f5ff;
     }
-    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:last-child
-    [data-testid="stVerticalBlock"] {
+    [data-testid="stMainBlockContainer"] > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child
+    > [data-testid="stVerticalBlock"] {
         padding: 48px 24px;
         justify-content: center;
-    }
-
-    /* 关键修复：重置嵌套列的背景（记住账号/忘记密码行不应继承蓝色） */
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stColumn"] {
-        background: transparent !important;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stColumn"]
-    [data-testid="stVerticalBlock"] {
-        padding: 0 !important;
     }
 
     /* 登录卡片 = 带边框容器 */

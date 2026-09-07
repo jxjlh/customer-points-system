@@ -1303,11 +1303,8 @@ def main():
                     login_username = st.text_input("用户名", placeholder="请输入用户名/邮箱/手机号等", key="login_username")
                     login_password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password")
 
-                    col_remember, col_forgot = st.columns([1, 1])
-                    with col_remember:
-                        st.checkbox("记住账号", key="login_remember")
-                    with col_forgot:
-                        st.markdown('<div style="text-align:right;padding-top:6px;font-size:13px;"><a href="#" style="color:#3b82f6;text-decoration:none;">忘记密码？</a></div>', unsafe_allow_html=True)
+                    remember = st.checkbox("记住账号", key="login_remember")
+                    st.markdown('<div style="text-align:right;font-size:13px;margin-top:-32px;margin-right:4px;"><a href="#" style="color:#3b82f6;text-decoration:none;">忘记密码？</a></div>', unsafe_allow_html=True)
 
                     if st.button("登录", key="btn_login", use_container_width=True, type="primary"):
                         if login_username and login_password:

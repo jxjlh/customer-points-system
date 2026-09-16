@@ -566,6 +566,60 @@ def _get_login_css() -> str:
         padding: 20px 0 28px;
     }
     .login-footer p { margin: 0; }
+
+    /* ===== 修复：复选框对比度 ===== */
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCheckbox"] input[type="checkbox"] {
+        accent-color: #2563EB;
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        opacity: 1 !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCheckbox"] label {
+        color: #334155 !important;
+        font-size: 13px !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCheckbox"] {
+        opacity: 1 !important;
+    }
+
+    /* ===== 修复：警告/错误消息对比度 ===== */
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stAlert"] {
+        background-color: #FEF3C7 !important;
+        color: #92400E !important;
+        border-radius: 6px !important;
+        padding: 10px 14px !important;
+        font-size: 13px !important;
+        border: 1px solid #FDE68A !important;
+        opacity: 1 !important;
+        transition: opacity 0.3s ease;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stAlert"] [data-testid="stAlertContent"] {
+        color: #92400E !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stAlert"] svg {
+        color: #92400E !important;
+    }
+    /* st.error 消息样式 */
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stAlert"]:has([data-testid="stAlertContentError"]),
+    [data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stAlertContainer"] [role="alert"] {
+        background-color: #FEE2E2 !important;
+        color: #991B1B !important;
+        border: 1px solid #FECACA !important;
+    }
+
+    /* ===== 修复：登录按钮文字居中 ===== */
+    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"] {
+        text-align: center !important;
+        justify-content: center !important;
+        display: flex !important;
+        align-items: center !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"] span {
+        text-align: center !important;
+        width: 100% !important;
+    }
     </style>
     """
 

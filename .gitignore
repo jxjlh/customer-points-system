@@ -24,6 +24,7 @@ build/
 app/bin/
 packaging/generated/
 Crayotter-Windows-x64.zip
+.streamlit/remembered_user.txt
 
 phase3_rl/generated/
 phase3_rl/runs/

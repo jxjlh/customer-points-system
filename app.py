@@ -1249,85 +1249,129 @@ def main():
         # 隐藏侧边栏
         st.markdown('<style>[data-testid="stSidebar"]{display:none !important;}</style>', unsafe_allow_html=True)
 
-        with st.container(border=True):
-            login_tab, register_tab = st.tabs(["登录系统", "新用户注册"])
+        col_brand, col_form = st.columns([11, 9], gap="small")
 
-            with login_tab:
-                st.markdown('<div class="login-form-title">欢迎登录澄天小助手</div>', unsafe_allow_html=True)
-                st.markdown('<div class="login-form-subtitle">请输入您的账号信息</div>', unsafe_allow_html=True)
+        with col_brand:
+            st.markdown("""
+            <div class="login-brand-panel">
+              <div class="login-brand-header">
+                <div class="login-brand-logo">C</div>
+                <div class="login-brand-name">澄天小助手</div>
+              </div>
+              <div class="login-brand-tagline">让客户管理更简单 · 让数据创造更大价值</div>
+              <div class="login-brand-illustration">
+                <div class="login-illustration-laptop">💻</div>
+                <div class="login-illustration-icon login-ill-1">📊</div>
+                <div class="login-illustration-icon login-ill-2">📧</div>
+                <div class="login-illustration-icon login-ill-3">👥</div>
+                <div class="login-illustration-icon login-ill-4">📈</div>
+              </div>
+              <div class="login-brand-features">
+                <div class="login-brand-feature">
+                  <div class="login-brand-feature-icon">📊</div>
+                  <div>
+                    <div class="login-feature-title">智能分析</div>
+                    <div class="login-feature-desc">数据驱动决策</div>
+                  </div>
+                </div>
+                <div class="login-brand-feature">
+                  <div class="login-brand-feature-icon">⚡</div>
+                  <div>
+                    <div class="login-feature-title">高效管理</div>
+                    <div class="login-feature-desc">提升工作效率</div>
+                  </div>
+                </div>
+                <div class="login-brand-feature">
+                  <div class="login-brand-feature-icon">🛡️</div>
+                  <div>
+                    <div class="login-feature-title">安全可靠</div>
+                    <div class="login-feature-desc">企业级数据安全</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-                login_username = st.text_input("用户名", placeholder="请输入用户名/邮箱/手机号码", key="login_username")
-                login_password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password")
+        with col_form:
+            with st.container(border=True):
+                login_tab, register_tab = st.tabs(["登录系统", "新用户注册"])
 
-                col_remember, col_forgot = st.columns([1, 1])
-                with col_remember:
-                    st.checkbox("记住账号", key="login_remember")
-                with col_forgot:
-                    st.markdown('<div style="text-align:right;padding-top:6px;font-size:13px;"><a href="#" style="color:#3b82f6;text-decoration:none;">忘记密码？</a></div>', unsafe_allow_html=True)
+                with login_tab:
+                    st.markdown('<div class="login-form-title">欢迎登录澄天小助手</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="login-form-subtitle">请输入您的账号信息</div>', unsafe_allow_html=True)
 
-                if st.button("登录", key="btn_login", use_container_width=True, type="primary"):
-                    if login_username and login_password:
-                        usernames = config['credentials']['usernames']
-                        if login_username in usernames:
-                            stored_hash = usernames[login_username].get('password', '')
-                            if bcrypt.checkpw(login_password.encode('utf-8'), stored_hash.encode('utf-8')):
-                                st.session_state['authentication_status'] = True
-                                st.session_state['username'] = login_username
-                                st.session_state['name'] = usernames[login_username].get('name', login_username)
-                                st.rerun()
+                    login_username = st.text_input("用户名", placeholder="请输入用户名/邮箱/手机号等", key="login_username")
+                    login_password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password")
+
+                    col_remember, col_forgot = st.columns([1, 1])
+                    with col_remember:
+                        st.checkbox("记住账号", key="login_remember")
+                    with col_forgot:
+                        st.markdown('<div style="text-align:right;padding-top:6px;font-size:13px;"><a href="#" style="color:#3b82f6;text-decoration:none;">忘记密码？</a></div>', unsafe_allow_html=True)
+
+                    if st.button("登录", key="btn_login", use_container_width=True, type="primary"):
+                        if login_username and login_password:
+                            usernames = config['credentials']['usernames']
+                            if login_username in usernames:
+                                stored_hash = usernames[login_username].get('password', '')
+                                if bcrypt.checkpw(login_password.encode('utf-8'), stored_hash.encode('utf-8')):
+                                    st.session_state['authentication_status'] = True
+                                    st.session_state['username'] = login_username
+                                    st.session_state['name'] = usernames[login_username].get('name', login_username)
+                                    st.rerun()
+                                else:
+                                    st.session_state['authentication_status'] = False
+                                    st.error("用户名或密码错误")
                             else:
                                 st.session_state['authentication_status'] = False
                                 st.error("用户名或密码错误")
                         else:
-                            st.session_state['authentication_status'] = False
-                            st.error("用户名或密码错误")
-                    else:
-                        st.warning("请输入用户名和密码")
+                            st.warning("请输入用户名和密码")
 
-                st.markdown('<div class="login-divider">其他登录方式</div>', unsafe_allow_html=True)
-                st.markdown("""
-                <div class="login-wecom-btn">
-                  <span style="font-size:18px;">💬</span>
-                  <span>企业微信登录</span>
-                </div>
-                """, unsafe_allow_html=True)
+                    st.markdown('<div class="login-divider">其他登录方式</div>', unsafe_allow_html=True)
+                    st.markdown("""
+                    <div class="login-wecom-btn">
+                      <span style="font-size:18px;">💬</span>
+                      <span>企业微信登录</span>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-                st.markdown("""
-                <div class="login-footer">
-                  © 2024 澄天生物科技有限公司 · 版权所有
-                </div>
-                """, unsafe_allow_html=True)
+                    st.markdown("""
+                    <div class="login-footer">
+                      © 2024 澄天生物科技有限公司 版权所有
+                    </div>
+                    """, unsafe_allow_html=True)
 
-            with register_tab:
-                st.markdown('<div class="login-form-title">创建新账号</div>', unsafe_allow_html=True)
-                st.markdown('<div class="login-form-subtitle">填写信息即可注册</div>', unsafe_allow_html=True)
+                with register_tab:
+                    st.markdown('<div class="login-form-title">创建新账号</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="login-form-subtitle">填写信息即可注册</div>', unsafe_allow_html=True)
 
-                new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名")
-                new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址")
-                new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符")
-                confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码")
+                    new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名")
+                    new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址")
+                    new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符")
+                    confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码")
 
-                if st.button("注册新账号", key="btn_register", use_container_width=True, type="primary"):
-                    if not new_username or not new_email or not new_password:
-                        st.error("请填写所有必填字段")
-                    elif new_password != confirm_password:
-                        st.error("两次输入的密码不一致")
-                    elif new_username in config['credentials']['usernames']:
-                        st.error("该用户名已存在")
-                    else:
-                        hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                    if st.button("注册新账号", key="btn_register", use_container_width=True, type="primary"):
+                        if not new_username or not new_email or not new_password:
+                            st.error("请填写所有必填字段")
+                        elif new_password != confirm_password:
+                            st.error("两次输入的密码不一致")
+                        elif new_username in config['credentials']['usernames']:
+                            st.error("该用户名已存在")
+                        else:
+                            hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-                        config['credentials']['usernames'][new_username] = {
-                            "email": new_email,
-                            "name": new_username,
-                            "password": hashed_password,
-                            "role": "user"
-                        }
+                            config['credentials']['usernames'][new_username] = {
+                                "email": new_email,
+                                "name": new_username,
+                                "password": hashed_password,
+                                "role": "user"
+                            }
 
-                        with open(CONFIG_PATH, 'w') as file:
-                            yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
+                            with open(CONFIG_PATH, 'w') as file:
+                                yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
 
-                        st.success("🎉 注册成功！请切换到登录页面登录")
+                            st.success("🎉 注册成功！请切换到登录页面登录")
 
         return
     

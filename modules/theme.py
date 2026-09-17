@@ -501,9 +501,8 @@ def _get_login_css() -> str:
         text-decoration: none;
     }
 
-    /* 登录按钮（普通 button 和 form_submit_button 都适用） */
-    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"],
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stFormSubmitButton"] button[kind="primary"] {
+    /* 登录按钮 */
+    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"] {
         background: #2563EB !important;
         color: #ffffff !important;
         border: none !important;
@@ -512,19 +511,9 @@ def _get_login_css() -> str:
         font-weight: 500 !important;
         height: 42px !important;
         width: 100% !important;
-        text-align: center !important;
-        justify-content: center !important;
-        display: flex !important;
-        align-items: center !important;
     }
-    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"]:hover,
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stFormSubmitButton"] button[kind="primary"]:hover {
+    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"]:hover {
         background: #1D54D8 !important;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"] span,
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stFormSubmitButton"] button[kind="primary"] span {
-        text-align: center !important;
-        width: 100% !important;
     }
 
     /* 分隔线 */
@@ -620,7 +609,17 @@ def _get_login_css() -> str:
         border: 1px solid #FECACA !important;
     }
 
-    /* ===== 修复：登录按钮文字居中（已合并到上方按钮样式） ===== */
+    /* ===== 修复：登录按钮文字居中 ===== */
+    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"] {
+        text-align: center !important;
+        justify-content: center !important;
+        display: flex !important;
+        align-items: center !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"] span {
+        text-align: center !important;
+        width: 100% !important;
+    }
     </style>
     """
 

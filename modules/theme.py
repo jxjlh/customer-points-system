@@ -394,6 +394,15 @@ def _get_login_css() -> str:
         justify-content: center;
     }
 
+    /* 关键修复：重置嵌套列的背景（记住账号/忘记密码行不应继承蓝色） */
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stColumn"] {
+        background: transparent !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stColumn"]
+    [data-testid="stVerticalBlock"] {
+        padding: 0 !important;
+    }
+
     /* 登录卡片 = 带边框容器 */
     [data-testid="stVerticalBlockBorderWrapper"] {
         background: #ffffff !important;
@@ -406,7 +415,8 @@ def _get_login_css() -> str:
     }
 
     /* 登录卡片内输入框 */
-    [data-testid="stVerticalBlockBorderWrapper"] .stTextInput > div > div > input {
+    [data-testid="stVerticalBlockBorderWrapper"] input[type="text"],
+    [data-testid="stVerticalBlockBorderWrapper"] input[type="password"] {
         border: 1px solid #e5e7eb !important;
         border-radius: 8px !important;
         background: #ffffff !important;
@@ -414,10 +424,13 @@ def _get_login_css() -> str:
         padding: 10px 14px !important;
         font-size: 14px !important;
         height: 44px !important;
+        -webkit-text-fill-color: #111827 !important;
     }
-    [data-testid="stVerticalBlockBorderWrapper"] .stTextInput > div > div > input:focus {
+    [data-testid="stVerticalBlockBorderWrapper"] input[type="text"]:focus,
+    [data-testid="stVerticalBlockBorderWrapper"] input[type="password"]:focus {
         border-color: #2563eb !important;
         box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
+        background: #ffffff !important;
     }
     [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stWidgetLabel"] {
         font-size: 13px !important;

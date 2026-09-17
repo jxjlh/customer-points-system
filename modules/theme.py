@@ -114,14 +114,39 @@ def render_kpi_grid(cards_html_list) -> str:
 def _get_global_css() -> str:
     return """
     <style>
+    /* 强制浅色主题：覆盖 Streamlit 深色主题变量 */
+    :root {
+        --background-color: #f8fafc !important;
+        --secondary-background-color: #ffffff !important;
+        --text-color: #111827 !important;
+        --text-input-color: #111827 !important;
+    }
     /* 页面背景：浅灰 */
     [data-testid="stAppViewContainer"] {
-        background: #f8fafc;
+        background: #f8fafc !important;
+        color: #111827 !important;
+    }
+    /* 主内容区文字颜色 */
+    [data-testid="stMainBlockContainer"],
+    [data-testid="stMainBlockContainer"] p,
+    [data-testid="stMainBlockContainer"] span,
+    [data-testid="stMainBlockContainer"] div,
+    [data-testid="stMainBlockContainer"] label {
+        color: #111827 !important;
     }
     /* 主内容区宽度 */
     [data-testid="stMainBlockContainer"] {
         max-width: 1400px;
         padding-top: 2rem;
+    }
+    /* 输入框文字强制深色 */
+    input, textarea, select {
+        color: #111827 !important;
+        -webkit-text-fill-color: #111827 !important;
+    }
+    input::placeholder, textarea::placeholder {
+        color: #9ca3af !important;
+        -webkit-text-fill-color: #9ca3af !important;
     }
     /* 隐藏页脚 */
     footer {visibility: hidden;}
@@ -144,12 +169,14 @@ def _get_global_css() -> str:
     .page-title {
         font-size: 22px;
         font-weight: 700;
-        color: #111827;
+        color: #111827 !important;
+        -webkit-text-fill-color: #111827 !important;
         margin-bottom: 4px;
     }
     .page-subtitle {
         font-size: 14px;
-        color: #6b7280;
+        color: #6b7280 !important;
+        -webkit-text-fill-color: #6b7280 !important;
         margin-bottom: 20px;
     }
     </style>
@@ -190,8 +217,12 @@ def _get_sidebar_css() -> str:
     }
 
     /* 侧边栏导航按钮 */
-    .nav-item button,
-    .nav-item-active button {
+    section[data-testid="stSidebar"] .nav-item button,
+    section[data-testid="stSidebar"] .nav-item-active button,
+    section[data-testid="stSidebar"] .nav-item button p,
+    section[data-testid="stSidebar"] .nav-item-active button p,
+    section[data-testid="stSidebar"] .nav-item button span,
+    section[data-testid="stSidebar"] .nav-item-active button span {
         width: 100% !important;
         text-align: left !important;
         justify-content: flex-start !important;
@@ -199,6 +230,7 @@ def _get_sidebar_css() -> str:
         border: none !important;
         background: transparent !important;
         color: #4b5563 !important;
+        -webkit-text-fill-color: #4b5563 !important;
         font-size: 14px !important;
         border-radius: 8px !important;
         border-left: 3px solid transparent !important;
@@ -209,14 +241,20 @@ def _get_sidebar_css() -> str:
         overflow: hidden !important;
         text-overflow: ellipsis !important;
     }
-    .nav-item button:hover {
+    section[data-testid="stSidebar"] .nav-item button:hover,
+    section[data-testid="stSidebar"] .nav-item button:hover p,
+    section[data-testid="stSidebar"] .nav-item button:hover span {
         background: #f3f4f6 !important;
         border-color: #d1d5db !important;
         color: #111827 !important;
+        -webkit-text-fill-color: #111827 !important;
     }
-    .nav-item-active button {
+    section[data-testid="stSidebar"] .nav-item-active button,
+    section[data-testid="stSidebar"] .nav-item-active button p,
+    section[data-testid="stSidebar"] .nav-item-active button span {
         background: #eff6ff !important;
         color: #2563eb !important;
+        -webkit-text-fill-color: #2563eb !important;
         border-left: 3px solid #2563eb !important;
         font-weight: 600 !important;
     }
@@ -248,11 +286,13 @@ def _get_sidebar_css() -> str:
     .sidebar-user-name {
         font-size: 13px;
         font-weight: 600;
-        color: #111827;
+        color: #111827 !important;
+        -webkit-text-fill-color: #111827 !important;
     }
     .sidebar-user-role {
         font-size: 11px;
-        color: #9ca3af;
+        color: #9ca3af !important;
+        -webkit-text-fill-color: #9ca3af !important;
     }
     </style>
     """

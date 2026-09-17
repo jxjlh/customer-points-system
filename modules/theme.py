@@ -341,25 +341,99 @@ def _get_login_css() -> str:
         font-size: 18px;
     }
 
-    /* 右侧表单面板 */
-    .login-form-panel {
+    /* 右侧表单列背景 */
+    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:last-child {
         background: #f9fafb;
         min-height: 100vh;
+    }
+
+    /* 右侧列内部垂直块 */
+    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:last-child
+    [data-testid="stVerticalBlock"] {
         padding: 60px 24px;
-        display: flex;
-        flex-direction: column;
         justify-content: center;
-        align-items: center;
     }
-    .login-form-card {
-        background: #ffffff;
-        border-radius: 16px;
-        padding: 40px 36px;
-        width: 100%;
-        max-width: 420px;
-        box-shadow: 0 4px 24px rgba(0,0,0,0.06);
-        border: 1px solid #f3f4f6;
+
+    /* 带边框容器 = 登录卡片 */
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        background: #ffffff !important;
+        border: 1px solid #f3f4f6 !important;
+        border-radius: 16px !important;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.06) !important;
+        padding: 40px 36px !important;
+        max-width: 420px !important;
+        margin: 0 auto !important;
     }
+
+    /* 登录卡片内输入框 */
+    [data-testid="stVerticalBlockBorderWrapper"] .stTextInput > div > div > input {
+        border: 1px solid #e5e7eb !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
+        color: #111827 !important;
+        padding: 10px 14px !important;
+        font-size: 14px !important;
+        height: 44px !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] .stTextInput > div > div > input:focus {
+        border-color: #2563eb !important;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stWidgetLabel"] {
+        font-size: 13px !important;
+        color: #4b5563 !important;
+        font-weight: 500 !important;
+        margin-bottom: 4px !important;
+    }
+
+    /* 登录卡片内按钮 */
+    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"] {
+        background: #2563eb !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-size: 15px !important;
+        font-weight: 600 !important;
+        height: 44px !important;
+        width: 100% !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"]:hover {
+        background: #1d4ed8 !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] button[kind="secondary"] {
+        border: 1px solid #e5e7eb !important;
+        border-radius: 8px !important;
+        font-size: 14px !important;
+        height: 44px !important;
+        color: #4b5563 !important;
+        background: #ffffff !important;
+    }
+
+    /* 登录卡片内 Tabs */
+    [data-testid="stVerticalBlockBorderWrapper"] [data-baseweb="tab-list"] {
+        gap: 0;
+        border-bottom: 1px solid #e5e7eb;
+        margin-bottom: 24px;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] [data-baseweb="tab"] {
+        padding: 8px 16px;
+        font-size: 14px;
+        font-weight: 500;
+        color: #6b7280;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] [aria-selected="true"] {
+        color: #2563eb !important;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"] [data-baseweb="tab-border"] {
+        border-bottom: 2px solid #2563eb !important;
+    }
+
+    /* 登录卡片内复选框 */
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCheckbox"] {
+        font-size: 13px;
+    }
+
+    /* 表单标题/副标题 */
     .login-form-title {
         font-size: 20px;
         font-weight: 700;
@@ -372,84 +446,6 @@ def _get_login_css() -> str:
         color: #6b7280;
         text-align: center;
         margin-bottom: 28px;
-    }
-
-    /* 登录页 Streamlit 输入框样式覆盖 */
-    .login-form-panel .stTextInput > div > div > input {
-        border: 1px solid #e5e7eb !important;
-        border-radius: 8px !important;
-        background: #ffffff !important;
-        color: #111827 !important;
-        padding: 10px 14px !important;
-        font-size: 14px !important;
-        height: 44px !important;
-    }
-    .login-form-panel .stTextInput > div > div > input:focus {
-        border-color: #2563eb !important;
-        box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
-    }
-    .login-form-panel .stTextInput label {
-        font-size: 13px !important;
-        color: #4b5563 !important;
-        font-weight: 500 !important;
-        margin-bottom: 4px !important;
-    }
-    .login-form-panel [data-testid="stWidgetLabel"] {
-        font-size: 13px !important;
-        color: #4b5563 !important;
-        font-weight: 500 !important;
-        margin-bottom: 4px !important;
-    }
-
-    /* 登录页按钮 */
-    .login-form-panel button[kind="primary"] {
-        background: #2563eb !important;
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 8px !important;
-        font-size: 15px !important;
-        font-weight: 600 !important;
-        height: 44px !important;
-        width: 100% !important;
-    }
-    .login-form-panel button[kind="primary"]:hover {
-        background: #1d4ed8 !important;
-    }
-    .login-form-panel button[kind="secondary"] {
-        border: 1px solid #e5e7eb !important;
-        border-radius: 8px !important;
-        font-size: 14px !important;
-        height: 44px !important;
-        color: #4b5563 !important;
-        background: #ffffff !important;
-    }
-
-    /* 登录页 Tabs */
-    .login-form-panel .stTabs [data-baseweb="tab-list"] {
-        gap: 0;
-        border-bottom: 1px solid #e5e7eb;
-        margin-bottom: 24px;
-    }
-    .login-form-panel .stTabs [data-baseweb="tab"] {
-        padding: 8px 16px;
-        font-size: 14px;
-        font-weight: 500;
-        color: #6b7280;
-    }
-    .login-form-panel .stTabs [aria-selected="true"] {
-        color: #2563eb !important;
-    }
-    .login-form-panel .stTabs [data-baseweb="tab-border"] {
-        border-bottom: 2px solid #2563eb !important;
-    }
-
-    /* 登录页选项行 */
-    .login-options-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin: 12px 0 24px;
-        font-size: 13px;
     }
 
     /* 分隔线 */
@@ -504,10 +500,6 @@ def _get_login_css() -> str:
         color: #2563eb;
         text-decoration: none;
     }
-
-    /* 隐藏登录页 Streamlit 默认元素 */
-    .login-form-panel [data-testid="stFormSubmitButton"] { display: none !important; }
-    .login-form-panel .stAlert { font-size: 13px; }
     </style>
     """
 

@@ -1358,45 +1358,8 @@ def main():
                 with login_tab:
                     st.markdown('<div class="login-form-title">欢迎登录澄天小助手</div>', unsafe_allow_html=True)
 
-                    def _clear_login_msg():
-                        """用户编辑输入框时清除旧的登录提示消息"""
-                        st.session_state.pop("_login_msg", None)
-
-                    # --- 记住账号：从本地文件加载已记住的用户名 ---
-                    _remember_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "remembered_user.txt")
-                    def _load_remembered_user():
-                        try:
-                            with open(_remember_file, "r") as f:
-                                return f.read().strip()
-                        except (FileNotFoundError, OSError):
-                            return ""
-
-                    def _save_remembered_user(username):
-                        try:
-                            os.makedirs(os.path.dirname(_remember_file), exist_ok=True)
-                            with open(_remember_file, "w") as f:
-                                f.write(username)
-                        except OSError:
-                            pass
-
-                    def _clear_remembered_user():
-                        try:
-                            if os.path.exists(_remember_file):
-                                os.remove(_remember_file)
-                        except OSError:
-                            pass
-
-                    # 预填充已记住的用户名（仅在 session_state 中尚无值时）
-                    if "login_username" not in st.session_state or not st.session_state.get("login_username"):
-                        _saved_user = _load_remembered_user()
-                        if _saved_user:
-                            st.session_state["login_username"] = _saved_user
-                    if "login_remember" not in st.session_state:
-                        if _load_remembered_user():
-                            st.session_state["login_remember"] = True
-
-                    login_username = st.text_input("用户名", placeholder="请输入用户名/邮箱/手机号码", key="login_username", label_visibility="collapsed", on_change=_clear_login_msg)
-                    login_password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password", label_visibility="collapsed", on_change=_clear_login_msg)
+                    login_username = st.text_input("用户名", placeholder="请输入用户名/邮箱/手机号码", key="login_username", label_visibility="collapsed")
+                    login_password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password", label_visibility="collapsed")
 
                     remember_col, forgot_col = st.columns([1, 1])
                     with remember_col:
@@ -1413,49 +1376,15 @@ def main():
                                     st.session_state['authentication_status'] = True
                                     st.session_state['username'] = login_username
                                     st.session_state['name'] = usernames[login_username].get('name', login_username)
-                                    # 记住账号：保存或清除用户名
-                                    if remember:
-                                        _save_remembered_user(login_username)
-                                    else:
-                                        _clear_remembered_user()
                                     st.rerun()
                                 else:
                                     st.session_state['authentication_status'] = False
-                                    st.session_state["_login_msg"] = ("error", "用户名或密码错误")
-                                    st.rerun()
+                                    st.error("用户名或密码错误")
                             else:
                                 st.session_state['authentication_status'] = False
-                                st.session_state["_login_msg"] = ("error", "用户名或密码错误")
-                                st.rerun()
+                                st.error("用户名或密码错误")
                         else:
-                            st.session_state["_login_msg"] = ("warning", "请输入用户名和密码")
-                            st.rerun()
-
-                    # 在按钮下方显示登录提示消息（通过 session_state + rerun 保证位置一致）
-                    _login_msg = st.session_state.get("_login_msg")
-                    if _login_msg:
-                        _msg_type, _msg_text = _login_msg
-                        if _msg_type == "warning":
-                            st.warning(_msg_text)
-                        elif _msg_type == "error":
-                            st.error(_msg_text)
-
-                    # JavaScript：用户在输入框中打字时即时隐藏旧的提示消息
-                    st.markdown("""
-                    <script>
-                    (function() {
-                        var container = document.querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
-                        if (!container) return;
-                        // 使用事件委托，确保登录和注册两个 Tab 的输入框都能响应
-                        container.addEventListener('input', function(e) {
-                            if (e.target && (e.target.type === 'text' || e.target.type === 'password')) {
-                                var alerts = container.querySelectorAll('[data-testid="stAlert"], [data-testid="stAlertContainer"]');
-                                alerts.forEach(function(alert) { alert.style.opacity = '0'; });
-                            }
-                        });
-                    })();
-                    </script>
-                    """, unsafe_allow_html=True)
+                            st.warning("请输入用户名和密码")
 
                     st.markdown('<div class="login-divider">其他登录方式</div>', unsafe_allow_html=True)
 
@@ -1472,25 +1401,18 @@ def main():
                 with register_tab:
                     st.markdown('<div class="login-form-title">创建新账号</div>', unsafe_allow_html=True)
 
-                    def _clear_reg_msg():
-                        """用户编辑输入框时清除旧的注册提示消息"""
-                        st.session_state.pop("_reg_msg", None)
-
-                    new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名", label_visibility="collapsed", on_change=_clear_reg_msg)
-                    new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址", label_visibility="collapsed", on_change=_clear_reg_msg)
-                    new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符", label_visibility="collapsed", on_change=_clear_reg_msg)
-                    confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码", label_visibility="collapsed", on_change=_clear_reg_msg)
+                    new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名", label_visibility="collapsed")
+                    new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址", label_visibility="collapsed")
+                    new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符", label_visibility="collapsed")
+                    confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码", label_visibility="collapsed")
 
                     if st.button("注册新账号", key="btn_register", use_container_width=True, type="primary"):
                         if not new_username or not new_email or not new_password:
-                            st.session_state["_reg_msg"] = ("error", "请填写所有必填字段")
-                            st.rerun()
+                            st.error("请填写所有必填字段")
                         elif new_password != confirm_password:
-                            st.session_state["_reg_msg"] = ("error", "两次输入的密码不一致")
-                            st.rerun()
+                            st.error("两次输入的密码不一致")
                         elif new_username in config['credentials']['usernames']:
-                            st.session_state["_reg_msg"] = ("error", "该用户名已存在")
-                            st.rerun()
+                            st.error("该用户名已存在")
                         else:
                             hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
@@ -1504,17 +1426,7 @@ def main():
                             with open(CONFIG_PATH, 'w') as file:
                                 yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
 
-                            st.session_state["_reg_msg"] = ("success", "🎉 注册成功！请切换到登录页面登录")
-                            st.rerun()
-
-                    # 在按钮下方显示注册提示消息
-                    _reg_msg = st.session_state.get("_reg_msg")
-                    if _reg_msg:
-                        _reg_type, _reg_text = _reg_msg
-                        if _reg_type == "error":
-                            st.error(_reg_text)
-                        elif _reg_type == "success":
-                            st.success(_reg_text)
+                            st.success("🎉 注册成功！请切换到登录页面登录")
 
         st.markdown('<div class="login-footer">© 2024 澄天生物科技有限公司 · 版权所有</div>', unsafe_allow_html=True)
 

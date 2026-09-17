@@ -1231,173 +1231,51 @@ def main():
     # 浅色 Plotly 主题
     px.defaults.template = "plotly_white"
 
-    from modules.theme import apply_login_styles, apply_app_styles
+    from modules.theme import apply_app_styles
     
     with open(CONFIG_PATH) as file:
         config = yaml.load(file, Loader=SafeLoader)
-    
-    authenticator = stauth.Authenticate(
-        config['credentials'],
-        config['cookie']['name'],
-        config['cookie']['key'],
-        config['cookie']['expiry_days']
-    )
-    
-    if st.session_state.get('authentication_status') != True:
-        apply_login_styles()
 
-        # 隐藏侧边栏
-        st.markdown('<style>[data-testid="stSidebar"]{display:none !important;}</style>', unsafe_allow_html=True)
+    # 免登录：直接设置默认用户为管理员
+    if not st.session_state.get('authentication_status'):
+        # 使用配置中第一个管理员用户，没有则用默认访客
+        usernames = config.get('credentials', {}).get('usernames', {})
+        default_user = None
+        for uname, uinfo in usernames.items():
+            if uinfo.get('role') == 'admin':
+                default_user = uname
+                break
+        if not default_user and usernames:
+            default_user = list(usernames.keys())[0]
+        if not default_user:
+            default_user = "guest"
+        
+        st.session_state['authentication_status'] = True
+        st.session_state['username'] = default_user
+        st.session_state['name'] = usernames.get(default_user, {}).get('name', default_user)
 
-        col_brand, col_form = st.columns([11, 9], gap="small")
+    apply_app_styles()
 
-        with col_brand:
-            st.markdown("""
-            <div class="login-brand-panel">
-              <div class="login-brand-header">
-                <div class="login-brand-logo">C</div>
-                <div class="login-brand-name">澄天小助手</div>
-              </div>
-              <div class="login-brand-tagline">让客户管理更简单 · 让数据创造更大价值</div>
-              <div class="login-brand-illustration">
-                <div class="login-illustration-laptop">💻</div>
-                <div class="login-illustration-icon login-ill-1">📊</div>
-                <div class="login-illustration-icon login-ill-2">📧</div>
-                <div class="login-illustration-icon login-ill-3">👥</div>
-                <div class="login-illustration-icon login-ill-4">📈</div>
-              </div>
-              <div class="login-brand-features">
-                <div class="login-brand-feature">
-                  <div class="login-brand-feature-icon">📊</div>
-                  <div>
-                    <div class="login-feature-title">智能分析</div>
-                    <div class="login-feature-desc">数据驱动决策</div>
-                  </div>
-                </div>
-                <div class="login-brand-feature">
-                  <div class="login-brand-feature-icon">⚡</div>
-                  <div>
-                    <div class="login-feature-title">高效管理</div>
-                    <div class="login-feature-desc">提升工作效率</div>
-                  </div>
-                </div>
-                <div class="login-brand-feature">
-                  <div class="login-brand-feature-icon">🛡️</div>
-                  <div>
-                    <div class="login-feature-title">安全可靠</div>
-                    <div class="login-feature-desc">企业级数据安全</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
+    selected_main = st.session_state.get('selected_main', '🏠 首页')
+    data = st.session_state.get('data')
 
-        with col_form:
-            with st.container(border=True):
-                login_tab, register_tab = st.tabs(["登录系统", "新用户注册"])
+    current_user = st.session_state.get('username')
+    is_admin = config['credentials']['usernames'].get(current_user, {}).get('role') == 'admin'
+    user_display = config['credentials']['usernames'].get(current_user, {}).get('name', current_user) if current_user else ''
 
-                with login_tab:
-                    st.markdown('<div class="login-form-title">欢迎登录澄天小助手</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="login-form-subtitle">请输入您的账号信息</div>', unsafe_allow_html=True)
-
-                    login_username = st.text_input("用户名", placeholder="请输入用户名/邮箱/手机号等", key="login_username")
-                    login_password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password")
-
-                    col_remember, col_forgot = st.columns([1, 1])
-                    with col_remember:
-                        st.checkbox("记住账号", key="login_remember")
-                    with col_forgot:
-                        st.markdown('<div style="text-align:right;padding-top:6px;font-size:13px;"><a href="#" style="color:#3b82f6;text-decoration:none;">忘记密码？</a></div>', unsafe_allow_html=True)
-
-                    if st.button("登录", key="btn_login", use_container_width=True, type="primary"):
-                        if login_username and login_password:
-                            usernames = config['credentials']['usernames']
-                            if login_username in usernames:
-                                stored_hash = usernames[login_username].get('password', '')
-                                if bcrypt.checkpw(login_password.encode('utf-8'), stored_hash.encode('utf-8')):
-                                    st.session_state['authentication_status'] = True
-                                    st.session_state['username'] = login_username
-                                    st.session_state['name'] = usernames[login_username].get('name', login_username)
-                                    st.rerun()
-                                else:
-                                    st.session_state['authentication_status'] = False
-                                    st.error("用户名或密码错误")
-                            else:
-                                st.session_state['authentication_status'] = False
-                                st.error("用户名或密码错误")
-                        else:
-                            st.warning("请输入用户名和密码")
-
-                    st.markdown('<div class="login-divider">其他登录方式</div>', unsafe_allow_html=True)
-                    st.markdown("""
-                    <div class="login-wecom-btn">
-                      <span style="font-size:18px;">💬</span>
-                      <span>企业微信登录</span>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    st.markdown("""
-                    <div class="login-footer">
-                      © 2024 澄天生物科技有限公司 版权所有
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                with register_tab:
-                    st.markdown('<div class="login-form-title">创建新账号</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="login-form-subtitle">填写信息即可注册</div>', unsafe_allow_html=True)
-
-                    new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名")
-                    new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址")
-                    new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符")
-                    confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码")
-
-                    if st.button("注册新账号", key="btn_register", use_container_width=True, type="primary"):
-                        if not new_username or not new_email or not new_password:
-                            st.error("请填写所有必填字段")
-                        elif new_password != confirm_password:
-                            st.error("两次输入的密码不一致")
-                        elif new_username in config['credentials']['usernames']:
-                            st.error("该用户名已存在")
-                        else:
-                            hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-
-                            config['credentials']['usernames'][new_username] = {
-                                "email": new_email,
-                                "name": new_username,
-                                "password": hashed_password,
-                                "role": "user"
-                            }
-
-                            with open(CONFIG_PATH, 'w') as file:
-                                yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
-
-                            st.success("🎉 注册成功！请切换到登录页面登录")
-
-        return
-    
-    if st.session_state.get('authentication_status'):
-        apply_app_styles()
-
-        selected_main = st.session_state.get('selected_main', '🏠 首页')
-        data = st.session_state.get('data')
-
-        current_user = st.session_state.get('username')
-        is_admin = config['credentials']['usernames'].get(current_user, {}).get('role') == 'admin'
-        user_display = config['credentials']['usernames'].get(current_user, {}).get('name', current_user) if current_user else ''
-
-        # ---- 侧边栏导航 ----
-        nav_items = [
+    # ---- 侧边栏导航 ----
+    nav_items = [
             ("🏠 首页", "🏠 首页"),
             ("📊 客户积分智能分析", "📊 客户积分智能分析"),
             ("📧 JAX邮件生成器", "📧 JAX邮件生成器"),
             ("🧾 红冲发票自动登记", "🧾 红冲发票自动登记"),
             ("📋 报价助手", "📋 报价助手"),
             ("🎬 AI 视频剪辑", "🎬 AI 视频剪辑"),
-        ]
-        if is_admin:
+    ]
+    if is_admin:
             nav_items.append(("👑 用户管理", "👑 用户管理"))
 
-        with st.sidebar:
+    with st.sidebar:
             st.markdown("""
             <div class="sidebar-logo">
               <span style="font-size:28px;">🐭</span>
@@ -1428,15 +1306,11 @@ def main():
               </div>
             </div>
             """, unsafe_allow_html=True)
-            if st.button("退出登录", key="btn-logout", use_container_width=True):
-                for key in list(st.session_state.keys()):
-                    del st.session_state[key]
-                st.rerun()
 
-        # ---- 主内容路由 ----
-        if selected_main == '🏠 首页':
+    # ---- 主内容路由 ----
+    if selected_main == '🏠 首页':
             show_home(config)
-        elif selected_main == '📊 客户积分智能分析':
+    elif selected_main == '📊 客户积分智能分析':
             selected_sub = st.session_state.get('selected_sub', '📈 数据概览')
 
             sub_options = [
@@ -1492,19 +1366,19 @@ def main():
                         st.session_state['data'] = data
                 show_reports(data)
 
-        elif selected_main == '📧 JAX邮件生成器':
+    elif selected_main == '📧 JAX邮件生成器':
             show_email_generator()
 
-        elif selected_main == '🧾 红冲发票自动登记':
+    elif selected_main == '🧾 红冲发票自动登记':
             show_invoice_registration()
 
-        elif selected_main == '📋 报价助手':
+    elif selected_main == '📋 报价助手':
             show_quotation()
 
-        elif selected_main == '🎬 AI 视频剪辑':
+    elif selected_main == '🎬 AI 视频剪辑':
             show_video_editor()
 
-        elif selected_main == '👑 用户管理':
+    elif selected_main == '👑 用户管理':
             show_user_management(config)
 
 

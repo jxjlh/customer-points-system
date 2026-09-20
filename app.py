@@ -23,7 +23,6 @@ from modules.database import DatabaseManager
 from modules.invoice_fetcher import InvoiceFetcher
 from modules.quotation_ui import show_quotation
 from modules.db_manager import get_db_manager
-from modules.video_editor import show_video_editor
 from logo_base64 import get_logo_html, get_avatar_html, get_logo_data_url, get_avatar_data_url
 
 DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
@@ -134,15 +133,6 @@ def show_home(config):
             "key": "btn-quotation",
             "session_value": "📋 报价助手",
             "help": "点击进入报价助手模块"
-        },
-        {
-            "icon": "🎬",
-            "title": "AI 视频剪辑",
-            "desc": "Crayotter 多模态Agent · 一句话自动出片",
-            "color_class": "card-purple",
-            "key": "btn-video-editor",
-            "session_value": "🎬 AI 视频剪辑",
-            "help": "点击进入 AI 视频剪辑（Crayotter）模块"
         }
     ]
     
@@ -890,7 +880,16 @@ def build_strain_list(group_df):
 
 
 def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address):
-    mail_body = f"""尊敬的老师：
+    # 从收货人姓名中提取姓氏，用于称呼
+    surname = ""
+    if receiver and receiver != "老师":
+        surname = receiver.strip()[0] if receiver.strip() else ""
+    greeting = f"尊敬的{surname}老师：" if surname else "尊敬的老师："
+
+    # 送货日期：优先用拟收货时间，为空则用提货时间
+    delivery_date = receive_date if receive_date else ship_date
+
+    mail_body = f"""{greeting}
 
 您好！
 
@@ -898,7 +897,7 @@ def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address
 
 {strain_list}
 
-预计将在{receive_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？
+预计将在{delivery_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？
 
 附件是本批小鼠的相关文件：美国健康证书AHC，JAX鼠房微生物报告， 隔离场微生物报告以及JAX小鼠接收指南。
 
@@ -1270,7 +1269,6 @@ def main():
             ("📧 JAX邮件生成器", "📧 JAX邮件生成器"),
             ("🧾 红冲发票自动登记", "🧾 红冲发票自动登记"),
             ("📋 报价助手", "📋 报价助手"),
-            ("🎬 AI 视频剪辑", "🎬 AI 视频剪辑"),
     ]
     if is_admin:
             nav_items.append(("👑 用户管理", "👑 用户管理"))
@@ -1374,9 +1372,6 @@ def main():
 
     elif selected_main == '📋 报价助手':
             show_quotation()
-
-    elif selected_main == '🎬 AI 视频剪辑':
-            show_video_editor()
 
     elif selected_main == '👑 用户管理':
             show_user_management(config)

@@ -21,7 +21,6 @@ from modules.customer_analysis import CustomerAnalysis
 from modules.point_calculation import PointCalculation
 from modules.database import DatabaseManager
 from modules.invoice_fetcher import InvoiceFetcher
-from modules.quotation_ui import show_quotation
 from modules.db_manager import get_db_manager
 from logo_base64 import get_logo_html, get_avatar_html, get_logo_data_url, get_avatar_data_url
 
@@ -124,15 +123,6 @@ def show_home(config):
             "key": "btn-invoice",
             "session_value": "🧾 红冲发票自动登记",
             "help": "点击进入红冲发票自动登记模块"
-        },
-        {
-            "icon": "📋",
-            "title": "报价助手",
-            "desc": "自动查询价格并生成报价单",
-            "color_class": "card-orange",
-            "key": "btn-quotation",
-            "session_value": "📋 报价助手",
-            "help": "点击进入报价助手模块"
         }
     ]
     
@@ -1348,7 +1338,6 @@ def main():
             ("📊 客户积分智能分析", "📊 客户积分智能分析"),
             ("📧 JAX邮件生成器", "📧 JAX邮件生成器"),
             ("🧾 红冲发票自动登记", "🧾 红冲发票自动登记"),
-            ("📋 报价助手", "📋 报价助手"),
     ]
     if is_admin:
             nav_items.append(("👑 用户管理", "👑 用户管理"))
@@ -1452,9 +1441,6 @@ def main():
 
     elif selected_main == '🧾 红冲发票自动登记':
             show_invoice_registration()
-
-    elif selected_main == '📋 报价助手':
-            show_quotation()
 
     elif selected_main == '👑 用户管理':
             show_user_management(config)

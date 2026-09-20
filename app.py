@@ -789,7 +789,12 @@ def format_date_email(date_value):
         day_match = re.search(r'(\d+)日', clean_str)
         if month_match and day_match:
             return f"{month_match.group(1)}月{day_match.group(1)}日"
-        
+
+        # 处理 "9/30" 或 "9/30 下午17：00前" 格式
+        slash_match = re.match(r'(\d{1,2})/(\d{1,2})', clean_str)
+        if slash_match:
+            return f"{slash_match.group(1)}月{slash_match.group(2)}日"
+
         # 只有日的情况 "18上午5:00"
         if len(numbers) >= 1:
             # 取第一个数字作为日
@@ -941,8 +946,14 @@ def process_excel_email(file_bytes):
     header_debug += f"\n表头行索引: {header_row_index}\n"
     header_debug += f"表头列名: {new_header}\n"
 
-    # 表头下可能有空行，跳过多余空行直到第一行数据
+    # 表头下一行通常是英文表头（第一列也是"Job No"），需要跳过
     data_start = header_row_index + 1
+    # 如果下一行第一列也是"Job No"，说明是英文表头行，再跳一行
+    if data_start < len(df):
+        next_first = str(df.iloc[data_start, 0]).strip() if pd.notna(df.iloc[data_start, 0]) else ""
+        if next_first == "Job No":
+            data_start += 1
+    # 再跳过空行
     while data_start < len(df):
         first_val = df.iloc[data_start, 0]
         if pd.notna(first_val) and str(first_val).strip() not in ("", "nan"):

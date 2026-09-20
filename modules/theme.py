@@ -1,6 +1,6 @@
 """
 澄天小助手 - 现代企业 SaaS 主题
-基于参考图设计的浅色主题：蓝色主色调(#2563EB)，白底卡片，浅灰背景
+浅色主题：蓝色主色调(#2563EB)，白底卡片，浅灰背景
 """
 import textwrap
 import html
@@ -25,19 +25,20 @@ def render_metric_cards():
 
 
 def render_page_transition():
-    """页面切换动画：不注入动画"""
+    """页面切换动画"""
     pass
 
 
 def apply_all_styles():
     """一次性应用所有样式"""
     import streamlit as st
-    css = _get_global_css() + _get_sidebar_css() + _get_home_cards_css() + _get_kpi_css() + _get_misc_css()
+    css = (_get_global_css() + _get_sidebar_css() + _get_home_cards_css()
+           + _get_kpi_css() + _get_misc_css())
     st.markdown(css, unsafe_allow_html=True)
 
 
 def apply_login_styles():
-    """登录页专用样式：分屏布局"""
+    """登录页专用样式"""
     import streamlit as st
     css = _get_global_css() + _get_login_css()
     st.markdown(css, unsafe_allow_html=True)
@@ -46,7 +47,8 @@ def apply_login_styles():
 def apply_app_styles():
     """应用页面样式（侧边栏 + 卡片等）"""
     import streamlit as st
-    css = _get_global_css() + _get_sidebar_css() + _get_home_cards_css() + _get_kpi_css() + _get_misc_css()
+    css = (_get_global_css() + _get_sidebar_css() + _get_home_cards_css()
+           + _get_kpi_css() + _get_misc_css())
     st.markdown(css, unsafe_allow_html=True)
 
 
@@ -58,11 +60,10 @@ def render_home_card(icon: str, title: str, desc: str, color_class: str = "card-
     color_safe = html.escape(str(color_class), quote=True)
     return textwrap.dedent(
         f"""
-        <div class="home-card {color_safe}" onclick="this.querySelector('button').click()">
+        <div class="home-card {color_safe}">
           <div class="home-card-icon">{icon_safe}</div>
           <div class="home-card-title">{title_safe}</div>
           <div class="home-card-desc">{desc_safe}</div>
-          <span class="home-card-arrow">点击进入 →</span>
         </div>
         """
     ).strip() + "\n"
@@ -114,70 +115,91 @@ def render_kpi_grid(cards_html_list) -> str:
 def _get_global_css() -> str:
     return """
     <style>
-    /* 强制浅色主题：覆盖 Streamlit 深色主题变量 */
-    :root {
-        --background-color: #f8fafc !important;
-        --secondary-background-color: #ffffff !important;
-        --text-color: #111827 !important;
-        --text-input-color: #111827 !important;
+    /* ===== 全局浅色主题基础 ===== */
+    .stApp, [data-testid="stAppViewContainer"] {
+        background-color: #f8fafc;
     }
-    /* 页面背景：浅灰 */
-    [data-testid="stAppViewContainer"] {
-        background: #f8fafc !important;
-        color: #111827 !important;
-    }
-    /* 主内容区文字颜色 */
-    [data-testid="stMainBlockContainer"],
-    [data-testid="stMainBlockContainer"] p,
-    [data-testid="stMainBlockContainer"] span,
-    [data-testid="stMainBlockContainer"] div,
-    [data-testid="stMainBlockContainer"] label {
-        color: #111827 !important;
-    }
-    /* 主内容区宽度 */
     [data-testid="stMainBlockContainer"] {
-        max-width: 1400px;
-        padding-top: 2rem;
+        max-width: 1200px;
+        padding-top: 1.5rem;
+        padding-left: 2rem;
+        padding-right: 2rem;
     }
-    /* 输入框文字强制深色 */
-    input, textarea, select {
-        color: #111827 !important;
-        -webkit-text-fill-color: #111827 !important;
+
+    /* 隐藏 Streamlit 顶部黑栏（含 Fork/Deploy 按钮） */
+    [data-testid="stHeader"] {
+        display: none !important;
     }
-    input::placeholder, textarea::placeholder {
-        color: #9ca3af !important;
-        -webkit-text-fill-color: #9ca3af !important;
+    header[data-testid="stHeader"] {
+        display: none !important;
     }
+
     /* 隐藏页脚 */
     footer {visibility: hidden;}
-    /* 隐藏顶部三滴水菜单 */
+    [data-testid="stFooter"] {display: none !important;}
+
+    /* 隐藏右上角菜单 */
     [data-testid="stMainMenu"] {visibility: hidden;}
-    /* 隐藏首页卡片下方的隐藏按钮 */
-    .hidden-home-card-button button {display: none !important;}
+
+    /* 输入框文字颜色 */
+    input, textarea, select {
+        color: #111827;
+    }
+    input::placeholder, textarea::placeholder {
+        color: #9ca3af;
+    }
+
+    /* 通用标题样式 */
+    .page-title {
+        font-size: 22px;
+        font-weight: 700;
+        color: #111827;
+        margin-bottom: 4px;
+    }
+    .page-subtitle {
+        font-size: 14px;
+        color: #6b7280;
+        margin-bottom: 20px;
+    }
+
     /* 子导航横向排布 */
     .sub-nav-container {
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
         margin-bottom: 16px;
-        padding: 6px;
+        padding: 8px;
         border: 1px solid #e5e7eb;
-        border-radius: 8px;
+        border-radius: 10px;
         background: #ffffff;
     }
-    /* 通用标题样式 */
-    .page-title {
-        font-size: 22px;
-        font-weight: 700;
-        color: #111827 !important;
-        -webkit-text-fill-color: #111827 !important;
-        margin-bottom: 4px;
+    .sub-nav-container button {
+        border: 1px solid #e5e7eb !important;
+        border-radius: 8px !important;
+        padding: 6px 14px !important;
+        font-size: 13px !important;
+        background: #ffffff !important;
+        color: #4b5563 !important;
     }
-    .page-subtitle {
-        font-size: 14px;
-        color: #6b7280 !important;
-        -webkit-text-fill-color: #6b7280 !important;
-        margin-bottom: 20px;
+    .sub-nav-container button:hover {
+        border-color: #2563eb !important;
+        color: #2563eb !important;
+    }
+    .sub-nav-container button[kind="primary"],
+    .sub-nav-container button[data-testid="baseButton-primary"] {
+        background: #2563eb !important;
+        color: #ffffff !important;
+        border-color: #2563eb !important;
+    }
+
+    /* 全局按钮圆角 */
+    button[kind="primary"], .stButton > button[kind="primary"] {
+        border-radius: 8px;
+    }
+
+    /* 分隔线颜色 */
+    hr, [data-testid="stDivider"] {
+        border-color: #e5e7eb !important;
     }
     </style>
     """
@@ -203,7 +225,7 @@ def _get_sidebar_css() -> str:
         gap: 10px;
         padding: 20px 16px 16px;
         border-bottom: 1px solid #f3f4f6;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
     }
     .sidebar-logo-text {
         font-size: 18px;
@@ -216,64 +238,64 @@ def _get_sidebar_css() -> str:
         letter-spacing: 1px;
     }
 
-    /* 侧边栏导航按钮 */
+    /* 侧边栏导航按钮：重置为干净的菜单样式 */
+    section[data-testid="stSidebar"] .nav-item,
+    section[data-testid="stSidebar"] .nav-item-active {
+        margin-bottom: 2px;
+    }
     section[data-testid="stSidebar"] .nav-item button,
-    section[data-testid="stSidebar"] .nav-item-active button,
-    section[data-testid="stSidebar"] .nav-item button p,
-    section[data-testid="stSidebar"] .nav-item-active button p,
-    section[data-testid="stSidebar"] .nav-item button span,
-    section[data-testid="stSidebar"] .nav-item-active button span {
+    section[data-testid="stSidebar"] .nav-item-active button {
         width: 100% !important;
         text-align: left !important;
         justify-content: flex-start !important;
-        padding: 10px 12px !important;
+        padding: 10px 14px !important;
         border: none !important;
+        border-radius: 8px !important;
         background: transparent !important;
         color: #4b5563 !important;
-        -webkit-text-fill-color: #4b5563 !important;
         font-size: 14px !important;
-        border-radius: 8px !important;
+        font-weight: 500 !important;
         border-left: 3px solid transparent !important;
         margin-bottom: 2px !important;
         height: auto !important;
-        min-height: 40px !important;
+        min-height: 42px !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
     }
-    section[data-testid="stSidebar"] .nav-item button:hover,
-    section[data-testid="stSidebar"] .nav-item button:hover p,
-    section[data-testid="stSidebar"] .nav-item button:hover span {
-        background: #f3f4f6 !important;
-        border-color: #d1d5db !important;
-        color: #111827 !important;
-        -webkit-text-fill-color: #111827 !important;
+    section[data-testid="stSidebar"] .nav-item button p,
+    section[data-testid="stSidebar"] .nav-item-active button p {
+        color: inherit !important;
+        font-size: 14px !important;
     }
-    section[data-testid="stSidebar"] .nav-item-active button,
-    section[data-testid="stSidebar"] .nav-item-active button p,
-    section[data-testid="stSidebar"] .nav-item-active button span {
+    section[data-testid="stSidebar"] .nav-item button:hover {
+        background: #f3f4f6 !important;
+        color: #111827 !important;
+    }
+    section[data-testid="stSidebar"] .nav-item-active button {
         background: #eff6ff !important;
         color: #2563eb !important;
-        -webkit-text-fill-color: #2563eb !important;
         border-left: 3px solid #2563eb !important;
         font-weight: 600 !important;
+    }
+    section[data-testid="stSidebar"] .nav-item-active button p {
+        color: #2563eb !important;
     }
 
     /* 侧边栏用户信息区域 */
     .sidebar-user {
         padding: 16px 12px;
         border-top: 1px solid #f3f4f6;
-        margin-top: 8px;
+        margin-top: 12px;
     }
     .sidebar-user-info {
         display: flex;
         align-items: center;
-        gap: 8px;
-        margin-bottom: 8px;
+        gap: 10px;
     }
     .sidebar-user-avatar {
-        width: 32px;
-        height: 32px;
+        width: 36px;
+        height: 36px;
         border-radius: 50%;
         background: #2563eb;
         color: white;
@@ -282,17 +304,16 @@ def _get_sidebar_css() -> str:
         justify-content: center;
         font-size: 14px;
         font-weight: 600;
+        flex-shrink: 0;
     }
     .sidebar-user-name {
         font-size: 13px;
         font-weight: 600;
-        color: #111827 !important;
-        -webkit-text-fill-color: #111827 !important;
+        color: #111827;
     }
     .sidebar-user-role {
         font-size: 11px;
-        color: #9ca3af !important;
-        -webkit-text-fill-color: #9ca3af !important;
+        color: #9ca3af;
     }
     </style>
     """
@@ -301,7 +322,6 @@ def _get_sidebar_css() -> str:
 def _get_login_css() -> str:
     return """
     <style>
-    /* 登录页：全宽无边距 */
     [data-testid="stAppViewContainer"] {
         background: #f0f5ff;
     }
@@ -312,282 +332,11 @@ def _get_login_css() -> str:
     [data-testid="stMainBlockContainer"] > div {
         padding: 0 !important;
     }
-
-    /* 两列布局：消除间距 */
     [data-testid="stHorizontalBlock"] {
         gap: 0 !important;
     }
     [data-testid="stColumn"] {
         min-height: 100vh;
-    }
-
-    /* ---- 左侧品牌面板 ---- */
-    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:first-child {
-        background: linear-gradient(135deg, #2563EB 0%, #1E40AF 50%, #1E3A8A 100%);
-    }
-    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:first-child
-    [data-testid="stVerticalBlock"] {
-        padding: 48px 40px;
-        justify-content: center;
-    }
-
-    .login-brand-panel {
-        color: white;
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        min-height: 80vh;
-    }
-    .login-brand-header {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 12px;
-    }
-    .login-brand-logo {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: white;
-        color: #2563eb;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 20px;
-        font-weight: 700;
-    }
-    .login-brand-name {
-        font-size: 24px;
-        font-weight: 700;
-    }
-    .login-brand-tagline {
-        font-size: 14px;
-        opacity: 0.85;
-        margin-bottom: 32px;
-    }
-
-    /* 插画区 */
-    .login-brand-illustration {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        position: relative;
-        margin: 24px 0;
-        min-height: 200px;
-    }
-    .login-illustration-laptop {
-        font-size: 72px;
-    }
-    .login-illustration-icon {
-        position: absolute;
-        font-size: 28px;
-        background: rgba(255,255,255,0.15);
-        border-radius: 10px;
-        padding: 8px 10px;
-        backdrop-filter: blur(4px);
-    }
-    .login-ill-1 { top: 15%; left: 15%; }
-    .login-ill-2 { top: 20%; right: 15%; }
-    .login-ill-3 { bottom: 20%; left: 20%; }
-    .login-ill-4 { bottom: 15%; right: 20%; }
-
-    /* 特性列表 */
-    .login-brand-features {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        margin-top: 24px;
-    }
-    .login-brand-feature {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
-    .login-brand-feature-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        background: rgba(255,255,255,0.15);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 18px;
-        flex-shrink: 0;
-    }
-    .login-feature-title {
-        font-size: 14px;
-        font-weight: 600;
-    }
-    .login-feature-desc {
-        font-size: 12px;
-        opacity: 0.8;
-    }
-
-    /* ---- 右侧表单区 ---- */
-    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:last-child {
-        background: #f0f5ff;
-    }
-    [data-testid="stHorizontalBlock"] [data-testid="stColumn"]:last-child
-    [data-testid="stVerticalBlock"] {
-        padding: 48px 24px;
-        justify-content: center;
-    }
-
-    /* 关键修复：重置嵌套列的背景（记住账号/忘记密码行不应继承蓝色） */
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stColumn"] {
-        background: transparent !important;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stColumn"]
-    [data-testid="stVerticalBlock"] {
-        padding: 0 !important;
-    }
-
-    /* 登录卡片 = 带边框容器 */
-    [data-testid="stVerticalBlockBorderWrapper"] {
-        background: #ffffff !important;
-        border: 1px solid #e5e7eb !important;
-        border-radius: 12px !important;
-        box-shadow: 0 4px 24px rgba(0,0,0,0.06) !important;
-        padding: 36px 32px !important;
-        max-width: 400px !important;
-        margin: 0 auto !important;
-    }
-
-    /* 登录卡片内输入框 */
-    [data-testid="stVerticalBlockBorderWrapper"] input[type="text"],
-    [data-testid="stVerticalBlockBorderWrapper"] input[type="password"] {
-        border: 1px solid #e5e7eb !important;
-        border-radius: 8px !important;
-        background: #ffffff !important;
-        color: #111827 !important;
-        padding: 10px 14px !important;
-        font-size: 14px !important;
-        height: 44px !important;
-        -webkit-text-fill-color: #111827 !important;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"] input[type="text"]:focus,
-    [data-testid="stVerticalBlockBorderWrapper"] input[type="password"]:focus {
-        border-color: #2563eb !important;
-        box-shadow: 0 0 0 3px rgba(37,99,235,0.1) !important;
-        background: #ffffff !important;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stWidgetLabel"] {
-        font-size: 13px !important;
-        color: #4b5563 !important;
-        font-weight: 500 !important;
-        margin-bottom: 4px !important;
-    }
-
-    /* 登录卡片内按钮 */
-    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"] {
-        background: #2563eb !important;
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 8px !important;
-        font-size: 15px !important;
-        font-weight: 600 !important;
-        height: 44px !important;
-        width: 100% !important;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"] button[kind="primary"]:hover {
-        background: #1d4ed8 !important;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"] button[kind="secondary"] {
-        border: 1px solid #e5e7eb !important;
-        border-radius: 8px !important;
-        font-size: 14px !important;
-        height: 44px !important;
-        color: #4b5563 !important;
-        background: #ffffff !important;
-    }
-
-    /* 登录卡片内 Tabs */
-    [data-testid="stVerticalBlockBorderWrapper"] [data-baseweb="tab-list"] {
-        gap: 0;
-        border-bottom: 1px solid #e5e7eb;
-        margin-bottom: 24px;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"] [data-baseweb="tab"] {
-        padding: 8px 16px;
-        font-size: 14px;
-        font-weight: 500;
-        color: #6b7280;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"] [aria-selected="true"] {
-        color: #2563eb !important;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"] [data-baseweb="tab-border"] {
-        border-bottom: 2px solid #2563eb !important;
-    }
-
-    /* 登录卡片内复选框 */
-    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCheckbox"] {
-        font-size: 13px;
-    }
-
-    /* 表单标题/副标题 */
-    .login-form-title {
-        font-size: 20px;
-        font-weight: 700;
-        color: #111827;
-        text-align: center;
-        margin-bottom: 8px;
-    }
-    .login-form-subtitle {
-        font-size: 14px;
-        color: #6b7280;
-        text-align: center;
-        margin-bottom: 28px;
-    }
-
-    /* 分隔线 */
-    .login-divider {
-        text-align: center;
-        margin: 24px 0;
-        color: #9ca3af;
-        font-size: 12px;
-        position: relative;
-    }
-    .login-divider::before,
-    .login-divider::after {
-        content: "";
-        position: absolute;
-        top: 50%;
-        width: 40%;
-        height: 1px;
-        background: #e5e7eb;
-    }
-    .login-divider::before { left: 0; }
-    .login-divider::after { right: 0; }
-
-    /* 企业微信登录按钮 */
-    .login-wecom-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        padding: 10px;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        background: #ffffff;
-        color: #4b5563;
-        font-size: 14px;
-        cursor: pointer;
-        width: 100%;
-    }
-    .login-wecom-btn:hover {
-        background: #f9fafb;
-        border-color: #d1d5db;
-    }
-
-    /* 登录页底部版权 */
-    .login-footer {
-        text-align: center;
-        font-size: 12px;
-        color: #9ca3af;
-        margin-top: 24px;
-        line-height: 1.6;
     }
     </style>
     """
@@ -596,35 +345,90 @@ def _get_login_css() -> str:
 def _get_home_cards_css() -> str:
     return """
     <style>
-    .home-card-container {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 16px;
-        margin: 16px 0 24px;
+    /* ===== 首页问候区 ===== */
+    .home-greeting {
+        margin-bottom: 8px;
     }
-    @media (max-width: 1024px) {
-        .home-card-container {
-            grid-template-columns: repeat(2, 1fr);
-        }
+    .home-greeting-text h2 {
+        font-size: 26px;
+        font-weight: 700;
+        color: #111827;
+        margin: 0 0 6px;
     }
-    @media (max-width: 640px) {
-        .home-card-container {
-            grid-template-columns: 1fr;
-        }
+    .home-system-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: #6b7280;
+        margin-bottom: 16px;
     }
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #22c55e;
+        display: inline-block;
+    }
+
+    /* ===== 首页功能卡片按钮 ===== */
+    /* 定位主内容区 columns 中的按钮（排除侧边栏和子导航） */
+    [data-testid="stMainBlockContainer"] [data-testid="stColumn"] [data-testid="stButton"] button {
+        width: 100% !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        padding: 18px 18px !important;
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 14px !important;
+        color: #111827 !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        min-height: 90px !important;
+        height: auto !important;
+        line-height: 1.5 !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+        transition: all 0.2s ease !important;
+        white-space: pre-line !important;
+        overflow: visible !important;
+    }
+    [data-testid="stMainBlockContainer"] [data-testid="stColumn"] [data-testid="stButton"] button p {
+        color: #111827 !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        margin: 0 !important;
+        white-space: pre-line !important;
+        line-height: 1.5 !important;
+    }
+    [data-testid="stMainBlockContainer"] [data-testid="stColumn"] [data-testid="stButton"] button:hover {
+        border-color: #2563eb !important;
+        box-shadow: 0 6px 20px rgba(37,99,235,0.12) !important;
+        transform: translateY(-2px) !important;
+        background: #f8faff !important;
+    }
+
+    /* 子导航按钮不使用卡片样式 */
+    .sub-nav-container [data-testid="stButton"] button {
+        min-height: auto !important;
+        height: auto !important;
+        padding: 6px 14px !important;
+        border-radius: 8px !important;
+    }
+
+    /* 原生 home-card（HTML 版，备用） */
     .home-card {
         background: #ffffff;
         border: 1px solid #e5e7eb;
-        border-radius: 12px;
+        border-radius: 14px;
         padding: 24px 20px;
         cursor: pointer;
         transition: all 0.2s ease;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
     .home-card:hover {
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.08);
         transform: translateY(-2px);
-        border-color: #d1d5db;
+        border-color: #bfdbfe;
     }
     .home-card-icon {
         width: 48px;
@@ -634,7 +438,7 @@ def _get_home_cards_css() -> str:
         align-items: center;
         justify-content: center;
         font-size: 24px;
-        margin-bottom: 16px;
+        margin-bottom: 14px;
     }
     .home-card-title {
         font-size: 16px;
@@ -646,54 +450,6 @@ def _get_home_cards_css() -> str:
         font-size: 13px;
         color: #6b7280;
         line-height: 1.5;
-        margin-bottom: 12px;
-    }
-    .home-card-arrow {
-        display: inline-block;
-        color: #2563eb;
-        font-size: 13px;
-        font-weight: 500;
-        transition: transform 0.15s ease;
-    }
-    .home-card:hover .home-card-arrow {
-        transform: translateX(4px);
-    }
-    /* 各颜色 class：图标背景色 */
-    .card-blue   .home-card-icon { background: #dbeafe; color: #2563eb; }
-    .card-indigo .home-card-icon { background: #e0e7ff; color: #4f46e5; }
-    .card-green  .home-card-icon { background: #d1fae5; color: #059669; }
-    .card-orange .home-card-icon { background: #ffedd5; color: #ea580c; }
-    .card-purple .home-card-icon { background: #ede9fe; color: #7c3aed; }
-    .card-pink   .home-card-icon { background: #fce7f3; color: #db2777; }
-    .card-cyan   .home-card-icon { background: #cffafe; color: #0891b2; }
-    .card-teal   .home-card-icon { background: #ccfbf1; color: #0d9488; }
-
-    /* 首页头部问候区域 */
-    .home-greeting {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 24px;
-    }
-    .home-greeting-text h2 {
-        font-size: 24px;
-        font-weight: 700;
-        color: #111827;
-        margin: 0 0 4px;
-    }
-    .home-system-status {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 13px;
-        color: #6b7280;
-    }
-    .status-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #22c55e;
-        display: inline-block;
     }
     </style>
     """
@@ -718,7 +474,7 @@ def _get_kpi_css() -> str:
         border: 1px solid #e5e7eb;
         border-radius: 12px;
         padding: 20px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
     .kpi-icon {
         width: 40px;
@@ -749,16 +505,9 @@ def _get_kpi_css() -> str:
         border-radius: 4px;
         font-weight: 500;
     }
-    .trend-up {
-        color: #16a34a;
-        background: #dcfce7;
-    }
-    .trend-down {
-        color: #dc2626;
-        background: #fee2e2;
-    }
+    .trend-up { color: #16a34a; background: #dcfce7; }
+    .trend-down { color: #dc2626; background: #fee2e2; }
 
-    /* 日期筛选栏 */
     .date-filter-bar {
         display: flex;
         align-items: center;
@@ -767,7 +516,7 @@ def _get_kpi_css() -> str:
         padding: 12px 16px;
         background: #ffffff;
         border: 1px solid #e5e7eb;
-        border-radius: 8px;
+        border-radius: 10px;
     }
     .date-filter-label {
         font-size: 14px;
@@ -775,14 +524,13 @@ def _get_kpi_css() -> str:
         font-weight: 500;
     }
 
-    /* 图表卡片容器 */
     .chart-card {
         background: #ffffff;
         border: 1px solid #e5e7eb;
         border-radius: 12px;
         padding: 20px;
         margin-bottom: 16px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
     .chart-card-title {
         font-size: 16px;
@@ -797,7 +545,6 @@ def _get_kpi_css() -> str:
 def _get_misc_css() -> str:
     return """
     <style>
-    /* 客户管理：搜索筛选栏 */
     .search-bar {
         display: flex;
         flex-wrap: wrap;
@@ -806,16 +553,14 @@ def _get_misc_css() -> str:
         padding: 16px;
         background: #ffffff;
         border: 1px solid #e5e7eb;
-        border-radius: 8px;
+        border-radius: 10px;
     }
-
-    /* 详情面板 */
     .detail-panel {
         background: #ffffff;
         border: 1px solid #e5e7eb;
         border-radius: 12px;
         padding: 24px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
     .detail-panel-title {
         font-size: 18px;
@@ -825,16 +570,12 @@ def _get_misc_css() -> str:
         padding-bottom: 12px;
         border-bottom: 1px solid #f3f4f6;
     }
-    .detail-section {
-        margin-bottom: 20px;
-    }
+    .detail-section { margin-bottom: 20px; }
     .detail-section-title {
         font-size: 13px;
         font-weight: 600;
         color: #6b7280;
         margin-bottom: 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
     }
     .detail-row {
         display: flex;
@@ -842,13 +583,8 @@ def _get_misc_css() -> str:
         margin-bottom: 6px;
         font-size: 14px;
     }
-    .detail-label {
-        color: #6b7280;
-    }
-    .detail-value {
-        color: #111827;
-        font-weight: 500;
-    }
+    .detail-label { color: #6b7280; }
+    .detail-value { color: #111827; font-weight: 500; }
     .detail-tag {
         display: inline-block;
         padding: 2px 8px;
@@ -862,17 +598,11 @@ def _get_misc_css() -> str:
     .tag-orange { background: #ffedd5; color: #ea580c; }
     .tag-purple { background: #ede9fe; color: #7c3aed; }
 
-    /* Streamlit 标签按钮（子导航）样式 */
-    .sub-nav-container button {
-        border: 1px solid #e5e7eb !important;
-        border-radius: 6px !important;
-        padding: 6px 12px !important;
-        font-size: 13px !important;
-    }
-    .sub-nav-container button[kind="primary"] {
-        background: #2563eb !important;
-        color: white !important;
-        border-color: #2563eb !important;
+    /* Streamlit 表格优化 */
+    [data-testid="stDataFrame"] {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        overflow: hidden;
     }
     </style>
     """

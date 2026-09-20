@@ -522,17 +522,6 @@ def show_data_import():
                     )
             except Exception as e:
                 st.error(f"数据导入失败: {str(e)}")
-    
-    st.subheader("使用默认数据")
-    if st.button("加载默认数据"):
-        with st.spinner("正在加载默认数据..."):
-            try:
-                data = load_data()
-                if data:
-                    st.success("默认数据加载成功！")
-                    st.session_state['data'] = data
-            except Exception as e:
-                st.error(f"加载默认数据失败: {str(e)}")
 
 
 def show_reports(data):
@@ -1428,32 +1417,35 @@ def main():
 
             st.divider()
 
-            if selected_sub == "📈 数据概览":
-                if data is None:
-                    data = load_data()
-                    if data:
-                        st.session_state['data'] = data
-                show_dashboard(data)
-            elif selected_sub == "👥 客户管理":
-                if data is None:
-                    data = load_data()
-                    if data:
-                        st.session_state['data'] = data
-                show_customer_management(data)
-            elif selected_sub == "🏆 积分管理":
-                if data is None:
-                    data = load_data()
-                    if data:
-                        st.session_state['data'] = data
-                show_point_management(data)
-            elif selected_sub == "📥 数据导入":
+            if selected_sub == "📥 数据导入":
                 show_data_import()
-            elif selected_sub == "📝 报表导出":
+            else:
                 if data is None:
-                    data = load_data()
-                    if data:
-                        st.session_state['data'] = data
-                show_reports(data)
+                    # 没有数据时，显示上传引导
+                    st.markdown('<div class="page-title">客户积分智能分析</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="page-subtitle">请先上传客户积分Excel数据</div>', unsafe_allow_html=True)
+                    st.info("📂 请上传客户积分Excel文件（支持 .xlsx / .xls），上传后自动加载数据并展示分析结果。")
+                    uploaded = st.file_uploader("选择客户积分Excel文件", type=["xlsx", "xls"], key="upload-customer-data")
+                    if uploaded is not None:
+                        with st.spinner("正在处理Excel文件..."):
+                            try:
+                                data = load_data(file_bytes=uploaded.getvalue())
+                                if data:
+                                    st.success("数据加载成功！")
+                                    st.session_state['data'] = data
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"数据加载失败: {str(e)}")
+                    st.stop()
+
+                if selected_sub == "📈 数据概览":
+                    show_dashboard(data)
+                elif selected_sub == "👥 客户管理":
+                    show_customer_management(data)
+                elif selected_sub == "🏆 积分管理":
+                    show_point_management(data)
+                elif selected_sub == "📝 报表导出":
+                    show_reports(data)
 
     elif selected_main == '📧 JAX邮件生成器':
             show_email_generator()

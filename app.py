@@ -613,7 +613,6 @@ def validate_columns_email(df):
         "城市",
         "收货人",
         "送货地址",
-        "拟收货时间",
         "收货备注"
     ]
     
@@ -978,17 +977,36 @@ def process_excel_email(file_bytes):
     process_excel_email._genotype_match_count = (df["基因型"] != "").sum()
     
     po_order = df["Individual PO Number"].dropna().unique().tolist()
-    
+
+    # 查找日期列的实际列名（兼容"拟收货时间"/"拟收获时间"等变体）
+    receive_date_col = None
+    for col_candidate in ["拟收货时间", "拟收获时间", "预计收货时间", "预计收获时间", "收货时间", "送货时间"]:
+        if col_candidate in df.columns:
+            receive_date_col = col_candidate
+            break
+    ship_date_col = None
+    for col_candidate in ["提货时间", "发货时间", "提货日期", "发货日期"]:
+        if col_candidate in df.columns:
+            ship_date_col = col_candidate
+            break
+
+    debug_info += f"\n日期列检测:\n"
+    debug_info += f"  拟收货时间列: {receive_date_col or '未找到'}\n"
+    debug_info += f"  提货时间列: {ship_date_col or '未找到'}\n"
+    debug_info += f"  所有列名: {list(df.columns)}\n"
+
     result_rows = []
     for po_number, group_data in df.groupby("Individual PO Number"):
         first_row = group_data.iloc[0]
         strain_list = build_strain_list(group_data.copy())
-        
+
         receiver = str(first_row["收货人"]).strip() if pd.notna(first_row["收货人"]) else "老师"
-        ship_date = format_date_email(first_row["提货时间"])
-        receive_date = format_date_email(first_row["拟收货时间"])
+        ship_date = format_date_email(first_row[ship_date_col]) if ship_date_col else ""
+        receive_date = format_date_email(first_row[receive_date_col]) if receive_date_col else ""
         delivery_address = str(first_row["送货地址"]).strip() if pd.notna(first_row["送货地址"]) else ""
-        
+
+        debug_info += f"  PO {po_number}: 收货人={receiver}, 提货={ship_date}, 拟收={receive_date}\n"
+
         mail_body = render_mail(receiver, strain_list, ship_date, receive_date, delivery_address)
         
         result_rows.append({
@@ -1075,9 +1093,32 @@ def show_email_generator():
                 )
                 
                 st.subheader("邮件预览")
-                for _, row in result_df.iterrows():
-                    with st.expander(f"📧 {row['Individual PO Number']} - {row['单位名称']}"):
+                import json as _json
+                for idx, (_, row) in enumerate(result_df.iterrows()):
+                    with st.expander(f"📧 {row['Individual PO Number']} - {row['单位名称']}", expanded=(idx == 0)):
                         st.text(row['邮件内容'])
+                        # 一键复制按钮
+                        email_text_js = _json.dumps(row['邮件内容'])
+                        st.components.v1.html(f"""
+                        <button onclick="
+                            navigator.clipboard.writeText({email_text_js}).then(() => {{
+                                this.textContent='✅ 已复制到剪贴板';
+                                this.style.background='#16a34a';
+                                setTimeout(() => {{
+                                    this.textContent='📋 一键复制邮件内容';
+                                    this.style.background='#2563eb';
+                                }}, 2000);
+                            }}).catch(() => {{
+                                this.textContent='❌ 复制失败，请手动选择复制';
+                            }});
+                        "
+                        style="
+                            background:#2563eb;color:#fff;border:none;border-radius:8px;
+                            padding:8px 16px;font-size:14px;cursor:pointer;margin-top:8px;
+                        ">
+                            📋 一键复制邮件内容
+                        </button>
+                        """, height=50)
             
             except Exception as e:
                 st.error(f"处理过程中发生错误：\n\n{str(e)}")

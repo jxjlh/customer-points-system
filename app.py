@@ -915,25 +915,43 @@ def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address
 
 def process_excel_email(file_bytes):
     df = pd.read_excel(BytesIO(file_bytes), sheet_name='出隔离场', header=None)
-    
+
+    # 打印前10行原始数据用于调试
+    header_debug = "=== 出隔离场 Sheet 前10行原始数据 ===\n"
+    for dbg_idx in range(min(10, len(df))):
+        row_vals = [repr(v)[:30] for v in df.iloc[dbg_idx].tolist()]
+        header_debug += f"  行{dbg_idx}: {row_vals}\n"
+
     header_row_index = None
     for idx, row in df.iterrows():
         first_cell = str(row.iloc[0]).strip()
         if first_cell == "Job No":
             second_cell = str(row.iloc[1]).strip()
             if second_cell == "Individual PO Number":
-                third_cell = str(row.iloc[2]).strip()
-                if third_cell == "JAX销售":
-                    header_row_index = idx
-                    break
-    
+                header_row_index = idx
+                break
+
     if header_row_index is None:
-        raise ValueError("未找到表头行，请确保Excel文件包含正确的表头")
-    
+        raise ValueError("未找到表头行（第一列需为Job No，第二列需为Individual PO Number）")
+
     new_header = df.iloc[header_row_index].tolist()
-    df = df.iloc[header_row_index + 2:]
+    # 清理列名：strip空格和换行
+    new_header = [str(c).strip() if pd.notna(c) else f"unnamed_{i}" for i, c in enumerate(new_header)]
+
+    header_debug += f"\n表头行索引: {header_row_index}\n"
+    header_debug += f"表头列名: {new_header}\n"
+
+    # 表头下可能有空行，跳过多余空行直到第一行数据
+    data_start = header_row_index + 1
+    while data_start < len(df):
+        first_val = df.iloc[data_start, 0]
+        if pd.notna(first_val) and str(first_val).strip() not in ("", "nan"):
+            break
+        data_start += 1
+
+    df = df.iloc[data_start:]
     df.columns = new_header
-    
+
     df = df.dropna(how='all')
     df = df[~df["Job No"].astype(str).str.contains("Job No|Quantity", na=False)]
     
@@ -971,29 +989,27 @@ def process_excel_email(file_bytes):
     else:
         debug_info += "\n基因型映射为空，无法关联\n"
     
-    # 记录调试信息
-    process_excel_email._debug_info = debug_info
-    process_excel_email._genotype_map = genotype_map
-    process_excel_email._genotype_match_count = (df["基因型"] != "").sum()
-    
+    # 记录调试信息（含原始表头）
+    full_debug = header_debug + "\n" + debug_info
+
     po_order = df["Individual PO Number"].dropna().unique().tolist()
 
-    # 查找日期列的实际列名（兼容"拟收货时间"/"拟收获时间"等变体）
+    # 模糊查找日期列：遍历所有列名，关键词匹配
+    all_cols = list(df.columns)
     receive_date_col = None
-    for col_candidate in ["拟收货时间", "拟收获时间", "预计收货时间", "预计收获时间", "收货时间", "送货时间"]:
-        if col_candidate in df.columns:
-            receive_date_col = col_candidate
-            break
     ship_date_col = None
-    for col_candidate in ["提货时间", "发货时间", "提货日期", "发货日期"]:
-        if col_candidate in df.columns:
-            ship_date_col = col_candidate
-            break
 
-    debug_info += f"\n日期列检测:\n"
-    debug_info += f"  拟收货时间列: {receive_date_col or '未找到'}\n"
-    debug_info += f"  提货时间列: {ship_date_col or '未找到'}\n"
-    debug_info += f"  所有列名: {list(df.columns)}\n"
+    for col in all_cols:
+        col_str = str(col).strip()
+        if not receive_date_col and any(kw in col_str for kw in ["拟收货", "拟收获", "预计收货", "预计收获", "预计到货", "拟送货", "送货日期", "到货时间", "收货时间", "送货时间"]):
+            receive_date_col = col
+        if not ship_date_col and any(kw in col_str for kw in ["提货时间", "提货日期", "发货时间", "发货日期", "出库时间"]):
+            ship_date_col = col
+
+    full_debug += f"\n=== 日期列检测 ===\n"
+    full_debug += f"  收货日期列: {receive_date_col or '未找到'}\n"
+    full_debug += f"  提货日期列: {ship_date_col or '未找到'}\n"
+    full_debug += f"  全部列名: {all_cols}\n"
 
     result_rows = []
     for po_number, group_data in df.groupby("Individual PO Number"):
@@ -1005,7 +1021,7 @@ def process_excel_email(file_bytes):
         receive_date = format_date_email(first_row[receive_date_col]) if receive_date_col else ""
         delivery_address = str(first_row["送货地址"]).strip() if pd.notna(first_row["送货地址"]) else ""
 
-        debug_info += f"  PO {po_number}: 收货人={receiver}, 提货={ship_date}, 拟收={receive_date}\n"
+        full_debug += f"  PO {po_number}: 收货人={receiver}, 提货={ship_date}, 拟收={receive_date}\n"
 
         mail_body = render_mail(receiver, strain_list, ship_date, receive_date, delivery_address)
         
@@ -1019,7 +1035,12 @@ def process_excel_email(file_bytes):
     result_df = pd.DataFrame(result_rows)
     result_df['po_order'] = result_df['Individual PO Number'].map(lambda x: po_order.index(x) if x in po_order else len(po_order))
     result_df = result_df.sort_values('po_order').drop('po_order', axis=1)
-    
+
+    # 保存调试信息到函数属性
+    process_excel_email._debug_info = full_debug
+    process_excel_email._genotype_map = genotype_map
+    process_excel_email._genotype_match_count = (df["基因型"] != "").sum()
+
     return result_df
 
 
@@ -1097,28 +1118,46 @@ def show_email_generator():
                 for idx, (_, row) in enumerate(result_df.iterrows()):
                     with st.expander(f"📧 {row['Individual PO Number']} - {row['单位名称']}", expanded=(idx == 0)):
                         st.text(row['邮件内容'])
-                        # 一键复制按钮
+                        # 一键复制按钮（textarea + execCommand 方式，兼容 iframe）
                         email_text_js = _json.dumps(row['邮件内容'])
                         st.components.v1.html(f"""
-                        <button onclick="
-                            navigator.clipboard.writeText({email_text_js}).then(() => {{
-                                this.textContent='✅ 已复制到剪贴板';
-                                this.style.background='#16a34a';
-                                setTimeout(() => {{
-                                    this.textContent='📋 一键复制邮件内容';
-                                    this.style.background='#2563eb';
-                                }}, 2000);
-                            }}).catch(() => {{
-                                this.textContent='❌ 复制失败，请手动选择复制';
-                            }});
-                        "
-                        style="
-                            background:#2563eb;color:#fff;border:none;border-radius:8px;
-                            padding:8px 16px;font-size:14px;cursor:pointer;margin-top:8px;
-                        ">
+                        <html>
+                        <body style="margin:0;background:transparent;">
+                        <textarea id="copyArea" style="position:absolute;left:-9999px;top:0;">{row['邮件内容']}</textarea>
+                        <button onclick="doCopy(this)"
+                        style="background:#2563eb;color:#fff;border:none;border-radius:8px;
+                        padding:8px 16px;font-size:14px;cursor:pointer;margin-top:4px;">
                             📋 一键复制邮件内容
                         </button>
-                        """, height=50)
+                        <script>
+                        function doCopy(btn) {{
+                            var ta = document.getElementById('copyArea');
+                            ta.style.position = 'fixed';
+                            ta.style.left = '0px';
+                            ta.style.top = '0px';
+                            ta.style.opacity = '0';
+                            ta.select();
+                            ta.setSelectionRange(0, 99999);
+                            var ok = false;
+                            try {{ ok = document.execCommand('copy'); }} catch(e) {{ ok = false; }}
+                            ta.style.position = 'absolute';
+                            ta.style.left = '-9999px';
+                            if (ok) {{
+                                btn.textContent = '✅ 已复制到剪贴板';
+                                btn.style.background = '#16a34a';
+                            }} else {{
+                                btn.textContent = '❌ 复制失败，请手动选择文字复制';
+                                btn.style.background = '#dc2626';
+                            }}
+                            setTimeout(function() {{
+                                btn.textContent = '📋 一键复制邮件内容';
+                                btn.style.background = '#2563eb';
+                            }}, 2500);
+                        }}
+                        </script>
+                        </body>
+                        </html>
+                        """, height=60)
             
             except Exception as e:
                 st.error(f"处理过程中发生错误：\n\n{str(e)}")

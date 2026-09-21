@@ -21,7 +21,16 @@ from modules.customer_analysis import CustomerAnalysis
 from modules.point_calculation import PointCalculation
 from modules.database import DatabaseManager
 from modules.invoice_fetcher import InvoiceFetcher
+from modules.quotation_ui import show_quotation
 from modules.db_manager import get_db_manager
+from modules.video_editor import show_video_editor
+from modules.wecom import (
+    get_wecom_config,
+    is_configured,
+    build_oauth_url_prefix,
+    exchange_auth_code,
+    match_local_user,
+)
 from logo_base64 import get_logo_html, get_avatar_html, get_logo_data_url, get_avatar_data_url
 
 DEFAULT_EXCEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "2026春夏促销活动清单-7.16.xlsx")
@@ -123,6 +132,24 @@ def show_home(config):
             "key": "btn-invoice",
             "session_value": "🧾 红冲发票自动登记",
             "help": "点击进入红冲发票自动登记模块"
+        },
+        {
+            "icon": "📋",
+            "title": "报价助手",
+            "desc": "自动查询价格并生成报价单",
+            "color_class": "card-orange",
+            "key": "btn-quotation",
+            "session_value": "📋 报价助手",
+            "help": "点击进入报价助手模块"
+        },
+        {
+            "icon": "🎬",
+            "title": "AI 视频剪辑",
+            "desc": "Crayotter 多模态Agent · 一句话自动出片",
+            "color_class": "card-purple",
+            "key": "btn-video-editor",
+            "session_value": "🎬 AI 视频剪辑",
+            "help": "点击进入 AI 视频剪辑（Crayotter）模块"
         }
     ]
     
@@ -512,6 +539,17 @@ def show_data_import():
                     )
             except Exception as e:
                 st.error(f"数据导入失败: {str(e)}")
+    
+    st.subheader("使用默认数据")
+    if st.button("加载默认数据"):
+        with st.spinner("正在加载默认数据..."):
+            try:
+                data = load_data()
+                if data:
+                    st.success("默认数据加载成功！")
+                    st.session_state['data'] = data
+            except Exception as e:
+                st.error(f"加载默认数据失败: {str(e)}")
 
 
 def show_reports(data):
@@ -590,14 +628,122 @@ def validate_columns_email(df):
         "提货时间",
         "承运方",
         "城市",
-        "收货人",
         "送货地址",
         "收货备注"
     ]
-    
+
     missing_columns = [col for col in required_columns if col not in df.columns]
+
+    # 拟收货时间/拟送货时间 二选一即可
+    has_receive_date = any(col in df.columns for col in ["拟收货时间", "拟送货时间", "预计到货时间", "预计送达时间"])
+    if not has_receive_date:
+        missing_columns.append("拟收货时间(或拟送货时间)")
+
+    # 收货人/收件人 二选一即可
+    has_receiver = any(col in df.columns for col in ["收货人", "收件人", "联系人", "收货联系人", "接收人"])
+    if not has_receiver:
+        missing_columns.append("收货人(或收件人)")
+
     if missing_columns:
         raise ValueError(f"Excel文件缺少必要的列：{', '.join(missing_columns)}")
+
+
+def _get_receive_date_col(df):
+    """获取收货时间列名，支持多种别名。"""
+    for col in ["拟收货时间", "拟送货时间", "预计到货时间", "预计送达时间"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def _get_receiver_col(df):
+    """获取收货人列名，支持多种别名。"""
+    for col in ["收货人", "收件人", "联系人", "收货联系人", "接收人"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def extract_surname(full_name):
+    """从中文姓名中提取姓氏，支持常见复姓。
+    自动去掉末尾的"老师"等称呼后缀，以及括号、手机号等干扰信息。
+    """
+    import re
+
+    if not full_name or not isinstance(full_name, str):
+        return ""
+
+    name = full_name.strip()
+
+    # 移除所有括号及括号内的内容（包括中英文括号）
+    name = re.sub(r'[（(].*?[）)]', '', name)
+
+    # 移除手机号（11位数字）
+    name = re.sub(r'1\d{10}', '', name)
+
+    # 移除多余空格
+    name = re.sub(r'\s+', '', name)
+
+    if len(name) == 0:
+        return ""
+
+    # 去掉常见称呼后缀（从长到短匹配，避免短的先匹配）
+    suffixes = [
+        "老师您好", "老师你好", "老师",
+        "先生", "女士", "小姐",
+        "教授", "副教授",
+        "博士", "博士后",
+        "经理", "总经理",
+        "主任", "院长", "校长",
+        "医生", "医师",
+        "工程师", "工",
+        "同学",
+    ]
+    # 按长度从长到短排序，确保长后缀先匹配
+    suffixes.sort(key=len, reverse=True)
+
+    for suffix in suffixes:
+        if name.endswith(suffix):
+            name = name[:-len(suffix)]
+            break
+
+    # 去掉常见称呼前缀
+    prefixes = ["尊敬的", "亲爱的", "敬爱的", "Dr.", "Dr", "Mr.", "Mr", "Ms.", "Ms", "Mrs.", "Mrs"]
+    for prefix in prefixes:
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+
+    name = name.strip()
+    if len(name) == 0:
+        return ""
+
+    # 常见复姓列表
+    compound_surnames = [
+        "欧阳", "太史", "端木", "上官", "司马", "东方", "独孤", "南宫",
+        "万俟", "闻人", "夏侯", "诸葛", "尉迟", "公羊", "赫连", "澹台",
+        "皇甫", "宗政", "濮阳", "公冶", "太叔", "申屠", "公孙", "慕容",
+        "仲孙", "钟离", "长孙", "宇文", "司徒", "鲜于", "司空", "闾丘",
+        "子车", "亓官", "司寇", "巫马", "公西", "颛孙", "壤驷", "公良",
+        "漆雕", "乐正", "宰父", "谷梁", "拓跋", "夹谷", "轩辕", "令狐",
+        "段干", "百里", "呼延", "东郭", "南门", "羊舌", "微生", "公户",
+        "公玉", "公仪", "梁丘", "公仲", "公上", "公门", "公山", "公坚",
+        "左丘", "公伯", "西门", "公祖", "第五", "公乘", "贯丘", "公皙",
+        "南荣", "东里", "东宫", "仲长", "子书", "子桑", "即墨", "达奚",
+        "褚师", "吴铭",
+    ]
+
+    # 先检查复姓
+    if len(name) >= 2:
+        if name[:2] in compound_surnames:
+            return name[:2]
+
+    # 单姓 - 确保第一个字符是中文字符
+    first_char = name[0]
+    if '\u4e00' <= first_char <= '\u9fff':
+        return first_char
+
+    return ""
 
 
 def read_genotype_from_second_sheet(file_bytes):
@@ -768,12 +914,7 @@ def format_date_email(date_value):
         day_match = re.search(r'(\d+)日', clean_str)
         if month_match and day_match:
             return f"{month_match.group(1)}月{day_match.group(1)}日"
-
-        # 处理 "9/30" 或 "9/30 下午17：00前" 格式
-        slash_match = re.match(r'(\d{1,2})/(\d{1,2})', clean_str)
-        if slash_match:
-            return f"{slash_match.group(1)}月{slash_match.group(2)}日"
-
+        
         # 只有日的情况 "18上午5:00"
         if len(numbers) >= 1:
             # 取第一个数字作为日
@@ -863,16 +1004,14 @@ def build_strain_list(group_df):
 
 
 def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address):
-    # 从收货人姓名中提取姓氏，用于称呼
-    surname = ""
-    if receiver and receiver != "老师":
-        surname = receiver.strip()[0] if receiver.strip() else ""
-    greeting = f"尊敬的{surname}老师：" if surname else "尊敬的老师："
+    surname = extract_surname(receiver)
+    # 如果提取到姓氏，用"X老师"称呼，否则用"老师"
+    if surname:
+        greeting = f"{surname}老师"
+    else:
+        greeting = "老师"
 
-    # 送货日期：优先用拟收货时间，为空则用提货时间
-    delivery_date = receive_date if receive_date else ship_date
-
-    mail_body = f"""{greeting}
+    mail_body = f"""尊敬的{greeting}：
 
 您好！
 
@@ -880,7 +1019,7 @@ def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address
 
 {strain_list}
 
-预计将在{delivery_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？
+预计将在{receive_date}下午17:00前送到您合同指定收货地址：{delivery_address}。请问当天是否方便接收小鼠呢？
 
 附件是本批小鼠的相关文件：美国健康证书AHC，JAX鼠房微生物报告， 隔离场微生物报告以及JAX小鼠接收指南。
 
@@ -897,51 +1036,92 @@ def render_mail(receiver, strain_list, ship_date, receive_date, delivery_address
     return mail_body
 
 
+def _get_email_col(df):
+    """获取邮箱列名，支持多种别名。"""
+    for col in ["邮箱", "电子邮箱", "Email", "email", "E-mail", "e-mail", "邮件地址", "收货邮箱"]:
+        if col in df.columns:
+            return col
+    return None
+
+
+def send_email_smtp(smtp_host, smtp_port, smtp_user, smtp_password, sender_name,
+                    to_email, subject, body, cc_emails=None, use_ssl=True):
+    """通过SMTP发送邮件。
+    
+    Args:
+        smtp_host: SMTP服务器地址
+        smtp_port: SMTP服务器端口
+        smtp_user: SMTP用户名
+        smtp_password: SMTP密码/授权码
+        sender_name: 发件人显示名称
+        to_email: 收件人邮箱
+        subject: 邮件主题
+        body: 邮件正文
+        cc_emails: 抄送邮箱列表
+        use_ssl: 是否使用SSL/TLS
+    
+    Returns:
+        (success: bool, message: str)
+    """
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    from email.header import Header
+    from email.utils import formataddr
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = formataddr((str(Header(sender_name, 'utf-8')), smtp_user))
+        msg['To'] = to_email
+        msg['Subject'] = Header(subject, 'utf-8')
+
+        if cc_emails:
+            if isinstance(cc_emails, str):
+                cc_emails = [e.strip() for e in cc_emails.split(',') if e.strip()]
+            msg['Cc'] = ', '.join(cc_emails)
+
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+        recipients = [to_email]
+        if cc_emails:
+            recipients.extend(cc_emails)
+
+        if use_ssl:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+            server.starttls()
+
+        server.login(smtp_user, smtp_password)
+        server.sendmail(smtp_user, recipients, msg.as_string())
+        server.quit()
+
+        return True, "发送成功"
+    except Exception as e:
+        return False, str(e)
+
+
 def process_excel_email(file_bytes):
     df = pd.read_excel(BytesIO(file_bytes), sheet_name='出隔离场', header=None)
-
-    # 打印前10行原始数据用于调试
-    header_debug = "=== 出隔离场 Sheet 前10行原始数据 ===\n"
-    for dbg_idx in range(min(10, len(df))):
-        row_vals = [repr(v)[:30] for v in df.iloc[dbg_idx].tolist()]
-        header_debug += f"  行{dbg_idx}: {row_vals}\n"
-
+    
     header_row_index = None
     for idx, row in df.iterrows():
         first_cell = str(row.iloc[0]).strip()
         if first_cell == "Job No":
             second_cell = str(row.iloc[1]).strip()
             if second_cell == "Individual PO Number":
-                header_row_index = idx
-                break
-
+                third_cell = str(row.iloc[2]).strip()
+                if third_cell == "JAX销售":
+                    header_row_index = idx
+                    break
+    
     if header_row_index is None:
-        raise ValueError("未找到表头行（第一列需为Job No，第二列需为Individual PO Number）")
-
+        raise ValueError("未找到表头行，请确保Excel文件包含正确的表头")
+    
     new_header = df.iloc[header_row_index].tolist()
-    # 清理列名：strip空格和换行
-    new_header = [str(c).strip() if pd.notna(c) else f"unnamed_{i}" for i, c in enumerate(new_header)]
-
-    header_debug += f"\n表头行索引: {header_row_index}\n"
-    header_debug += f"表头列名: {new_header}\n"
-
-    # 表头下一行通常是英文表头（第一列也是"Job No"），需要跳过
-    data_start = header_row_index + 1
-    # 如果下一行第一列也是"Job No"，说明是英文表头行，再跳一行
-    if data_start < len(df):
-        next_first = str(df.iloc[data_start, 0]).strip() if pd.notna(df.iloc[data_start, 0]) else ""
-        if next_first == "Job No":
-            data_start += 1
-    # 再跳过空行
-    while data_start < len(df):
-        first_val = df.iloc[data_start, 0]
-        if pd.notna(first_val) and str(first_val).strip() not in ("", "nan"):
-            break
-        data_start += 1
-
-    df = df.iloc[data_start:]
+    df = df.iloc[header_row_index + 2:]
     df.columns = new_header
-
+    
     df = df.dropna(how='all')
     df = df[~df["Job No"].astype(str).str.contains("Job No|Quantity", na=False)]
     
@@ -979,74 +1159,104 @@ def process_excel_email(file_bytes):
     else:
         debug_info += "\n基因型映射为空，无法关联\n"
     
-    # 记录调试信息（含原始表头）
-    full_debug = header_debug + "\n" + debug_info
-
+    # 记录调试信息
+    process_excel_email._debug_info = debug_info
+    process_excel_email._genotype_map = genotype_map
+    process_excel_email._genotype_match_count = (df["基因型"] != "").sum()
+    
     po_order = df["Individual PO Number"].dropna().unique().tolist()
 
-    # 模糊查找日期列：遍历所有列名，关键词匹配
-    all_cols = list(df.columns)
-    receive_date_col = None
-    ship_date_col = None
-
-    for col in all_cols:
-        col_str = str(col).strip()
-        if not receive_date_col and any(kw in col_str for kw in ["拟收货", "拟收获", "预计收货", "预计收获", "预计到货", "拟送货", "送货日期", "到货时间", "收货时间", "送货时间"]):
-            receive_date_col = col
-        if not ship_date_col and any(kw in col_str for kw in ["提货时间", "提货日期", "发货时间", "发货日期", "出库时间"]):
-            ship_date_col = col
-
-    full_debug += f"\n=== 日期列检测 ===\n"
-    full_debug += f"  收货日期列: {receive_date_col or '未找到'}\n"
-    full_debug += f"  提货日期列: {ship_date_col or '未找到'}\n"
-    full_debug += f"  全部列名: {all_cols}\n"
-
+    # 获取实际的收货时间列名、收货人列名和邮箱列名
+    receive_date_col = _get_receive_date_col(df)
+    receiver_col = _get_receiver_col(df)
+    email_col = _get_email_col(df)
+    
     result_rows = []
     for po_number, group_data in df.groupby("Individual PO Number"):
         first_row = group_data.iloc[0]
         strain_list = build_strain_list(group_data.copy())
-
-        receiver = str(first_row["收货人"]).strip() if pd.notna(first_row["收货人"]) else "老师"
-        ship_date = format_date_email(first_row[ship_date_col]) if ship_date_col else ""
-        receive_date = format_date_email(first_row[receive_date_col]) if receive_date_col else ""
+        
+        receiver = str(first_row[receiver_col]).strip() if receiver_col and pd.notna(first_row[receiver_col]) else "老师"
+        ship_date = format_date_email(first_row["提货时间"])
+        receive_date = format_date_email(first_row[receive_date_col]) if receive_date_col else "待定"
         delivery_address = str(first_row["送货地址"]).strip() if pd.notna(first_row["送货地址"]) else ""
-
-        full_debug += f"  PO {po_number}: 收货人={receiver}, 提货={ship_date}, 拟收={receive_date}\n"
-
+        receiver_email = str(first_row[email_col]).strip() if email_col and pd.notna(first_row[email_col]) else ""
+        
         mail_body = render_mail(receiver, strain_list, ship_date, receive_date, delivery_address)
         
-        result_rows.append({
+        row_data = {
             "Individual PO Number": po_number,
             "单位名称": first_row["单位名称"],
-            "收货人": first_row["收货人"],
+            "收货人": first_row[receiver_col] if receiver_col else "",
             "邮件内容": mail_body
-        })
+        }
+        if email_col:
+            row_data["邮箱"] = receiver_email
+        result_rows.append(row_data)
     
     result_df = pd.DataFrame(result_rows)
     result_df['po_order'] = result_df['Individual PO Number'].map(lambda x: po_order.index(x) if x in po_order else len(po_order))
     result_df = result_df.sort_values('po_order').drop('po_order', axis=1)
-
-    # 保存调试信息到函数属性
-    process_excel_email._debug_info = full_debug
-    process_excel_email._genotype_map = genotype_map
-    process_excel_email._genotype_match_count = (df["基因型"] != "").sum()
-
+    
     return result_df
 
 
 def show_email_generator():
     st.markdown('<div class="page-title">JAX邮件生成器</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-subtitle">自动生成JAX小鼠发货通知邮件</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">自动生成并发送JAX小鼠发货通知邮件</div>', unsafe_allow_html=True)
     
     st.markdown(textwrap.dedent(
         """
     **使用说明：**
-    1. 上传Excel文件（需包含【出隔离场】Sheet）
+    1. 上传Excel文件（需包含【出隔离场】Sheet，以及收货人/邮箱等列）
     2. 系统自动解析数据并生成邮件内容
-    3. 下载生成的邮件结果Excel文件
-
-    **注意：** 基因型信息会从Excel的第二个子表中读取
+    3. 可下载生成的邮件结果，或配置SMTP后一键批量发送
     """))
+    
+    # SMTP 配置区域（可折叠）
+    with st.expander("⚙️ SMTP邮件发送配置", expanded=False):
+        st.markdown("配置SMTP服务器信息以启用自动发邮件功能：")
+        
+        smtp_col1, smtp_col2 = st.columns(2)
+        with smtp_col1:
+            smtp_host = st.text_input("SMTP服务器地址", value=st.session_state.get('smtp_host', 'smtp.exmail.qq.com'), key='smtp_host')
+            smtp_port = st.number_input("SMTP端口", value=st.session_state.get('smtp_port', 465), min_value=1, max_value=65535, key='smtp_port')
+            smtp_user = st.text_input("发件人邮箱", value=st.session_state.get('smtp_user', ''), key='smtp_user')
+        with smtp_col2:
+            smtp_password = st.text_input("SMTP授权码/密码", type="password", value=st.session_state.get('smtp_password', ''), key='smtp_password')
+            sender_name = st.text_input("发件人名称", value=st.session_state.get('sender_name', '北京澄天生物'), key='sender_name')
+            use_ssl = st.checkbox("使用SSL/TLS", value=st.session_state.get('use_ssl', True), key='use_ssl')
+        
+        cc_emails = st.text_input("抄送邮箱（多个用逗号分隔）", value=st.session_state.get('cc_emails', ''), key='cc_emails',
+                                  help="所有邮件都会抄送到这些邮箱，方便统一管理")
+        
+        test_col, _ = st.columns([1, 3])
+        with test_col:
+            test_email = st.text_input("测试收件邮箱", value="", key="test_email", placeholder="输入邮箱测试发送")
+            if st.button("🧪 发送测试邮件", use_container_width=True):
+                if not smtp_host or not smtp_user or not smtp_password:
+                    st.error("请先填写SMTP服务器地址、发件人邮箱和授权码")
+                elif not test_email:
+                    st.warning("请输入测试收件邮箱")
+                else:
+                    test_body = "这是一封来自JAX邮件生成器的测试邮件。\n\n如果您收到这封邮件，说明SMTP配置正确，可以正常发送邮件了。"
+                    with st.spinner("正在发送测试邮件..."):
+                        success, msg = send_email_smtp(
+                            smtp_host=smtp_host,
+                            smtp_port=int(smtp_port),
+                            smtp_user=smtp_user,
+                            smtp_password=smtp_password,
+                            sender_name=sender_name,
+                            to_email=test_email,
+                            subject="JAX邮件生成器 - 测试邮件",
+                            body=test_body,
+                            cc_emails=None,
+                            use_ssl=use_ssl
+                        )
+                        if success:
+                            st.success("✅ 测试邮件发送成功！")
+                        else:
+                            st.error(f"❌ 测试邮件发送失败：{msg}")
     
     uploaded_file = st.file_uploader("选择Excel文件", type=["xlsx", "xls"])
     
@@ -1055,7 +1265,7 @@ def show_email_generator():
             try:
                 result_df = process_excel_email(uploaded_file.getvalue())
                 
-                st.success("邮件生成完成！")
+                st.success(f"邮件生成完成！共生成 {len(result_df)} 封邮件")
                 
                 # 显示调试信息
                 debug_info = getattr(process_excel_email, '_debug_info', '')
@@ -1075,16 +1285,23 @@ def show_email_generator():
                     try:
                         df_check = pd.read_excel(BytesIO(uploaded_file.getvalue()), sheet_name='出隔离场', header=None)
                         # 找表头
+                        date_col_aliases = ["拟收货时间", "拟送货时间", "预计到货时间", "预计送达时间"]
                         for idx, row in df_check.iterrows():
                             vals = [str(v).strip() for v in row.tolist()]
                             if "Job No" in vals and "Individual PO Number" in vals:
-                                if "拟收货时间" in vals:
-                                    col_idx = vals.index("拟收货时间")
-                                    dates = []
-                                    for r in range(idx + 2, min(idx + 12, len(df_check))):
-                                        val = df_check.iloc[r, col_idx]
-                                        dates.append(f"  行{r}: {repr(val)}")
-                                    st.code("\n".join(dates))
+                                found_date_col = None
+                                for alias in date_col_aliases:
+                                    if alias in vals:
+                                        found_date_col = alias
+                                        col_idx = vals.index(alias)
+                                        dates = []
+                                        for r in range(idx + 2, min(idx + 12, len(df_check))):
+                                            val = df_check.iloc[r, col_idx]
+                                            dates.append(f"  行{r}: {repr(val)}")
+                                        st.code(f"列名: {found_date_col}\n" + "\n".join(dates))
+                                        break
+                                if not found_date_col:
+                                    st.warning("未找到收货/送货时间列")
                                 break
                     except Exception as e:
                         st.error(f"日期检查错误: {e}")
@@ -1092,62 +1309,159 @@ def show_email_generator():
                 st.subheader("生成的邮件列表")
                 st.dataframe(result_df, width="stretch", height=400)
                 
-                excel_buffer = BytesIO()
-                result_df.to_excel(excel_buffer, index=False, sheet_name="邮件生成结果")
-                excel_buffer.seek(0)
+                # 检查是否有邮箱列
+                has_email_col = "邮箱" in result_df.columns
                 
-                st.download_button(
-                    label="📥 下载邮件结果",
-                    data=excel_buffer,
-                    file_name=f"JAX邮件生成结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                btn_col1, btn_col2, btn_col3 = st.columns(3)
+                
+                with btn_col1:
+                    excel_buffer = BytesIO()
+                    result_df.to_excel(excel_buffer, index=False, sheet_name="邮件生成结果")
+                    excel_buffer.seek(0)
+                    
+                    st.download_button(
+                        label="📥 下载邮件结果",
+                        data=excel_buffer,
+                        file_name=f"JAX邮件生成结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                
+                with btn_col2:
+                    # 批量发送按钮
+                    can_send = has_email_col and smtp_host and smtp_user and smtp_password
+                    if not has_email_col:
+                        st.info("💡 Excel中未检测到邮箱列，无法自动发送")
+                    elif not smtp_host or not smtp_user or not smtp_password:
+                        st.info("💡 请先在上方配置SMTP信息")
+                    
+                    if st.button("📤 批量发送邮件", type="primary", use_container_width=True, disabled=not can_send,
+                                 help="将所有生成的邮件发送到对应收件人"):
+                        if not can_send:
+                            st.warning("请确保已配置SMTP且Excel包含邮箱列")
+                        else:
+                            # 确认发送
+                            st.warning(f"⚠️ 即将发送 {len(result_df)} 封邮件，请确认：")
+                            st.write(f"- SMTP服务器：{smtp_host}:{smtp_port}")
+                            st.write(f"- 发件人：{sender_name} <{smtp_user}>")
+                            if cc_emails:
+                                st.write(f"- 抄送：{cc_emails}")
+                            
+                            confirm_col1, confirm_col2 = st.columns(2)
+                            with confirm_col1:
+                                if st.button("✅ 确认发送", type="primary", use_container_width=True):
+                                    st.session_state['confirm_send'] = True
+                                    st.rerun()
+                            with confirm_col2:
+                                if st.button("❌ 取消", use_container_width=True):
+                                    st.session_state.pop('confirm_send', None)
+                                    st.rerun()
+                
+                with btn_col3:
+                    # 自定义邮件主题
+                    email_subject = st.text_input(
+                        "邮件主题前缀",
+                        value=st.session_state.get('email_subject', 'JAX小鼠配送通知'),
+                        key='email_subject_input',
+                        help="邮件主题前缀，后面会自动加上PO号"
+                    )
+                
+                # 如果确认发送，执行发送
+                if st.session_state.get('confirm_send', False):
+                    st.session_state.pop('confirm_send', None)
+                    
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    send_results = []
+                    
+                    total = len(result_df)
+                    success_count = 0
+                    fail_count = 0
+                    
+                    for idx, row in result_df.iterrows():
+                        current_idx = idx + 1
+                        progress_bar.progress(current_idx / total)
+                        status_text.text(f"正在发送：{current_idx}/{total} - {row['单位名称']}")
+                        
+                        to_email = row.get("邮箱", "")
+                        if not to_email or pd.isna(to_email) or str(to_email).strip() == "":
+                            send_results.append({
+                                "PO号": row["Individual PO Number"],
+                                "单位": row["单位名称"],
+                                "收件人": row["收货人"],
+                                "邮箱": "",
+                                "状态": "失败",
+                                "原因": "无邮箱地址"
+                            })
+                            fail_count += 1
+                            continue
+                        
+                        subject = f"{email_subject} - {row['Individual PO Number']}"
+                        
+                        success, msg = send_email_smtp(
+                            smtp_host=smtp_host,
+                            smtp_port=int(smtp_port),
+                            smtp_user=smtp_user,
+                            smtp_password=smtp_password,
+                            sender_name=sender_name,
+                            to_email=str(to_email).strip(),
+                            subject=subject,
+                            body=row["邮件内容"],
+                            cc_emails=cc_emails if cc_emails else None,
+                            use_ssl=use_ssl
+                        )
+                        
+                        send_results.append({
+                            "PO号": row["Individual PO Number"],
+                            "单位": row["单位名称"],
+                            "收件人": row["收货人"],
+                            "邮箱": str(to_email).strip(),
+                            "状态": "成功" if success else "失败",
+                            "原因": "" if success else msg
+                        })
+                        
+                        if success:
+                            success_count += 1
+                        else:
+                            fail_count += 1
+                    
+                    progress_bar.empty()
+                    status_text.empty()
+                    
+                    # 显示发送结果汇总
+                    result_summary_col1, result_summary_col2, result_summary_col3 = st.columns(3)
+                    with result_summary_col1:
+                        st.metric("发送总数", total)
+                    with result_summary_col2:
+                        st.metric("成功", success_count, delta_color="normal")
+                    with result_summary_col3:
+                        st.metric("失败", fail_count, delta_color="inverse")
+                    
+                    if fail_count > 0:
+                        st.error(f"有 {fail_count} 封邮件发送失败，请查看下方详情")
+                    else:
+                        st.success(f"✅ 全部 {success_count} 封邮件发送成功！")
+                    
+                    # 显示详细结果
+                    with st.expander("📋 发送详情", expanded=True):
+                        results_df = pd.DataFrame(send_results)
+                        st.dataframe(results_df, width="stretch")
+                        
+                        # 下载发送结果
+                        result_buffer = BytesIO()
+                        results_df.to_excel(result_buffer, index=False, sheet_name="发送结果")
+                        result_buffer.seek(0)
+                        st.download_button(
+                            label="📥 下载发送结果",
+                            data=result_buffer,
+                            file_name=f"邮件发送结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
                 
                 st.subheader("邮件预览")
-                import json as _json
-                for idx, (_, row) in enumerate(result_df.iterrows()):
-                    with st.expander(f"📧 {row['Individual PO Number']} - {row['单位名称']}", expanded=(idx == 0)):
+                for _, row in result_df.iterrows():
+                    with st.expander(f"📧 {row['Individual PO Number']} - {row['单位名称']}"):
                         st.text(row['邮件内容'])
-                        # 一键复制按钮（textarea + execCommand 方式，兼容 iframe）
-                        email_text_js = _json.dumps(row['邮件内容'])
-                        st.components.v1.html(f"""
-                        <html>
-                        <body style="margin:0;background:transparent;">
-                        <textarea id="copyArea" style="position:absolute;left:-9999px;top:0;">{row['邮件内容']}</textarea>
-                        <button onclick="doCopy(this)"
-                        style="background:#2563eb;color:#fff;border:none;border-radius:8px;
-                        padding:8px 16px;font-size:14px;cursor:pointer;margin-top:4px;">
-                            📋 一键复制邮件内容
-                        </button>
-                        <script>
-                        function doCopy(btn) {{
-                            var ta = document.getElementById('copyArea');
-                            ta.style.position = 'fixed';
-                            ta.style.left = '0px';
-                            ta.style.top = '0px';
-                            ta.style.opacity = '0';
-                            ta.select();
-                            ta.setSelectionRange(0, 99999);
-                            var ok = false;
-                            try {{ ok = document.execCommand('copy'); }} catch(e) {{ ok = false; }}
-                            ta.style.position = 'absolute';
-                            ta.style.left = '-9999px';
-                            if (ok) {{
-                                btn.textContent = '✅ 已复制到剪贴板';
-                                btn.style.background = '#16a34a';
-                            }} else {{
-                                btn.textContent = '❌ 复制失败，请手动选择文字复制';
-                                btn.style.background = '#dc2626';
-                            }}
-                            setTimeout(function() {{
-                                btn.textContent = '📋 一键复制邮件内容';
-                                btn.style.background = '#2563eb';
-                            }}, 2500);
-                        }}
-                        </script>
-                        </body>
-                        </html>
-                        """, height=60)
             
             except Exception as e:
                 st.error(f"处理过程中发生错误：\n\n{str(e)}")
@@ -1289,6 +1603,59 @@ def show_invoice_registration():
         pass
 
 
+_ICON_USER = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#2563EB" xmlns="http://www.w3.org/2000/svg"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'
+_ICON_SYNC = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#2563EB" xmlns="http://www.w3.org/2000/svg"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>'
+_ICON_SHIELD = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#2563EB" xmlns="http://www.w3.org/2000/svg"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>'
+
+
+def _login_brand_html() -> str:
+    import base64
+    from pathlib import Path
+    ill_path = Path(__file__).resolve().parent / "assets" / "login_illustration_white.jpg"
+    ill_tag = ""
+    if ill_path.exists():
+        b64 = base64.b64encode(ill_path.read_bytes()).decode()
+        ill_tag = f'<img src="data:image/jpeg;base64,{b64}" alt="澄天小助手">'
+    return f"""
+    <div class="login-brand-panel">
+      <div>
+        <div class="login-brand-header">
+          <svg width="46" height="46" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="loginLogoGrad" x1="8" y1="4" x2="38" y2="42" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#57A6FF"/>
+                <stop offset="1" stop-color="#1667E0"/>
+              </linearGradient>
+            </defs>
+            <circle cx="23" cy="23" r="14.5" stroke="url(#loginLogoGrad)" stroke-width="13" fill="none" stroke-dasharray="68 23.1" stroke-dashoffset="79.6"/>
+            <circle cx="23" cy="23" r="14.5" stroke="#0B4BBF" stroke-width="13" fill="none" stroke-dasharray="11.5 79.6"/>
+          </svg>
+          <div class="login-brand-name">澄天小助手</div>
+        </div>
+        <div class="login-brand-tagline">让客户管理更简单 · 让数据创造更大价值</div>
+      </div>
+      <div class="login-brand-illustration">{ill_tag}</div>
+      <div class="login-brand-features">
+        <div class="login-brand-feature">
+          <div class="login-feature-icon">{_ICON_USER}</div>
+          <div class="login-feature-title">智能分析</div>
+          <div class="login-feature-desc">数据驱动决策</div>
+        </div>
+        <div class="login-brand-feature">
+          <div class="login-feature-icon">{_ICON_SYNC}</div>
+          <div class="login-feature-title">高效管理</div>
+          <div class="login-feature-desc">提升工作效率</div>
+        </div>
+        <div class="login-brand-feature">
+          <div class="login-feature-icon">{_ICON_SHIELD}</div>
+          <div class="login-feature-title">安全可靠</div>
+          <div class="login-feature-desc">企业级数据安全</div>
+        </div>
+      </div>
+    </div>
+    """
+
+
 def main():
     st.set_page_config(
         page_title="澄天小助手",
@@ -1300,49 +1667,258 @@ def main():
     # 浅色 Plotly 主题
     px.defaults.template = "plotly_white"
 
-    from modules.theme import apply_app_styles
+    from modules.theme import apply_login_styles, apply_app_styles
     
     with open(CONFIG_PATH) as file:
         config = yaml.load(file, Loader=SafeLoader)
+    
+    authenticator = stauth.Authenticate(
+        config['credentials'],
+        config['cookie']['name'],
+        config['cookie']['key'],
+        config['cookie']['expiry_days']
+    )
+    
+    if st.session_state.get('authentication_status') != True:
+        apply_login_styles()
 
-    # 免登录：直接设置默认用户为管理员
-    if not st.session_state.get('authentication_status'):
-        # 使用配置中第一个管理员用户，没有则用默认访客
-        usernames = config.get('credentials', {}).get('usernames', {})
-        default_user = None
-        for uname, uinfo in usernames.items():
-            if uinfo.get('role') == 'admin':
-                default_user = uname
-                break
-        if not default_user and usernames:
-            default_user = list(usernames.keys())[0]
-        if not default_user:
-            default_user = "guest"
-        
-        st.session_state['authentication_status'] = True
-        st.session_state['username'] = default_user
-        st.session_state['name'] = usernames.get(default_user, {}).get('name', default_user)
+        # 隐藏侧边栏
+        st.markdown('<style>[data-testid="stSidebar"]{display:none !important;}</style>', unsafe_allow_html=True)
 
-    apply_app_styles()
+        wecom_cfg = get_wecom_config(config)
 
-    selected_main = st.session_state.get('selected_main', '🏠 首页')
-    data = st.session_state.get('data')
+        # 企业微信授权回调：扫码后企业微信带 auth_code 跳回本应用
+        _wecom_code = st.query_params.get("auth_code")
+        if _wecom_code:
+            for _k in ("auth_code", "state"):
+                if _k in st.query_params:
+                    del st.query_params[_k]
+            if wecom_cfg["enabled"] and is_configured(wecom_cfg):
+                _userid, _err = exchange_auth_code(wecom_cfg, _wecom_code)
+                if _err:
+                    st.session_state["wecom_message"] = ("error", _err)
+                else:
+                    _local_user = match_local_user(config, _userid)
+                    if _local_user:
+                        st.session_state["authentication_status"] = True
+                        st.session_state["username"] = _local_user
+                        st.session_state["name"] = config["credentials"]["usernames"][_local_user].get("name", _local_user)
+                        st.rerun()
+                    else:
+                        st.session_state["wecom_message"] = ("error", f"企业微信成员 {_userid} 未绑定系统用户，请联系管理员在用户配置中添加 wecom_userid")
+            else:
+                st.session_state["wecom_message"] = ("error", "企业微信登录未启用，请先在 config.yaml 的 wecom 段完成配置")
 
-    current_user = st.session_state.get('username')
-    is_admin = config['credentials']['usernames'].get(current_user, {}).get('role') == 'admin'
-    user_display = config['credentials']['usernames'].get(current_user, {}).get('name', current_user) if current_user else ''
+        # 点击企业微信登录后跳转授权页（redirect_uri 由浏览器端拼接当前地址）
+        if st.session_state.pop("wecom_redirect", False):
+            _oauth_prefix = build_oauth_url_prefix(wecom_cfg)
+            st.markdown(
+                f"""<script>
+                (function() {{
+                    var redirect = encodeURIComponent(window.location.origin + window.location.pathname);
+                    window.location.href = "{_oauth_prefix}" + redirect + "&state=ct_login";
+                }})();
+                </script>""",
+                unsafe_allow_html=True,
+            )
 
-    # ---- 侧边栏导航 ----
-    nav_items = [
+        col_brand, col_form = st.columns([11, 9], gap="small")
+
+        with col_brand:
+            st.markdown(_login_brand_html(), unsafe_allow_html=True)
+
+        with col_form:
+            with st.container(border=True):
+                login_tab, register_tab = st.tabs(["登录系统", "新用户注册"])
+
+                with login_tab:
+                    st.markdown('<div class="login-form-title">欢迎登录澄天小助手</div>', unsafe_allow_html=True)
+
+                    def _clear_login_msg():
+                        """用户编辑输入框时清除旧的登录提示消息"""
+                        st.session_state.pop("_login_msg", None)
+
+                    # --- 记住账号：从本地文件加载已记住的用户名 ---
+                    _remember_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "remembered_user.txt")
+                    def _load_remembered_user():
+                        try:
+                            with open(_remember_file, "r") as f:
+                                return f.read().strip()
+                        except (FileNotFoundError, OSError):
+                            return ""
+
+                    def _save_remembered_user(username):
+                        try:
+                            os.makedirs(os.path.dirname(_remember_file), exist_ok=True)
+                            with open(_remember_file, "w") as f:
+                                f.write(username)
+                        except OSError:
+                            pass
+
+                    def _clear_remembered_user():
+                        try:
+                            if os.path.exists(_remember_file):
+                                os.remove(_remember_file)
+                        except OSError:
+                            pass
+
+                    # 预填充已记住的用户名（仅在 session_state 中尚无值时）
+                    if "login_username" not in st.session_state or not st.session_state.get("login_username"):
+                        _saved_user = _load_remembered_user()
+                        if _saved_user:
+                            st.session_state["login_username"] = _saved_user
+                    if "login_remember" not in st.session_state:
+                        if _load_remembered_user():
+                            st.session_state["login_remember"] = True
+
+                    login_username = st.text_input("用户名", placeholder="请输入用户名/邮箱/手机号码", key="login_username", label_visibility="collapsed", on_change=_clear_login_msg)
+                    login_password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password", label_visibility="collapsed", on_change=_clear_login_msg)
+
+                    remember_col, forgot_col = st.columns([1, 1])
+                    with remember_col:
+                        remember = st.checkbox("记住账号", key="login_remember")
+                    with forgot_col:
+                        st.markdown('<div class="login-forgot"><a href="#">忘记密码?</a></div>', unsafe_allow_html=True)
+
+                    if st.button("登录", key="btn_login", use_container_width=True, type="primary"):
+                        if login_username and login_password:
+                            usernames = config['credentials']['usernames']
+                            if login_username in usernames:
+                                stored_hash = usernames[login_username].get('password', '')
+                                if bcrypt.checkpw(login_password.encode('utf-8'), stored_hash.encode('utf-8')):
+                                    st.session_state['authentication_status'] = True
+                                    st.session_state['username'] = login_username
+                                    st.session_state['name'] = usernames[login_username].get('name', login_username)
+                                    # 记住账号：保存或清除用户名
+                                    if remember:
+                                        _save_remembered_user(login_username)
+                                    else:
+                                        _clear_remembered_user()
+                                    st.rerun()
+                                else:
+                                    st.session_state['authentication_status'] = False
+                                    st.session_state["_login_msg"] = ("error", "用户名或密码错误")
+                                    st.rerun()
+                            else:
+                                st.session_state['authentication_status'] = False
+                                st.session_state["_login_msg"] = ("error", "用户名或密码错误")
+                                st.rerun()
+                        else:
+                            st.session_state["_login_msg"] = ("warning", "请输入用户名和密码")
+                            st.rerun()
+
+                    # 在按钮下方显示登录提示消息（通过 session_state + rerun 保证位置一致）
+                    _login_msg = st.session_state.get("_login_msg")
+                    if _login_msg:
+                        _msg_type, _msg_text = _login_msg
+                        if _msg_type == "warning":
+                            st.warning(_msg_text)
+                        elif _msg_type == "error":
+                            st.error(_msg_text)
+
+                    # JavaScript：用户在输入框中打字时即时隐藏旧的提示消息
+                    st.markdown("""
+                    <script>
+                    (function() {
+                        var container = document.querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
+                        if (!container) return;
+                        // 使用事件委托，确保登录和注册两个 Tab 的输入框都能响应
+                        container.addEventListener('input', function(e) {
+                            if (e.target && (e.target.type === 'text' || e.target.type === 'password')) {
+                                var alerts = container.querySelectorAll('[data-testid="stAlert"], [data-testid="stAlertContainer"]');
+                                alerts.forEach(function(alert) { alert.style.opacity = '0'; });
+                            }
+                        });
+                    })();
+                    </script>
+                    """, unsafe_allow_html=True)
+
+                    st.markdown('<div class="login-divider">其他登录方式</div>', unsafe_allow_html=True)
+
+                    if st.button("企业微信登录", key="wecom_login", use_container_width=True):
+                        if not wecom_cfg["enabled"] or not is_configured(wecom_cfg):
+                            st.session_state["wecom_message"] = (
+                                "info",
+                                "企业微信登录未启用：请在 config.yaml 的 wecom 段配置 enabled: true、corp_id、agent_id、secret 后重启应用",
+                            )
+                        else:
+                            st.session_state["wecom_redirect"] = True
+                        st.rerun()
+
+                with register_tab:
+                    st.markdown('<div class="login-form-title">创建新账号</div>', unsafe_allow_html=True)
+
+                    def _clear_reg_msg():
+                        """用户编辑输入框时清除旧的注册提示消息"""
+                        st.session_state.pop("_reg_msg", None)
+
+                    new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名", label_visibility="collapsed", on_change=_clear_reg_msg)
+                    new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址", label_visibility="collapsed", on_change=_clear_reg_msg)
+                    new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符", label_visibility="collapsed", on_change=_clear_reg_msg)
+                    confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码", label_visibility="collapsed", on_change=_clear_reg_msg)
+
+                    if st.button("注册新账号", key="btn_register", use_container_width=True, type="primary"):
+                        if not new_username or not new_email or not new_password:
+                            st.session_state["_reg_msg"] = ("error", "请填写所有必填字段")
+                            st.rerun()
+                        elif new_password != confirm_password:
+                            st.session_state["_reg_msg"] = ("error", "两次输入的密码不一致")
+                            st.rerun()
+                        elif new_username in config['credentials']['usernames']:
+                            st.session_state["_reg_msg"] = ("error", "该用户名已存在")
+                            st.rerun()
+                        else:
+                            hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+                            config['credentials']['usernames'][new_username] = {
+                                "email": new_email,
+                                "name": new_username,
+                                "password": hashed_password,
+                                "role": "user"
+                            }
+
+                            with open(CONFIG_PATH, 'w') as file:
+                                yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
+
+                            st.session_state["_reg_msg"] = ("success", "🎉 注册成功！请切换到登录页面登录")
+                            st.rerun()
+
+                    # 在按钮下方显示注册提示消息
+                    _reg_msg = st.session_state.get("_reg_msg")
+                    if _reg_msg:
+                        _reg_type, _reg_text = _reg_msg
+                        if _reg_type == "error":
+                            st.error(_reg_text)
+                        elif _reg_type == "success":
+                            st.success(_reg_text)
+
+        st.markdown('<div class="login-footer">© 2024 澄天生物科技有限公司 · 版权所有</div>', unsafe_allow_html=True)
+
+        return
+    
+    if st.session_state.get('authentication_status'):
+        apply_app_styles()
+
+        selected_main = st.session_state.get('selected_main', '🏠 首页')
+        data = st.session_state.get('data')
+
+        current_user = st.session_state.get('username')
+        is_admin = config['credentials']['usernames'].get(current_user, {}).get('role') == 'admin'
+        user_display = config['credentials']['usernames'].get(current_user, {}).get('name', current_user) if current_user else ''
+
+        # ---- 侧边栏导航 ----
+        nav_items = [
             ("🏠 首页", "🏠 首页"),
             ("📊 客户积分智能分析", "📊 客户积分智能分析"),
             ("📧 JAX邮件生成器", "📧 JAX邮件生成器"),
             ("🧾 红冲发票自动登记", "🧾 红冲发票自动登记"),
-    ]
-    if is_admin:
+            ("📋 报价助手", "📋 报价助手"),
+            ("🎬 AI 视频剪辑", "🎬 AI 视频剪辑"),
+        ]
+        if is_admin:
             nav_items.append(("👑 用户管理", "👑 用户管理"))
 
-    with st.sidebar:
+        with st.sidebar:
             st.markdown("""
             <div class="sidebar-logo">
               <span style="font-size:28px;">🐭</span>
@@ -1373,11 +1949,15 @@ def main():
               </div>
             </div>
             """, unsafe_allow_html=True)
+            if st.button("退出登录", key="btn-logout", use_container_width=True):
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                st.rerun()
 
-    # ---- 主内容路由 ----
-    if selected_main == '🏠 首页':
+        # ---- 主内容路由 ----
+        if selected_main == '🏠 首页':
             show_home(config)
-    elif selected_main == '📊 客户积分智能分析':
+        elif selected_main == '📊 客户积分智能分析':
             selected_sub = st.session_state.get('selected_sub', '📈 数据概览')
 
             sub_options = [
@@ -1406,43 +1986,46 @@ def main():
 
             st.divider()
 
-            if selected_sub == "📥 数据导入":
-                show_data_import()
-            else:
+            if selected_sub == "📈 数据概览":
                 if data is None:
-                    # 没有数据时，显示上传引导
-                    st.markdown('<div class="page-title">客户积分智能分析</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="page-subtitle">请先上传客户积分Excel数据</div>', unsafe_allow_html=True)
-                    st.info("📂 请上传客户积分Excel文件（支持 .xlsx / .xls），上传后自动加载数据并展示分析结果。")
-                    uploaded = st.file_uploader("选择客户积分Excel文件", type=["xlsx", "xls"], key="upload-customer-data")
-                    if uploaded is not None:
-                        with st.spinner("正在处理Excel文件..."):
-                            try:
-                                data = load_data(file_bytes=uploaded.getvalue())
-                                if data:
-                                    st.success("数据加载成功！")
-                                    st.session_state['data'] = data
-                                    st.rerun()
-                            except Exception as e:
-                                st.error(f"数据加载失败: {str(e)}")
-                    st.stop()
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_dashboard(data)
+            elif selected_sub == "👥 客户管理":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_customer_management(data)
+            elif selected_sub == "🏆 积分管理":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_point_management(data)
+            elif selected_sub == "📥 数据导入":
+                show_data_import()
+            elif selected_sub == "📝 报表导出":
+                if data is None:
+                    data = load_data()
+                    if data:
+                        st.session_state['data'] = data
+                show_reports(data)
 
-                if selected_sub == "📈 数据概览":
-                    show_dashboard(data)
-                elif selected_sub == "👥 客户管理":
-                    show_customer_management(data)
-                elif selected_sub == "🏆 积分管理":
-                    show_point_management(data)
-                elif selected_sub == "📝 报表导出":
-                    show_reports(data)
-
-    elif selected_main == '📧 JAX邮件生成器':
+        elif selected_main == '📧 JAX邮件生成器':
             show_email_generator()
 
-    elif selected_main == '🧾 红冲发票自动登记':
+        elif selected_main == '🧾 红冲发票自动登记':
             show_invoice_registration()
 
-    elif selected_main == '👑 用户管理':
+        elif selected_main == '📋 报价助手':
+            show_quotation()
+
+        elif selected_main == '🎬 AI 视频剪辑':
+            show_video_editor()
+
+        elif selected_main == '👑 用户管理':
             show_user_management(config)
 
 

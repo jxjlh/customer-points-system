@@ -322,8 +322,9 @@ def _get_sidebar_css() -> str:
 def _get_login_css() -> str:
     return """
     <style>
+    /* ===== 登录页（顶部品牌横幅 + 居中卡片） ===== */
     [data-testid="stAppViewContainer"] {
-        background: #f0f5ff;
+        background: #eef3fb;
     }
     [data-testid="stMainBlockContainer"] {
         max-width: 100% !important;
@@ -332,11 +333,138 @@ def _get_login_css() -> str:
     [data-testid="stMainBlockContainer"] > div {
         padding: 0 !important;
     }
-    [data-testid="stHorizontalBlock"] {
-        gap: 0 !important;
+
+    /* 顶部品牌横幅 */
+    .login-header {
+        background: linear-gradient(180deg, #d9e6f7 0%, #e7eef9 55%, #eef3fb 100%);
+        padding: 34px 48px 28px;
     }
-    [data-testid="stColumn"] {
-        min-height: 100vh;
+    .login-header-top {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+    }
+    .login-header-name {
+        font-size: 30px;
+        font-weight: 700;
+        color: #1f2937;
+        letter-spacing: 0.5px;
+    }
+    .login-header-tagline {
+        margin-top: 12px;
+        font-size: 14px;
+        color: #64748b;
+    }
+
+    /* 居中登录卡片 */
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        max-width: 560px !important;
+        margin: 60px auto 10px !important;
+        border: none !important;
+        border-radius: 16px !important;
+        background: #ffffff !important;
+        box-shadow: 0 12px 36px rgba(15, 23, 42, 0.10) !important;
+        padding: 6px 40px 30px !important;
+    }
+
+    /* 选项卡：登录系统 / 新用户注册 */
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {
+        border-bottom: 1px solid #e5e7eb;
+        gap: 4px;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab"] {
+        padding: 12px 18px;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab"] p {
+        font-size: 15px;
+        font-weight: 600;
+        color: #6b7280;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] p {
+        color: #2563eb;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab-highlight"] {
+        background-color: #2563eb !important;
+        height: 3px !important;
+        border-radius: 2px !important;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab-border"] {
+        display: none;
+    }
+
+    /* 表单标题 */
+    .login-form-title {
+        font-size: 19px;
+        font-weight: 700;
+        color: #111827;
+        margin: 8px 0 20px;
+    }
+
+    /* 输入框：浅灰圆角 + 左侧图标 */
+    [data-testid="stTextInput"] input {
+        height: 46px !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 10px !important;
+        background-color: #ffffff !important;
+        background-repeat: no-repeat !important;
+        background-position: 12px center !important;
+        background-size: 18px 18px !important;
+        padding-left: 40px !important;
+    }
+    [data-testid="stTextInput"] input:focus {
+        border-color: #2563eb !important;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15) !important;
+    }
+    input[aria-label="用户名"] {
+        background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%233b82f6'%3E%3Cpath d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'/%3E%3C/svg%3E") !important;
+    }
+    input[aria-label="密码"] {
+        background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%233b82f6'%3E%3Cpath d='M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z'/%3E%3C/svg%3E") !important;
+    }
+
+    /* 记住账号 / 忘记密码 */
+    .login-forgot {
+        text-align: right;
+        font-size: 13px;
+        padding-top: 6px;
+    }
+    .login-forgot a {
+        color: #2563eb;
+        text-decoration: none;
+        font-weight: 500;
+    }
+    .login-forgot a:hover {
+        text-decoration: underline;
+    }
+
+    /* 主按钮（登 录 / 注册） */
+    [data-testid="stButton"] button[kind="primary"] {
+        background: #2563eb !important;
+        border: none !important;
+        height: 46px !important;
+        border-radius: 10px !important;
+        font-size: 16px !important;
+        font-weight: 600 !important;
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25) !important;
+    }
+    [data-testid="stButton"] button[kind="primary"]:hover {
+        background: #1d4ed8 !important;
+    }
+
+    /* 其他登录方式分隔 */
+    .login-divider {
+        text-align: center;
+        color: #9ca3af;
+        font-size: 12px;
+        margin: 18px 0 10px;
+    }
+
+    /* 页脚版权 */
+    .login-footer {
+        text-align: center;
+        font-size: 12px;
+        color: #94a3b8;
+        padding: 10px 0 30px;
     }
     </style>
     """

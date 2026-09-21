@@ -1603,55 +1603,23 @@ def show_invoice_registration():
         pass
 
 
-_ICON_USER = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#2563EB" xmlns="http://www.w3.org/2000/svg"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'
-_ICON_SYNC = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#2563EB" xmlns="http://www.w3.org/2000/svg"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>'
-_ICON_SHIELD = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#2563EB" xmlns="http://www.w3.org/2000/svg"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>'
-
-
-def _login_brand_html() -> str:
-    import base64
-    from pathlib import Path
-    ill_path = Path(__file__).resolve().parent / "assets" / "login_illustration_white.jpg"
-    ill_tag = ""
-    if ill_path.exists():
-        b64 = base64.b64encode(ill_path.read_bytes()).decode()
-        ill_tag = f'<img src="data:image/jpeg;base64,{b64}" alt="澄天小助手">'
-    return f"""
-    <div class="login-brand-panel">
-      <div>
-        <div class="login-brand-header">
-          <svg width="46" height="46" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <linearGradient id="loginLogoGrad" x1="8" y1="4" x2="38" y2="42" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#57A6FF"/>
-                <stop offset="1" stop-color="#1667E0"/>
-              </linearGradient>
-            </defs>
-            <circle cx="23" cy="23" r="14.5" stroke="url(#loginLogoGrad)" stroke-width="13" fill="none" stroke-dasharray="68 23.1" stroke-dashoffset="79.6"/>
-            <circle cx="23" cy="23" r="14.5" stroke="#0B4BBF" stroke-width="13" fill="none" stroke-dasharray="11.5 79.6"/>
-          </svg>
-          <div class="login-brand-name">澄天小助手</div>
-        </div>
-        <div class="login-brand-tagline">让客户管理更简单 · 让数据创造更大价值</div>
+def _login_header_html() -> str:
+    return """
+    <div class="login-header">
+      <div class="login-header-top">
+        <svg width="44" height="44" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="loginLogoGrad" x1="8" y1="4" x2="38" y2="42" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#57A6FF"/>
+              <stop offset="1" stop-color="#1667E0"/>
+            </linearGradient>
+          </defs>
+          <circle cx="23" cy="23" r="14.5" stroke="url(#loginLogoGrad)" stroke-width="13" fill="none" stroke-dasharray="68 23.1" stroke-dashoffset="79.6"/>
+          <circle cx="23" cy="23" r="14.5" stroke="#0B4BBF" stroke-width="13" fill="none" stroke-dasharray="11.5 79.6"/>
+        </svg>
+        <div class="login-header-name">澄天小助手</div>
       </div>
-      <div class="login-brand-illustration">{ill_tag}</div>
-      <div class="login-brand-features">
-        <div class="login-brand-feature">
-          <div class="login-feature-icon">{_ICON_USER}</div>
-          <div class="login-feature-title">智能分析</div>
-          <div class="login-feature-desc">数据驱动决策</div>
-        </div>
-        <div class="login-brand-feature">
-          <div class="login-feature-icon">{_ICON_SYNC}</div>
-          <div class="login-feature-title">高效管理</div>
-          <div class="login-feature-desc">提升工作效率</div>
-        </div>
-        <div class="login-brand-feature">
-          <div class="login-feature-icon">{_ICON_SHIELD}</div>
-          <div class="login-feature-title">安全可靠</div>
-          <div class="login-feature-desc">企业级数据安全</div>
-        </div>
-      </div>
+      <div class="login-header-tagline">让客户管理更简单 · 让数据创造更大价值</div>
     </div>
     """
 
@@ -1722,175 +1690,171 @@ def main():
                 unsafe_allow_html=True,
             )
 
-        col_brand, col_form = st.columns([11, 9], gap="small")
+        st.markdown(_login_header_html(), unsafe_allow_html=True)
 
-        with col_brand:
-            st.markdown(_login_brand_html(), unsafe_allow_html=True)
+        with st.container(border=True):
+            login_tab, register_tab = st.tabs(["登录系统", "新用户注册"])
 
-        with col_form:
-            with st.container(border=True):
-                login_tab, register_tab = st.tabs(["登录系统", "新用户注册"])
+            with login_tab:
+                st.markdown('<div class="login-form-title">欢迎登录澄天小助手</div>', unsafe_allow_html=True)
 
-                with login_tab:
-                    st.markdown('<div class="login-form-title">欢迎登录澄天小助手</div>', unsafe_allow_html=True)
+                def _clear_login_msg():
+                    """用户编辑输入框时清除旧的登录提示消息"""
+                    st.session_state.pop("_login_msg", None)
 
-                    def _clear_login_msg():
-                        """用户编辑输入框时清除旧的登录提示消息"""
-                        st.session_state.pop("_login_msg", None)
+                # --- 记住账号：从本地文件加载已记住的用户名 ---
+                _remember_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "remembered_user.txt")
+                def _load_remembered_user():
+                    try:
+                        with open(_remember_file, "r") as f:
+                            return f.read().strip()
+                    except (FileNotFoundError, OSError):
+                        return ""
 
-                    # --- 记住账号：从本地文件加载已记住的用户名 ---
-                    _remember_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "remembered_user.txt")
-                    def _load_remembered_user():
-                        try:
-                            with open(_remember_file, "r") as f:
-                                return f.read().strip()
-                        except (FileNotFoundError, OSError):
-                            return ""
+                def _save_remembered_user(username):
+                    try:
+                        os.makedirs(os.path.dirname(_remember_file), exist_ok=True)
+                        with open(_remember_file, "w") as f:
+                            f.write(username)
+                    except OSError:
+                        pass
 
-                    def _save_remembered_user(username):
-                        try:
-                            os.makedirs(os.path.dirname(_remember_file), exist_ok=True)
-                            with open(_remember_file, "w") as f:
-                                f.write(username)
-                        except OSError:
-                            pass
+                def _clear_remembered_user():
+                    try:
+                        if os.path.exists(_remember_file):
+                            os.remove(_remember_file)
+                    except OSError:
+                        pass
 
-                    def _clear_remembered_user():
-                        try:
-                            if os.path.exists(_remember_file):
-                                os.remove(_remember_file)
-                        except OSError:
-                            pass
+                # 预填充已记住的用户名（仅在 session_state 中尚无值时）
+                if "login_username" not in st.session_state or not st.session_state.get("login_username"):
+                    _saved_user = _load_remembered_user()
+                    if _saved_user:
+                        st.session_state["login_username"] = _saved_user
+                if "login_remember" not in st.session_state:
+                    if _load_remembered_user():
+                        st.session_state["login_remember"] = True
 
-                    # 预填充已记住的用户名（仅在 session_state 中尚无值时）
-                    if "login_username" not in st.session_state or not st.session_state.get("login_username"):
-                        _saved_user = _load_remembered_user()
-                        if _saved_user:
-                            st.session_state["login_username"] = _saved_user
-                    if "login_remember" not in st.session_state:
-                        if _load_remembered_user():
-                            st.session_state["login_remember"] = True
+                login_username = st.text_input("用户名", placeholder="请输入用户名/邮箱/手机号码", key="login_username", label_visibility="collapsed", on_change=_clear_login_msg)
+                login_password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password", label_visibility="collapsed", on_change=_clear_login_msg)
 
-                    login_username = st.text_input("用户名", placeholder="请输入用户名/邮箱/手机号码", key="login_username", label_visibility="collapsed", on_change=_clear_login_msg)
-                    login_password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password", label_visibility="collapsed", on_change=_clear_login_msg)
+                remember_col, forgot_col = st.columns([1, 1])
+                with remember_col:
+                    remember = st.checkbox("记住账号", key="login_remember")
+                with forgot_col:
+                    st.markdown('<div class="login-forgot"><a href="#">忘记密码?</a></div>', unsafe_allow_html=True)
 
-                    remember_col, forgot_col = st.columns([1, 1])
-                    with remember_col:
-                        remember = st.checkbox("记住账号", key="login_remember")
-                    with forgot_col:
-                        st.markdown('<div class="login-forgot"><a href="#">忘记密码?</a></div>', unsafe_allow_html=True)
-
-                    if st.button("登录", key="btn_login", use_container_width=True, type="primary"):
-                        if login_username and login_password:
-                            usernames = config['credentials']['usernames']
-                            if login_username in usernames:
-                                stored_hash = usernames[login_username].get('password', '')
-                                if bcrypt.checkpw(login_password.encode('utf-8'), stored_hash.encode('utf-8')):
-                                    st.session_state['authentication_status'] = True
-                                    st.session_state['username'] = login_username
-                                    st.session_state['name'] = usernames[login_username].get('name', login_username)
-                                    # 记住账号：保存或清除用户名
-                                    if remember:
-                                        _save_remembered_user(login_username)
-                                    else:
-                                        _clear_remembered_user()
-                                    st.rerun()
+                if st.button("登 录", key="btn_login", use_container_width=True, type="primary"):
+                    if login_username and login_password:
+                        usernames = config['credentials']['usernames']
+                        if login_username in usernames:
+                            stored_hash = usernames[login_username].get('password', '')
+                            if bcrypt.checkpw(login_password.encode('utf-8'), stored_hash.encode('utf-8')):
+                                st.session_state['authentication_status'] = True
+                                st.session_state['username'] = login_username
+                                st.session_state['name'] = usernames[login_username].get('name', login_username)
+                                # 记住账号：保存或清除用户名
+                                if remember:
+                                    _save_remembered_user(login_username)
                                 else:
-                                    st.session_state['authentication_status'] = False
-                                    st.session_state["_login_msg"] = ("error", "用户名或密码错误")
-                                    st.rerun()
+                                    _clear_remembered_user()
+                                st.rerun()
                             else:
                                 st.session_state['authentication_status'] = False
                                 st.session_state["_login_msg"] = ("error", "用户名或密码错误")
                                 st.rerun()
                         else:
-                            st.session_state["_login_msg"] = ("warning", "请输入用户名和密码")
+                            st.session_state['authentication_status'] = False
+                            st.session_state["_login_msg"] = ("error", "用户名或密码错误")
                             st.rerun()
-
-                    # 在按钮下方显示登录提示消息（通过 session_state + rerun 保证位置一致）
-                    _login_msg = st.session_state.get("_login_msg")
-                    if _login_msg:
-                        _msg_type, _msg_text = _login_msg
-                        if _msg_type == "warning":
-                            st.warning(_msg_text)
-                        elif _msg_type == "error":
-                            st.error(_msg_text)
-
-                    # JavaScript：用户在输入框中打字时即时隐藏旧的提示消息
-                    st.markdown("""
-                    <script>
-                    (function() {
-                        var container = document.querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
-                        if (!container) return;
-                        // 使用事件委托，确保登录和注册两个 Tab 的输入框都能响应
-                        container.addEventListener('input', function(e) {
-                            if (e.target && (e.target.type === 'text' || e.target.type === 'password')) {
-                                var alerts = container.querySelectorAll('[data-testid="stAlert"], [data-testid="stAlertContainer"]');
-                                alerts.forEach(function(alert) { alert.style.opacity = '0'; });
-                            }
-                        });
-                    })();
-                    </script>
-                    """, unsafe_allow_html=True)
-
-                    st.markdown('<div class="login-divider">其他登录方式</div>', unsafe_allow_html=True)
-
-                    if st.button("企业微信登录", key="wecom_login", use_container_width=True):
-                        if not wecom_cfg["enabled"] or not is_configured(wecom_cfg):
-                            st.session_state["wecom_message"] = (
-                                "info",
-                                "企业微信登录未启用：请在 config.yaml 的 wecom 段配置 enabled: true、corp_id、agent_id、secret 后重启应用",
-                            )
-                        else:
-                            st.session_state["wecom_redirect"] = True
+                    else:
+                        st.session_state["_login_msg"] = ("warning", "请输入用户名和密码")
                         st.rerun()
 
-                with register_tab:
-                    st.markdown('<div class="login-form-title">创建新账号</div>', unsafe_allow_html=True)
+                # 在按钮下方显示登录提示消息（通过 session_state + rerun 保证位置一致）
+                _login_msg = st.session_state.get("_login_msg")
+                if _login_msg:
+                    _msg_type, _msg_text = _login_msg
+                    if _msg_type == "warning":
+                        st.warning(_msg_text)
+                    elif _msg_type == "error":
+                        st.error(_msg_text)
 
-                    def _clear_reg_msg():
-                        """用户编辑输入框时清除旧的注册提示消息"""
-                        st.session_state.pop("_reg_msg", None)
+                # JavaScript：用户在输入框中打字时即时隐藏旧的提示消息
+                st.markdown("""
+                <script>
+                (function() {
+                    var container = document.querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
+                    if (!container) return;
+                    // 使用事件委托，确保登录和注册两个 Tab 的输入框都能响应
+                    container.addEventListener('input', function(e) {
+                        if (e.target && (e.target.type === 'text' || e.target.type === 'password')) {
+                            var alerts = container.querySelectorAll('[data-testid="stAlert"], [data-testid="stAlertContainer"]');
+                            alerts.forEach(function(alert) { alert.style.opacity = '0'; });
+                        }
+                    });
+                })();
+                </script>
+                """, unsafe_allow_html=True)
 
-                    new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名", label_visibility="collapsed", on_change=_clear_reg_msg)
-                    new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址", label_visibility="collapsed", on_change=_clear_reg_msg)
-                    new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符", label_visibility="collapsed", on_change=_clear_reg_msg)
-                    confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码", label_visibility="collapsed", on_change=_clear_reg_msg)
+                st.markdown('<div class="login-divider">其他登录方式</div>', unsafe_allow_html=True)
 
-                    if st.button("注册新账号", key="btn_register", use_container_width=True, type="primary"):
-                        if not new_username or not new_email or not new_password:
-                            st.session_state["_reg_msg"] = ("error", "请填写所有必填字段")
-                            st.rerun()
-                        elif new_password != confirm_password:
-                            st.session_state["_reg_msg"] = ("error", "两次输入的密码不一致")
-                            st.rerun()
-                        elif new_username in config['credentials']['usernames']:
-                            st.session_state["_reg_msg"] = ("error", "该用户名已存在")
-                            st.rerun()
-                        else:
-                            hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                if st.button("企业微信登录", key="wecom_login", use_container_width=True):
+                    if not wecom_cfg["enabled"] or not is_configured(wecom_cfg):
+                        st.session_state["wecom_message"] = (
+                            "info",
+                            "企业微信登录未启用：请在 config.yaml 的 wecom 段配置 enabled: true、corp_id、agent_id、secret 后重启应用",
+                        )
+                    else:
+                        st.session_state["wecom_redirect"] = True
+                    st.rerun()
 
-                            config['credentials']['usernames'][new_username] = {
-                                "email": new_email,
-                                "name": new_username,
-                                "password": hashed_password,
-                                "role": "user"
-                            }
+            with register_tab:
+                st.markdown('<div class="login-form-title">创建新账号</div>', unsafe_allow_html=True)
 
-                            with open(CONFIG_PATH, 'w') as file:
-                                yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
+                def _clear_reg_msg():
+                    """用户编辑输入框时清除旧的注册提示消息"""
+                    st.session_state.pop("_reg_msg", None)
 
-                            st.session_state["_reg_msg"] = ("success", "🎉 注册成功！请切换到登录页面登录")
-                            st.rerun()
+                new_username = st.text_input("用户名", key="reg_username", placeholder="请输入用户名", label_visibility="collapsed", on_change=_clear_reg_msg)
+                new_email = st.text_input("邮箱", key="reg_email", placeholder="请输入邮箱地址", label_visibility="collapsed", on_change=_clear_reg_msg)
+                new_password = st.text_input("密码", type="password", key="reg_password", placeholder="至少8位字符", label_visibility="collapsed", on_change=_clear_reg_msg)
+                confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_password", placeholder="再次输入密码", label_visibility="collapsed", on_change=_clear_reg_msg)
 
-                    # 在按钮下方显示注册提示消息
-                    _reg_msg = st.session_state.get("_reg_msg")
-                    if _reg_msg:
-                        _reg_type, _reg_text = _reg_msg
-                        if _reg_type == "error":
-                            st.error(_reg_text)
-                        elif _reg_type == "success":
-                            st.success(_reg_text)
+                if st.button("注册新账号", key="btn_register", use_container_width=True, type="primary"):
+                    if not new_username or not new_email or not new_password:
+                        st.session_state["_reg_msg"] = ("error", "请填写所有必填字段")
+                        st.rerun()
+                    elif new_password != confirm_password:
+                        st.session_state["_reg_msg"] = ("error", "两次输入的密码不一致")
+                        st.rerun()
+                    elif new_username in config['credentials']['usernames']:
+                        st.session_state["_reg_msg"] = ("error", "该用户名已存在")
+                        st.rerun()
+                    else:
+                        hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+                        config['credentials']['usernames'][new_username] = {
+                            "email": new_email,
+                            "name": new_username,
+                            "password": hashed_password,
+                            "role": "user"
+                        }
+
+                        with open(CONFIG_PATH, 'w') as file:
+                            yaml.dump(config, file, default_flow_style=False, allow_unicode=True)
+
+                        st.session_state["_reg_msg"] = ("success", "🎉 注册成功！请切换到登录页面登录")
+                        st.rerun()
+
+                # 在按钮下方显示注册提示消息
+                _reg_msg = st.session_state.get("_reg_msg")
+                if _reg_msg:
+                    _reg_type, _reg_text = _reg_msg
+                    if _reg_type == "error":
+                        st.error(_reg_text)
+                    elif _reg_type == "success":
+                        st.success(_reg_text)
 
         st.markdown('<div class="login-footer">© 2024 澄天生物科技有限公司 · 版权所有</div>', unsafe_allow_html=True)
 
